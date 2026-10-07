@@ -38,11 +38,17 @@ These names are the user's. Use them as they are and do not rename them.
 | Constellation | A language. | `Constellation`, `Language` |
 | Base rules | The rules of a language, read from files in `base_rules/<locale>/`. Today they hold the 13 word categories. | `BaseRules` |
 | Cognition | The process that compares atoms. | `Cognition` |
-| Database | What the brain uses to get information. PostgreSQL on the user's Raspberry Pi. Parked for now (the user will adjust it later to save the conceptions): the class builds only with `LARRY_POSTGRES=ON`. | `Database` |
+| Database | What the brain uses to get information: the cloud, the record of conceptions, PostgreSQL on the user's Raspberry Pi, reached through libpq. `LARRY_DB` names it. | `Database` |
+| Cloud | The user's word for the database: where the conceptions live for good. The machine searches it when the cache has no answer. | `Database`, `Brain::truth`, `Brain::answers` |
+| Cache | The user's word for what the machine keeps: the sentences, the words with category, type and context, and the recent conceptions. It answers first. | `Memory` |
+| Status | What a conception stands at: proposed, validated (by the user or by a second source), withdrawn. | `Status` |
+| Source | Where a conception came from: `lesson:<file>`, `user`, `read:<file>`, or the cloud. | `StoredAtom::sources` |
+| Emotion | Part of the atom's type: neutral, joy, sadness, anger, fear, surprise, disgust, or sarcasm. The user asked for it to tell sarcasm apart. | `Assimilation::types` |
+| Guess | A category an unknown word takes from the known words seen in the same context. Marked, and never evidence. | `Source::Guess` |
 | Neural network | What finds an atom by its metadata. Today: the metadata order and the word index in memory. The spreading lookup is N5 (Q4). | `Memory::find`, `find_prefix`, `uses` |
 | Brain | The loop that takes input, uses memory and cognition, and replies (Q4, proposed answer in use). | `Brain` |
 | Conception | An atom Larry holds: what it has been told, stored in memory with its electrons. The user's term. | `StoredAtom`, `Memory::store` |
-| Memory | Where Larry keeps its conceptions: a local file, one atom per line as hex, with the word index built from it. The database can later be its place of record (N2). | `Memory`, `memory/<locale>.atoms` |
+| Memory | The cache: a local file, a log of atoms with status and sources as hex, with the word index built from it. | `Memory`, `memory/<locale>.atoms` |
 
 This plan needs four names that the user has not chosen. They are proposals (Q12):
 
@@ -64,27 +70,28 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 7. **Every item lands with tests.** The build and all tests pass before a commit.
 8. **Claim only what was measured.** Write measured numbers in the log. A capability exists when its test passes.
 
-## 4. Where the code stands (2026-10-07, end of the first prototype session)
+## 4. Where the code stands (2026-10-07, end of the second prototype session)
 
-`./build/larry` builds and runs on Linux (GCC 14) and should still build on the user's Mac (Apple clang 21). Memory is a local file; the PostgreSQL database is parked (see the table in section 2). On first use Larry rebuilds its memory from the lessons.
+`./build/larry` builds and runs on Linux (GCC 14) with libpq as its only dependency. The machine keeps the cache (`memory/<locale>.atoms`, or `LARRY_MEMORY`); the cloud is the PostgreSQL server `LARRY_DB` names, with `scripts/setup.sh` starting a local one as the stand-in for the user's Raspberry Pi. On first use Larry rebuilds its cache from the lessons and pushes them to the cloud.
 
 | Part | State |
 |---|---|
-| Atom from text, atom as bits | Works (`AtomOperations::from_text`, `to_bits`, `text`, `bytes`). |
-| Metadata | Works, and reads back into electrons (`AtomOperations::electrons`). A prefix of leading parts finds neighbours (`metadata_prefix`). |
-| Base rules | 13 word categories plus the rule files the splitter, qualification and the brain need: punctuation, sentence ends, closers, joiners, number joiners, abbreviations, titles, question words, assumption words, expressions, negation words, contractions. Hex, with `#` comments; `scripts/hex.sh` converts. |
-| Sentences and entities (A1) | Works. Suites: 240 sentences, 55 texts, random bytes under the sanitizers. Known gaps: a name of several words at the start of a sentence is not joined, initials ("J. K.") and web addresses split, an emoji is a word. |
-| Qualification (A3) | Works with the proposed rules (Q5). Suite: 407 sentences. |
-| Taught categories and describing from memory (A2) | Works: `larry show "the grass is green"` fills every category after the first lesson. A word with several categories stays open with its candidates. |
-| Type electron, entity types | Still empty (Q1, Q2). |
+| Atom from text, atom as bits | Works (`AtomOperations`). |
+| Metadata | Works, reads back into electrons, and gives prefixes for neighbours. It now holds the types, so caches and clouds filled before the types change need a rebuild. |
+| Base rules | 19 files in `base_rules/en/`: the 13 categories, and the lists the splitter, qualification, brain and types need (punctuation, sentence ends, closers, joiners, number joiners, abbreviations, titles, question words, assumption words, expressions, negation words, contractions, endings, forms, pronouns, auxiliaries, emotions, sarcasm markers). Hex, with `#` comments and `key=value` pairs; `scripts/hex.sh` converts. |
+| Sentences and entities (A1) | Works. Suites: 240 sentences, 55 texts, random bytes under the sanitizers. Known gaps: a name of several words at the start of a sentence is not joined, initials and web addresses split, an emoji is a word. |
+| Qualification (A3) | Works with the proposed rules (Q5). Suite: 407 sentences. Guessed categories do not drive it. |
+| Categories (A2, A6a) | From lessons and from memory. An unknown word takes the category of known words in the same context as a guess, marked and never evidence; Larry says so when it hears one and asks about a word it cannot guess (A5, first step). `larry words` lists the vocabulary with categories, types and contexts. |
+| Types (A7a) | Filled, with Q1 and Q2 as proposed plus emotion: features from the word's form (number, tense, person, degree), the role by position (subject, predicate, object, attribute, complement, modifier, link), and the atom's roles in order with its emotion (sarcasm by marker phrases for now). |
 | Image | Still a copy of the text (Q3). |
-| Memory (F3, F5, N1) | `Memory` stores conceptions in `memory/<locale>.atoms` (or `LARRY_MEMORY`), finds them by metadata and by prefix, and keeps the word index with each use's category and context (the words before and after). The same atom twice changes nothing; the same words in another form keep the first atom. |
-| Lessons and rebuild (F7) | `lessons/en/01_first_sentences.txt`: 96 sentences. Two rebuilds give the same file byte for byte. |
-| Comparisons of form (C1 to C5) | Work; `larry compare`. Results are bytes but not yet stored as bonds (N3). Suites: 103 pairs. |
-| Truth of a concept (R1, first step) | `larry ask`: true, false or unknown from the conceptions, with the conception it came from; yes/no questions read as statements; contractions and negation handled. Word forms (A4) and meaning (A9) are not read yet, so "has" does not match "have". |
-| Hearing requests (G3, first step) | `larry say`, `larry chat`: affirmations stored with a novelty check and a conflict report, questions answered (yes/no, and open questions by the gap pattern), orders refused, assumptions kept apart, expressions returned, "why?" explains. |
-| Database | Parked. `Database` (PostgreSQL, libpqxx 8.0.2) compiles with `-DLARRY_POSTGRES=ON`; `scripts/setup.sh --postgres` installs what it needs. Not used by any command. |
-| Tests | 7 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`. |
+| Cache (F3, F5, N1, N2) | `Memory`: a log of atoms with status and sources; find by metadata, by prefix, by id; the word index with each use's category and context, the neighbours' categories too. |
+| Cloud (N2) | `Database` through libpq: conceptions with status and created time, sources, the word index with context. The brain answers from the cache first, then searches the cloud and caches what it finds; what Larry hears goes to both; `larry sync` pushes what the cloud lacks and pulls its most recent. Measured with the local server: an answer from the cloud 0.09 s, from the cache 0.01 s. |
+| Validation (R2a) | A conception is proposed until a second different source gives it or the user accepts it (`larry validate`, interactive or by id); a withdrawn one is no evidence. |
+| Lessons and rebuild (F7) | 96 sentences in lesson 1. Two rebuilds give the same cache file byte for byte. |
+| Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types now. Not yet stored as bonds (N3). Suites: 104 pairs. |
+| Truth of a concept (R1a) | `larry ask`: true, false or unknown, with the conception and whether it came from the cloud and is still proposed. |
+| Hearing requests (G3a) | `larry say`, `larry chat`: statements stored with a novelty check, conflict report and validation by a second source; questions answered; orders refused; assumptions kept apart; expressions returned; "why?" explains. |
+| Tests | 8 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`. The database and brain tests use a scratch schema of the local server and skip their cloud checks without one. |
 
 ## 5. The design
 
@@ -139,9 +146,16 @@ Milestone 1: after one lesson, `larry show "the grass is green"` fills in every 
 - [x] R1a Truth of a concept: `larry ask` (first step of R1, see section 7)
 - [x] G3a Hearing requests: `larry say`, `larry chat` (first step of G3, with first steps of C16, R2, A5 and G4)
 
+**Stage 2c — The second prototype session** (the user's direction: the language on the machine, the conceptions in the cloud)
+- [x] N2a The database is the cloud, through libpq (N2 the other way round: see section 7)
+- [x] N2b The cache answers first, the cloud second; `larry sync`
+- [x] R2a Proposed, validated, withdrawn; `larry validate` (first step of R2)
+- [x] A7a Types with emotion (first step of A7, Q1 and Q2 as proposed, emotion added by the user)
+- [x] A6a Vocabulary: guesses from context, `larry words` (first step of A6)
+
 **Stage 3 — Memory**
 - [ ] F8 Benchmarks
-- [ ] N2 Local copy of the atoms (Q11)
+- [ ] N2 Local copy of the atoms (Q11): the cache and the cloud exist (N2a, N2b); the targets below are not measured yet
 - [ ] N3 Bonds
 - [ ] N4 Molecules
 - [ ] N5 Spreading lookup (Q4)
@@ -258,10 +272,12 @@ Done when: reading a lesson in which one word in ten is unknown produces exactly
 
 **A6 · Free assimilation (level 2).** Larry proposes the category of an unknown word itself. From context: it finds stored atoms with the same categories around the same place, and the unknown word takes the category that fills that place in them. From form: A4. A word with several categories ("run") takes the one from the most specific matching context. A guess is stored as a guess, never as taught.
 Done when: accuracy on the Universal Dependencies English test set is recorded as a curve against the number of taught sentences. Set a target with the user after the first measurement. Needs A4, N5, Q7.
+First step done (A6a): the context is the words before and after, with their categories, kept in the word index. An unknown word takes the single winning category among what followed the word before it and what preceded the word after it; it is stored as a guess (type `guessed`, source `Guess`) and never counts as evidence, so memory does not learn from its own guesses. Not yet: form (A4), the most specific context, the measurement.
 Notes: Larry's 13 categories line up almost one for one with the 17 Universal Dependencies word tags. Preposition is ADP, conjunction covers CCONJ and SCONJ, numeral is NUM, auxiliary verb is AUX, proper noun is PROPN, and PUNCT, SYM and X have no Larry category. Memory-based taggers, which work the way this item describes, have reported around 96% on English newspaper text (Daelemans and others, 1996).
 
-**A7 · Entity types and atom type.** Fill the two empty electrons. Proposed: an entity's types are its grammatical features (number, tense, person, degree) and its role in the sentence (subject, object, and so on). The atom's type is its structure: the ordered roles of its entities.
+**A7 · Entity types and atom type.** Fill the two empty electrons. Agreed (Q1, Q2): an entity's types are its grammatical features (number, tense, person, degree) and its role in the sentence (subject, object, and so on). The atom's type is its structure, the ordered roles of its entities, and its emotion (the user's addition, to tell sarcasm apart).
 Done when: a suite labelled by hand passes. Needs Q1, Q2.
+First step done (A7a): features from the word's form and category (regular endings, exceptions and irregular forms, pronouns, auxiliary verbs, all base rules); the role by position around the first verb (subject before it, predicate, then object, attribute after a copula, complement after a preposition, modifier for an adverb, link for a conjunction, none for an interjection); the emotion from marker phrases (sarcasm) or the first emotion word, else neutral. Tested by cases, not yet by a labelled suite. Known gaps: roles in questions and in sentences with two verbs are rough; sarcasm needs meaning and context (A9, A11).
 
 **A8 · Groups and roles.** Work out which entities belong together ("the blue sky") and which entity depends on which (the subject of the verb). Larry learns this as patterns from taught atoms (C4) and applies the most specific pattern that matches.
 Done when: the share of words attached to the right word on the Universal Dependencies English test set is recorded. Set a target after the first measurement. Needs A7, C4.
@@ -285,7 +301,7 @@ Proposed definition (Q4): the neural network is the stored atoms, the connection
 **N1 · Word index.** For each word, the atoms that contain it, the position, the category it has there, and its context: the words before and after it. It answers "which atoms mention sky?" and "which categories has 'run' been seen with?". The metadata key alone cannot answer these, because it only finds atoms by their leading parts. The index is built from the atoms when the memory file is read, so it is always the same for the same atoms.
 Done when: both questions are answered correctly for a set of stored atoms, and building the index twice from the same atoms gives the same result. Done, in `Memory`.
 
-**N2 · Local copy of the atoms.** Describing or answering one sentence will take thousands of lookups. A network round trip to the database for each would take seconds per sentence. Proposed: Larry keeps the atoms and indexes in a local file mapped into memory and finds keys and prefixes by binary search. The database stays the place of record, and `larry sync` refreshes the local copy.
+**N2 · Local copy of the atoms.** Describing or answering one sentence will take thousands of lookups. A network round trip to the database for each would take seconds per sentence. The user's direction: the machine keeps the language (sentences, words with category, type and context) and a cache of recent conceptions; the cloud keeps the conceptions for good; a question is answered from the cache at once, and the cloud is searched when the cache has nothing. Done as N2a and N2b: `Memory` is the cache (a log file, read whole at start-up), `Database` the cloud, the brain looks in the cache first and caches what the cloud gives, `larry sync` pushes and pulls. Still to do: the memory-mapped file and binary search, and the targets below.
 Done when (proposed targets): with one million atoms, a prefix lookup takes under 10 microseconds and start-up takes under one second. Needs F8, Q11.
 
 **N3 · Bonds.** Store typed links between atoms and between entities, with lookup in both directions. Each bond records its kind, its two ends, and where it came from (taught, or the comparison that produced it).
@@ -343,6 +359,7 @@ First step done (R1a, `Brain::truth`, `Brain::answers`, `larry ask`): a sentence
 
 **R2 · Truth keeping.** Atoms are assumed truths, so some will turn out false. Each atom gets a status (assumed, concluded, in conflict, withdrawn) and its support: its source, or the atoms it was concluded from. When C9 finds a conflict, Larry records it and does not choose silently. When an atom is withdrawn, so is everything concluded only from it.
 Done when: a suite passes, and bAbI tasks 9 and 10 are measured. Needs C9, N3, Q14.
+First step done (R2a): the status is proposed, validated or withdrawn, with the sources that gave the conception. A second different source validates (a lesson and the user, two files); the user validates or withdraws by hand with `larry validate`; a withdrawn conception is no evidence. A conflict (R1a's negation) is reported and both atoms are kept. Not yet: concluded atoms and their support, withdrawal of what was concluded.
 
 **R3 · State and time.** The world changes. "Mary went to the kitchen. Mary went to the garden." is a change, and the two sentences do not conflict. A later atom about the same thing replaces the earlier one as the present state, and both stay in memory in order.
 Done when: bAbI tasks 1, 6, 12 and 14 are measured. Needs N4, R2.
@@ -447,8 +464,8 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 
 | # | Question | Proposed answer | Blocks |
 |---|---|---|---|
-| Q1 | What is the type of an atom (the type electron)? | Its structure: the ordered roles of its entities, such as subject, linking verb, attribute. | A7 |
-| Q2 | What goes in an entity's list of types? | Its grammatical features (number, tense, person, degree) and its role in the sentence. | A7, A8 |
+| Q1 | What is the type of an atom (the type electron)? | Answered: its structure, the ordered roles of its entities, and its emotion. | A7 (done as A7a) |
+| Q2 | What goes in an entity's list of types? | Answered: its grammatical features (number, tense, person, degree) and its role in the sentence. | A7 (done as A7a), A8 |
 | Q3 | What is the image? | The form in which two sentences that say the same thing are equal (see A9). | A9 and every item that depends on meaning |
 | Q4 | What are the neural network and the brain, as parts of the program? | The network is the stored atoms, their connections and the lookup that walks them. The brain is the loop that takes input, uses the network and cognition, and replies. The proposed answer is in use: `Brain` exists. | N5 |
 | Q5 | What are the rules that tell the five qualifications apart? | The starting rules in A3, in use with two refinements (see A3). | A3 (done with the proposal) |
@@ -462,10 +479,13 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q13 | The `atoms` table is described as assumed truths. Are questions and orders stored there too? | Every sentence becomes an atom and is kept in its molecule. Only affirmations are treated as truths. | R1, G3 |
 | Q14 | When two atoms conflict, which one stands? | From the same source, the later one stands and the earlier is withdrawn. From different sources, both are kept and marked, and Larry asks. | R2 |
 | Q15 | Which language is the second constellation? | None proposed. | A12 |
-| Q16 | Where do conceptions live for good: the local memory file, the user's PostgreSQL on the Raspberry Pi, or both, with the database as the place of record and `larry sync` (N2)? The user said the database is an idea to adjust later. | The file for now; the parked `Database` class is ready to be adjusted. | N2 |
-| Q17 | When a new affirmation conflicts with a conception, should Larry store it (it does now, and reports the conflict) or ask first? | Store and report, as R2 proposes. | R2 |
+| Q16 | Where do conceptions live for good? | Answered: in the cloud, the Raspberry Pi's PostgreSQL. The machine keeps the language and a cache of recent conceptions, answers from the cache at once and searches the cloud for deeper thinking. | N2 (done as N2a, N2b) |
+| Q17 | When is a conception true? | Answered: it is proposed until the user validates it or a second different source gives it; a conflict is reported and both are kept. | R2 (done as R2a) |
 | Q18 | Is the copula ("is" in "the sky is blue") an auxiliary verb or a verb? The first lesson teaches it as an auxiliary verb, which makes "Is the sky blue" a question by the A3 rule. | Auxiliary verb. | A2 lessons, A3 |
 | Q19 | May a lesson sentence have a word Larry cannot categorize? Today every lesson gives every category (level 0). | No: lessons are level 0. Level 1 and 2 come with A5 and A6. | F7 |
+| Q20 | Which emotions does the atom's type hold? Today: neutral, joy, sadness, anger, fear, surprise, disgust, sarcasm, from word lists and marker phrases. | This list, until meaning (A9) gives a better way to find them. | A7 |
+| Q21 | When Larry guesses a word's category, should it also ask the user, or only say what it took the word as? Today it says so and goes on. | Say so; the user corrects by teaching the sentence with its categories. | A5, A6 |
+| Q22 | How many recent conceptions does the cache keep, and when does it forget? Today it keeps everything it has met; `larry sync` pulls the 100 most recent. | Keep everything until the benchmarks (F8) say otherwise. | N2 |
 
 ## 11. Earlier work worth reading
 
@@ -485,3 +505,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 |---|---|---|---|
 | 2026-10-07 | Plan written | `./build/larry` builds and runs on macOS. No tests exist. | Q1 to Q15 are open. |
 | 2026-10-07 | F1 to F7, A1, A2, A3, N1, C1 to C5, R1a, G3a | Linux, GCC 14: build and 7 test executables pass, also with `LARRY_SANITIZE=ON`. Suites: 240 sentences with entities, 55 texts with sentences, 407 qualified sentences, 103 comparison pairs. Lesson 1: 96 sentences, 379 word uses, memory file 20,344 bytes (212 bytes per atom). `larry rebuild` 0.017 s; `larry ask "Is the sky blue?"` 0.005 s (wall time, one run each, 4 CPUs). Milestone 1 reached. | The user parked the PostgreSQL database and asked for a prototype: memory is a local file. Q4, Q5, Q9 used their proposed answers. Q16 to Q19 added. macOS build not verified this session. |
+| 2026-10-07 | N2a, N2b, R2a, A7a, A6a | Linux, GCC 14, libpq: build and 8 test executables pass, also with `LARRY_SANITIZE=ON`. With the local server as the cloud: an answer from the cloud into an empty cache 0.088 s, from the cache 0.013 s, rebuild of 96 lessons into cache and cloud 0.174 s (wall time, one run each). Cache file 51,950 bytes for 96 atoms with types (541 bytes per atom). Vocabulary from lesson 1: 159 words. 19 rule files. | The user's direction: language on the machine, conceptions in the cloud, cache first. Q1, Q2, Q16, Q17 answered; emotion added to the type; Q20 to Q22 added. libpqxx replaced by libpq. The Pi itself was not reached from the cloud session. |

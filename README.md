@@ -7,14 +7,23 @@ to start reading.
 
 ## Build and run
 
-    scripts/setup.sh                       # Linux: GCC 14 and CMake 3.28
+    scripts/setup.sh                       # Linux: GCC 14, CMake 3.28, libpq, a local PostgreSQL
     cmake -S . -B build && cmake --build build
     ctest --test-dir build
     ./build/larry help
 
-On first use Larry rebuilds its memory from `lessons/en/`. Try:
+The machine keeps the language and a cache of recent conceptions in
+`memory/en.atoms`. The cloud, where the conceptions live for good, is the
+PostgreSQL server `LARRY_DB` names, for example on a Raspberry Pi:
+
+    export LARRY_DB="host=192.168.10.133 dbname=larry user=postgres"
+
+On first use Larry rebuilds its cache from `lessons/en/` and pushes the
+lessons to the cloud. Try:
 
     ./build/larry show "the grass is green"
     ./build/larry compare "the sky is blue" "the sea is blue"
     ./build/larry ask "Is the sky blue?"
     ./build/larry chat
+    ./build/larry validate list
+    ./build/larry words sky
