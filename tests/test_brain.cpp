@@ -183,6 +183,103 @@ TEST(yes_no_questions_are_answered_from_their_statements) {
     CHECK(ask("Is the sky blue").truth == Truth::True);                   // no mark: "is" is known
 }
 
+namespace {
+
+// A brain of its own for hearing, so that what it stores does not change
+// the memory above.
+larry::Brain& hearing_brain() {
+    static larry::Brain* instance = [] {
+        const std::filesystem::path file =
+            std::filesystem::temp_directory_path() / "larry_test_brain_hear.atoms";
+        std::filesystem::remove(file);
+        auto* m = new larry::Memory{file};
+        const larry::Assimilation assimilation{rules()};
+        const larry::AtomOperations ops;
+        const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+            std::vector<Bytes> taught;
+            for (const std::string_view c : categories) {
+                taught.emplace_back(c.begin(), c.end());
+            }
+            const larry::Description d = assimilation.describe(ops.from_text(text), m, taught);
+            m->store(d.atom, d.metadata);
+        };
+        teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+        teach("The door is not closed.", {"determiner", "noun", "auxiliary verb", "adverb", "adjective"});
+        teach("Tom is a teacher.", {"proper noun", "auxiliary verb", "determiner", "noun"});
+        teach("Mary went to the kitchen.", {"proper noun", "verb", "preposition", "determiner", "noun"});
+        teach("The capital of France is Paris.", {"determiner", "noun", "preposition", "proper noun", "auxiliary verb", "proper noun"});
+        teach("London is the capital of England.", {"proper noun", "auxiliary verb", "determiner", "noun", "preposition", "proper noun"});
+        teach("Close the door.", {"verb", "determiner", "noun"});
+        teach("What colour is the sky?", {"pronoun", "noun", "auxiliary verb", "determiner", "noun"});
+        return new larry::Brain{rules(), *m};
+    }();
+    return *instance;
+}
+
+larry::Reply say(std::string_view text) {
+    const larry::AtomOperations ops;
+    return hearing_brain().hear(ops.from_text(text));
+}
+
+}  // namespace
+
+TEST(hear_answers_questions) {
+    CHECK(say("Is the sky blue?").text == "Yes.");
+    CHECK(say("Is the sky blue?").because == (std::vector<std::string>{"The sky is blue."}));
+    CHECK(say("Is the door closed?").text == "No.");
+    CHECK(say("Is the sky green?").text.starts_with("I don't know."));
+    CHECK(say("Is the moon made of cheese?").text == "I don't know.");
+    CHECK(say("What is the sky?").text == "The sky is blue.");
+    CHECK(say("What colour is the sky?").text == "The sky is blue.");
+    CHECK(say("Who is Tom?").text == "Tom is a teacher.");
+    CHECK(say("What is the capital of France?").text == "The capital of France is Paris.");
+    CHECK(say("What is the capital of England?").text == "London is the capital of England.");
+    CHECK(say("What is London?").text == "London is the capital of England.");
+    CHECK(say("Who went to the kitchen?").text == "Mary went to the kitchen.");
+    CHECK(say("Where did Mary go?").text == "I don't know.");
+    CHECK(say("What is the door?").text.starts_with("I don't know."));  // "not closed" is no answer
+    CHECK(say("What is the sky?").because == (std::vector<std::string>{"The sky is blue."}));
+}
+
+TEST(hear_stores_affirmations_and_checks_novelty) {
+    const larry::Memory& memory = hearing_brain().memory();
+    const std::int64_t before = memory.count();
+    const larry::Reply same = say("The sky is blue.");
+    CHECK(same.text == "I already know that.");
+    CHECK(!same.stored);
+    CHECK(memory.count() == before);
+    const larry::Reply paraphrase = say("the sky is blue");
+    CHECK(paraphrase.text == "I know. The sky is blue.");
+    CHECK(paraphrase.stored);
+    const larry::Reply fresh = say("The door is blue.");
+    CHECK(fresh.text == "Noted.");
+    CHECK(fresh.stored);
+    CHECK(say("Is the door blue?").text == "Yes.");
+    CHECK(say("The sea is blue.").text == "Noted. What is \"sea\"?");
+    const larry::Reply conflict = say("The sky is not blue.");
+    CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
+    CHECK(conflict.stored);
+    const larry::Reply unknown = say("The sky is azure.");
+    CHECK(unknown.text == "Noted. What is \"azure\"?");
+    CHECK(unknown.stored);
+}
+
+TEST(hear_handles_orders_assumptions_and_expressions) {
+    const larry::Memory& memory = hearing_brain().memory();
+    const larry::Reply order = say("Close the window.");
+    CHECK(order.text == "I cannot do that yet.");
+    CHECK(!order.stored);
+    const std::int64_t before = memory.count();
+    const larry::Reply assumption = say("Suppose the sky is green.");
+    CHECK(assumption.text == "Noted as an assumption, not as a truth.");
+    CHECK(assumption.stored);
+    CHECK(memory.count() == before + 1);
+    CHECK(say("Is the sky green?").text.starts_with("I don't know."));
+    CHECK(say("Hello!").text == "Hello!");
+    CHECK(say("Thank you.").text == "Thank you.");
+    CHECK(!say("Hello!").because.empty());
+}
+
 int main() {
     return larry::test::run();
 }

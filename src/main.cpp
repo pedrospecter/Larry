@@ -11,6 +11,7 @@
 
 #include <cstdio>
 #include <exception>
+#include <iostream>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -38,6 +39,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   compare <text> <text>        compare two sentences: C1 to C5
   ask <text>                   is a concept true, false or unknown, from the
                                conceptions in memory; a yes/no question works
+  say <text>                   hear one sentence and reply: an affirmation is
+                               stored, a question answered, an order refused,
+                               an assumption noted, an expression returned
+  chat                         hear a line at a time from standard input;
+                               "why?" explains the last reply, "bye" ends
   count                        how many conceptions and word uses memory holds
 
 Memory is the file LARRY_MEMORY names, or memory/<locale>.atoms. When the
@@ -377,6 +383,55 @@ int run(std::span<const std::string_view> args) {
         for (const larry::StoredAtom& atom : verdict.nearest) {
             std::println("I know: {}", larry.ops.text(atom.description.atom));
         }
+        return 0;
+    }
+    if (command == "say") {
+        if (rest.empty()) {
+            throw std::runtime_error("say needs a sentence");
+        }
+        larry::Brain brain{larry.rules, larry.memory};
+        const larry::Reply reply = brain.hear(larry.ops.from_text(join(rest)));
+        std::println("{}", reply.text);
+        for (const std::string& because : reply.because) {
+            std::println("  because: {}", because);
+        }
+        return 0;
+    }
+    if (command == "chat") {
+        larry::Brain brain{larry.rules, larry.memory};
+        larry::Reply last;
+        std::println("Larry: hello. I hold {} conceptions. Say \"bye\" to end, \"why?\" to ask why.",
+                     larry.memory.count());
+        for (std::string line; std::print("> "), std::getline(std::cin, line);) {
+            const std::vector<larry::Sentence> sentences = larry.assimilation.sentences(line);
+            if (sentences.empty()) {
+                continue;
+            }
+            for (const larry::Sentence& sentence : sentences) {
+                const std::string text{larry.ops.text(sentence)};
+                std::string folded = text;
+                for (char& c : folded) {
+                    c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+                }
+                if (folded == "why" || folded == "why?") {
+                    if (last.because.empty()) {
+                        std::println("Larry: I have not said anything yet.");
+                    }
+                    for (const std::string& because : last.because) {
+                        std::println("Larry: because {}", because);
+                    }
+                    continue;
+                }
+                if (folded == "bye" || folded == "bye." || folded == "bye!" || folded == "quit" ||
+                    folded == "exit") {
+                    std::println("Larry: bye.");
+                    return 0;
+                }
+                last = brain.hear(sentence);
+                std::println("Larry: {}", last.text);
+            }
+        }
+        std::println();
         return 0;
     }
     if (command == "count") {

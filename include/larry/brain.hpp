@@ -31,6 +31,15 @@ struct Verdict {
     std::vector<StoredAtom> nearest;
 };
 
+/// What Larry says back, with what it used to say it (rule 6).
+struct Reply {
+    std::string text;
+    /// The conceptions and rules the reply came from, as text.
+    std::vector<std::string> because;
+    /// Whether the sentence was stored as a conception or an assumption.
+    bool stored = false;
+};
+
 /// A sentence reduced to what it claims: its words in lower case, with
 /// contractions expanded, negation words and do-support removed, and
 /// whether it was negated.
@@ -53,6 +62,21 @@ public:
     /// answer it cannot trace to conceptions.
     [[nodiscard]] Verdict truth(const Sentence& claim) const;
     [[nodiscard]] Verdict truth(const Description& claim) const;
+
+    /// G3 (first step): hear one sentence and act by its qualification. An
+    /// affirmation is stored, after Larry checks what it already holds: the
+    /// same, a conflict (it keeps both and says so), or something new (it
+    /// asks about a word it does not know). A question is answered: yes, no,
+    /// a conception that fills the gap, or "I don't know". An order is
+    /// refused for now. An assumption is stored as one, never as a truth. An
+    /// expression is answered in kind.
+    [[nodiscard]] Reply hear(const Sentence& sentence);
+
+    /// R1 (first step): the conceptions that answer a question that opens
+    /// with a question word: those whose core has the known words of the
+    /// question around the gap. "What is the sky?" asks for "the sky is
+    /// [?]"; "Who went to the kitchen?" for "[?] went to the kitchen".
+    [[nodiscard]] std::vector<StoredAtom> answers(const Description& question) const;
 
     /// The core of a described sentence.
     [[nodiscard]] Core core(const Description& d) const;

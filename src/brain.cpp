@@ -3,7 +3,9 @@
 #include "larry/atom_operations.hpp"
 
 #include <algorithm>
+#include <format>
 #include <map>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -245,6 +247,161 @@ Verdict Brain::truth(const Description& claim) const {
         }
     }
     return verdict;
+}
+
+std::vector<StoredAtom> Brain::answers(const Description& question) const {
+    std::vector<StoredAtom> out;
+    const std::vector<Bytes> words = expanded_words(question);
+    if (words.size() < 2 || !in(rules_->question_words(), words.front())) {
+        return out;
+    }
+    // The pattern: the known words, and whether the gap is at the end (the
+    // question has an auxiliary verb, moved after the subject) or at the
+    // front ("who went to the kitchen").
+    std::vector<Bytes> known;
+    bool gap_at_end = false;
+    for (std::size_t j = 1; j < words.size(); ++j) {
+        const Entity* entity = j < question.entities.entities.size() ? &question.entities.entities[j] : nullptr;
+        const Bytes category = entity != nullptr ? entity->category : Bytes{};
+        if (is_auxiliary(words[j], category) || in(do_support, words[j])) {
+            known.assign(words.begin() + static_cast<std::ptrdiff_t>(j) + 1, words.end());
+            known.push_back(words[j]);
+            gap_at_end = true;
+            break;
+        }
+    }
+    if (!gap_at_end) {
+        known.assign(words.begin() + 1, words.end());
+    }
+    const Core pattern = core_of(std::move(known));
+    if (pattern.words.empty()) {
+        return out;
+    }
+    const Bytes* rarest = &pattern.words.front();
+    std::size_t fewest = memory_->uses(*rarest).size();
+    for (const Bytes& word : pattern.words) {
+        const std::size_t uses = memory_->uses(word).size();
+        if (uses < fewest) {
+            fewest = uses;
+            rarest = &word;
+        }
+    }
+    for (StoredAtom& atom : memory_->containing(*rarest)) {
+        if (atom.description.category.bytes != affirmation) {
+            continue;
+        }
+        const Core stored = core(atom.description);
+        if (stored.negated || stored.words.size() <= pattern.words.size()) {
+            continue;
+        }
+        bool fits = gap_at_end
+                        ? std::equal(pattern.words.begin(), pattern.words.end(), stored.words.begin())
+                        : std::equal(pattern.words.rbegin(), pattern.words.rend(), stored.words.rbegin());
+        if (!fits && gap_at_end && pattern.words.size() >= 2) {
+            // "X is [?]" is also answered by "[?] is X": the auxiliary and the
+            // subject at the end of the conception.
+            std::vector<Bytes> reversed(pattern.words.end() - 1, pattern.words.end());
+            reversed.insert(reversed.end(), pattern.words.begin(), pattern.words.end() - 1);
+            fits = std::equal(reversed.rbegin(), reversed.rend(), stored.words.rbegin());
+        }
+        if (fits) {
+            out.push_back(std::move(atom));
+        }
+    }
+    return out;
+}
+
+Reply Brain::hear(const Sentence& sentence) {
+    const AtomOperations ops;
+    const Description d = assimilation_.describe(sentence, memory_);
+    const std::string_view qualification{reinterpret_cast<const char*>(d.category.bytes.data()),
+                                         d.category.bytes.size()};
+    const auto text_of = [&](const StoredAtom& atom) {
+        return std::string{ops.text(atom.description.atom)};
+    };
+    Reply reply;
+    if (qualification == "expression") {
+        reply.text = std::string{ops.text(sentence)};
+        reply.because.emplace_back("rule: an expression is answered in kind");
+        return reply;
+    }
+    if (qualification == "order") {
+        reply.text = "I cannot do that yet.";
+        reply.because.emplace_back("rule: orders wait for S1");
+        return reply;
+    }
+    if (qualification == "assumption") {
+        memory_->store(d.atom, d.metadata);
+        reply.stored = true;
+        reply.text = "Noted as an assumption, not as a truth.";
+        reply.because.emplace_back("rule: an assumption is kept apart from the truths");
+        return reply;
+    }
+    if (qualification == "question") {
+        const std::vector<StoredAtom> found = answers(d);
+        if (!found.empty()) {
+            for (std::size_t i = 0; i < found.size() && i < 3; ++i) {
+                if (i > 0) {
+                    reply.text += ' ';
+                }
+                reply.text += text_of(found[i]);
+                reply.because.push_back(text_of(found[i]));
+            }
+            return reply;
+        }
+        const Verdict verdict = truth(d);
+        switch (verdict.truth) {
+        case Truth::True:
+            reply.text = "Yes.";
+            break;
+        case Truth::False:
+            reply.text = "No.";
+            break;
+        case Truth::Unknown:
+            reply.text = "I don't know.";
+            break;
+        }
+        for (const StoredAtom& atom : verdict.because) {
+            reply.because.push_back(text_of(atom));
+        }
+        for (const StoredAtom& atom : verdict.nearest) {
+            reply.because.push_back("nearest: " + text_of(atom));
+        }
+        if (verdict.truth == Truth::Unknown && !verdict.nearest.empty()) {
+            reply.text += " I know: " + text_of(verdict.nearest.front());
+        }
+        return reply;
+    }
+    // An affirmation: what does memory hold already? (C16, first step)
+    const Verdict verdict = truth(d);
+    const Stored stored = memory_->store(d.atom, d.metadata);
+    reply.stored = stored == Stored::New;
+    if (verdict.truth == Truth::True) {
+        reply.text = stored == Stored::New ? "I know. " + text_of(verdict.because.front())
+                                          : "I already know that.";
+        reply.because.push_back(text_of(verdict.because.front()));
+        return reply;
+    }
+    if (verdict.truth == Truth::False) {
+        reply.text = "That conflicts with what I know: " + text_of(verdict.because.front()) +
+                     " I keep both and note the conflict.";
+        reply.because.push_back(text_of(verdict.because.front()));
+        reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
+        return reply;
+    }
+    reply.text = "Noted.";
+    reply.because.emplace_back("rule: an affirmation is stored as a conception");
+    for (std::size_t i = 0; i < d.notes.size(); ++i) {
+        if (d.notes[i].source == Source::Unknown) {
+            const Entity& entity = d.entities.entities[i];
+            reply.text += std::format(" What is \"{}\"?",
+                                      std::string_view{reinterpret_cast<const char*>(entity.word.data()),
+                                                       entity.word.size()});
+            reply.because.emplace_back("rule: Larry asks about a word it does not know (A5)");
+            break;
+        }
+    }
+    return reply;
 }
 
 }  // namespace larry
