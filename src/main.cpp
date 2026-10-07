@@ -10,6 +10,7 @@
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -64,9 +65,12 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
 memory/<locale>.atoms. When the file does not exist yet, Larry rebuilds it
 from the lessons first. The cloud, the record of conceptions, is the
-PostgreSQL server LARRY_DB names ("host=... dbname=larry user=..."); without
-it, Larry has only the cache. LARRY_USER names who is talking (default: the
-login name); only a validator decides what is true.
+PostgreSQL server LARRY_DB names, in libpq's form ("host=... dbname=larry
+user=..."), as a URI, or as Azure shows it ("Host=...;Database={0}");
+without it, Larry has only the cache. LARRY_USER names who is talking
+(default: the login name); only a validator decides what is true. Larry
+reads these from ./.env and from the repository's .env too, so they can
+stay there, out of git.
 )";
 
 std::string_view as_text(const larry::Bytes& b) {
@@ -127,6 +131,52 @@ struct Tally {
     }
 };
 
+/// Reads a .env file: KEY=VALUE lines, '#' comments, an optional "export",
+/// quotes around a value allowed. A variable already in the environment
+/// wins. Larry reads ./.env and then the repository's .env, so the cloud
+/// and the user's name are always there without an export.
+void read_env_file(const std::filesystem::path& file) {
+    std::ifstream in{file};
+    if (!in) {
+        return;
+    }
+    for (std::string line; std::getline(in, line);) {
+        const auto trim = [](std::string_view s) {
+            while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r')) {
+                s.remove_prefix(1);
+            }
+            while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
+                s.remove_suffix(1);
+            }
+            return s;
+        };
+        std::string_view text = trim(line);
+        if (text.empty() || text.front() == '#') {
+            continue;
+        }
+        if (text.starts_with("export ")) {
+            text = trim(text.substr(7));
+        }
+        const std::size_t equals = text.find('=');
+        if (equals == std::string_view::npos) {
+            continue;
+        }
+        const std::string key{trim(text.substr(0, equals))};
+        std::string_view value = trim(text.substr(equals + 1));
+        if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') &&
+            value.back() == value.front()) {
+            value = value.substr(1, value.size() - 2);
+        }
+        const bool valid_key = !key.empty() && std::ranges::all_of(key, [](char c) {
+            return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                   c == '_';
+        });
+        if (valid_key && std::getenv(key.c_str()) == nullptr) {
+            setenv(key.c_str(), std::string{value}.c_str(), 0);
+        }
+    }
+}
+
 /// Who is talking: LARRY_USER, or the login name.
 std::string user_name() {
     for (const char* variable : {"LARRY_USER", "USER", "LOGNAME"}) {
@@ -164,8 +214,7 @@ struct Larry {
         const std::string connection = larry::Database::connection_from_environment();
         if (!connection.empty()) {
             try {
-                cloud = std::make_unique<larry::Database>(connection);
-                cloud->apply_schema();
+                cloud = larry::Database::open(connection);
             } catch (const std::exception& e) {
                 std::println(stderr, "larry: no cloud: {}", e.what());
             }
@@ -697,6 +746,8 @@ int run(std::span<const std::string_view> args) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    read_env_file(".env");
+    read_env_file(std::filesystem::path{LARRY_ROOT_DIR} / ".env");
     std::vector<std::string_view> args;
     for (int i = 1; i < argc; ++i) {
         args.emplace_back(argv[i]);
