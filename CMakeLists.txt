@@ -45,7 +45,7 @@ set(LARRY_WARNINGS -Wall -Wextra -Wpedantic -Wconversion)
 
 add_library(larry_core)
 target_sources(larry_core PRIVATE src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp
-                                  src/cognition.cpp)
+                                  src/cognition.cpp src/memory.cpp)
 target_compile_definitions(larry_core
                            PUBLIC LARRY_BASE_RULES_DIR="${CMAKE_SOURCE_DIR}/base_rules"
                                   LARRY_LESSONS_DIR="${CMAKE_SOURCE_DIR}/lessons"
@@ -73,7 +73,7 @@ target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 
 # Tests: one executable per class (PLAN.md, item F4), run with ctest.
 enable_testing()
-set(LARRY_TESTS assimilation atom_operations base_rules cognition)
+set(LARRY_TESTS assimilation atom_operations base_rules cognition memory)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)
