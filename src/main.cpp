@@ -225,6 +225,12 @@ struct Larry {
                          memory.file().string());
             rebuild(false);
         }
+        // A cloud with nothing in it gets what the cache holds: the first
+        // contact of a machine that already learned.
+        if (cloud && cloud->count() == 0 && memory.count() > 0) {
+            const auto [pushed, pulled] = brain.sync(0);
+            std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", pushed);
+        }
     }
 
     /// Stores every lesson in a lesson file.
