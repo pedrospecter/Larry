@@ -218,15 +218,19 @@ void print(const Larry& larry, const larry::Description& d) {
     std::println("                {}", larry.ops.to_bits(d.atom));
     std::println("category      : {} ({} bytes)", as_text(d.category.bytes),
                  d.category.bytes.size());
-    std::println("type          : {} bytes", d.type.bytes.size());
+    std::println("type          : {} ({} bytes)", as_text(d.type.bytes), d.type.bytes.size());
     std::println("entities      : {}", d.entities.entities.size());
     for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
         const larry::Entity& entity = d.entities.entities[i];
         const std::string category =
             entity.category.empty() ? std::string{"?"} : std::string{as_text(entity.category)};
         const std::string from = i < d.notes.size() ? source(d.notes[i]) : std::string{};
-        std::println("  {:<14} category: {:<15} types: {}  {}", as_text(entity.word), category,
-                     entity.types.size(), from);
+        std::string types;
+        for (const larry::Bytes& type : entity.types) {
+            types += types.empty() ? "" : ", ";
+            types += as_text(type);
+        }
+        std::println("  {:<14} {:<15} {:<36} {}", as_text(entity.word), category, types, from);
     }
     std::println("image         : {} bytes \"{}\"", d.image.bytes.size(), as_text(d.image.bytes));
     std::println("metadata      : {} bytes", d.metadata.bytes.size());

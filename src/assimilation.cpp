@@ -369,12 +369,219 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
             }
         }
     }
+    types(d);
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);
     d.image.bytes.assign(bytes.begin(), bytes.end());
     d.metadata = ops.metadata(d.category, d.type, d.entities);
     return d;
+}
+
+namespace {
+
+Bytes bytes_of(std::string_view text) {
+    return Bytes(text.begin(), text.end());
+}
+
+std::vector<Bytes> split(const Bytes& text, char separator) {
+    std::vector<Bytes> out;
+    Bytes current;
+    for (const std::uint8_t b : text) {
+        if (b == static_cast<std::uint8_t>(separator)) {
+            out.push_back(current);
+            current.clear();
+        } else {
+            current.push_back(b);
+        }
+    }
+    out.push_back(current);
+    return out;
+}
+
+bool ends_with(const Bytes& word, const Bytes& ending) {
+    return word.size() >= ending.size() + 2 &&
+           std::equal(ending.rbegin(), ending.rend(), word.rbegin());
+}
+
+bool has_suffix(const Bytes& word, std::string_view suffix) {
+    return word.size() > suffix.size() &&
+           std::equal(suffix.rbegin(), suffix.rend(), word.rbegin());
+}
+
+bool all_digits(const Bytes& word, std::size_t end) {
+    if (end == 0) {
+        return false;
+    }
+    for (std::size_t i = 0; i < end; ++i) {
+        if (word[i] < '0' || word[i] > '9') {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+void Assimilation::types(Description& d) const {
+    const AtomOperations ops;
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes verb = bytes_of("verb");
+    static const Bytes adjective = bytes_of("adjective");
+    static const Bytes adverb = bytes_of("adverb");
+    static const Bytes pronoun = bytes_of("pronoun");
+    static const Bytes auxiliary_verb = bytes_of("auxiliary verb");
+    static const Bytes numeral = bytes_of("numeral");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes preposition = bytes_of("preposition");
+    static const Bytes interjection = bytes_of("interjection");
+    static const Bytes conjunction = bytes_of("conjunction");
+    static const std::vector<Bytes> copulas = {bytes_of("is"), bytes_of("are"), bytes_of("was"),
+                                               bytes_of("were"), bytes_of("am")};
+
+    std::vector<Entity>& entities = d.entities.entities;
+    const std::size_t n = entities.size();
+    std::vector<Bytes> folded;
+    folded.reserve(n);
+    for (const Entity& e : entities) {
+        folded.push_back(ops.fold(e.word));
+    }
+
+    // 1. Features, from the form of the word and its category.
+    const auto features_of = [&](std::size_t i) {
+        const Bytes& word = folded[i];
+        const Bytes& category = entities[i].category;
+        std::vector<Bytes> out;
+        if (category.empty()) {
+            return out;
+        }
+        for (const auto& [form, value] : rules_->forms()) {
+            if (form != word) {
+                continue;
+            }
+            const std::vector<Bytes> parts = split(value, ':');
+            if (parts.size() == 2 && parts[0] == category) {
+                return split(parts[1], ';');
+            }
+        }
+        const auto by_word = [&](const std::vector<std::pair<Bytes, Bytes>>& table) {
+            for (const auto& [key, value] : table) {
+                if (key == word) {
+                    out = split(value, ';');
+                    return true;
+                }
+            }
+            return false;
+        };
+        if (category == pronoun && by_word(rules_->pronouns())) {
+            return out;
+        }
+        if (category == auxiliary_verb && by_word(rules_->auxiliaries())) {
+            return out;
+        }
+        for (const auto& [ending, value] : rules_->endings()) {
+            const std::vector<Bytes> parts = split(value, ':');
+            if (parts.size() == 2 && parts[0] == category && ends_with(word, ending)) {
+                out.push_back(parts[1]);
+                return out;
+            }
+        }
+        if (category == noun || category == proper_noun) {
+            out.push_back(bytes_of("singular"));
+        } else if (category == verb) {
+            out.push_back(bytes_of("base"));
+        } else if (category == adjective) {
+            out.push_back(bytes_of("positive"));
+        } else if (category == numeral) {
+            const bool ordinal = word.size() > 2 && all_digits(word, word.size() - 2) &&
+                                 (has_suffix(word, "st") || has_suffix(word, "nd") ||
+                                  has_suffix(word, "rd") || has_suffix(word, "th"));
+            out.push_back(bytes_of(ordinal ? "ordinal" : "cardinal"));
+        }
+        return out;
+    };
+
+    // 2. Roles, by position around the first verb.
+    std::size_t predicate = n;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (entities[i].category == verb || entities[i].category == auxiliary_verb) {
+            predicate = i;
+            break;
+        }
+    }
+    bool copula = predicate < n && entities[predicate].category == auxiliary_verb &&
+                  std::ranges::contains(copulas, folded[predicate]);
+    for (std::size_t i = predicate + 1; copula && i < n; ++i) {
+        if (entities[i].category == verb) {
+            copula = false;
+        }
+    }
+    std::vector<Bytes> roles(n);
+    bool in_complement = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        const Bytes& category = entities[i].category;
+        if (category == interjection) {
+            roles[i] = bytes_of("none");
+        } else if (category == conjunction) {
+            roles[i] = bytes_of("link");
+            in_complement = false;
+        } else if (category == adverb) {
+            roles[i] = bytes_of("modifier");
+        } else if (i < predicate) {
+            roles[i] = bytes_of("subject");
+        } else if (i == predicate || (i > predicate && (category == verb || category == auxiliary_verb) && !in_complement)) {
+            roles[i] = bytes_of("predicate");
+        } else if (category == preposition) {
+            roles[i] = bytes_of("complement");
+            in_complement = true;
+        } else if (in_complement) {
+            roles[i] = bytes_of("complement");
+        } else {
+            roles[i] = bytes_of(copula ? "attribute" : "object");
+        }
+    }
+
+    // 3. The emotion of the atom.
+    Bytes emotion = bytes_of("neutral");
+    bool sarcasm = false;
+    for (const Bytes& marker : rules_->sarcasm()) {
+        const std::vector<Bytes> words = split(marker, ' ');
+        for (std::size_t i = 0; !sarcasm && i + words.size() <= n; ++i) {
+            if (std::equal(words.begin(), words.end(), folded.begin() + static_cast<std::ptrdiff_t>(i))) {
+                sarcasm = true;
+            }
+        }
+    }
+    if (sarcasm) {
+        emotion = bytes_of("sarcasm");
+    } else {
+        for (std::size_t i = 0; i < n && emotion == bytes_of("neutral"); ++i) {
+            for (const auto& [word, feeling] : rules_->emotions()) {
+                if (word == folded[i]) {
+                    emotion = feeling;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 4. Write the types: the entity's features and its role; the atom's roles and emotion.
+    Bytes type;
+    for (std::size_t i = 0; i < n; ++i) {
+        entities[i].types = features_of(i);
+        entities[i].types.push_back(roles[i]);
+        if (i > 0) {
+            type.push_back(' ');
+        }
+        type.insert(type.end(), roles[i].begin(), roles[i].end());
+    }
+    if (n > 0) {
+        type.push_back(' ');
+    }
+    type.push_back('/');
+    type.push_back(' ');
+    type.insert(type.end(), emotion.begin(), emotion.end());
+    d.type.bytes = std::move(type);
 }
 
 }  // namespace larry

@@ -12,7 +12,9 @@ no | the sky is blue | the sky is | determiner, noun, auxiliary verb, adjective 
 yes | Tom has three apples | Ana has five apples | proper noun, verb, numeral, noun | proper noun, verb, numeral, noun
 no | Tom has three apples | Tom has apples | proper noun, verb, numeral, noun | proper noun, verb, noun
 yes | Mary went to the kitchen | Tom went to the garden | proper noun, verb, preposition, determiner, noun | proper noun, verb, preposition, determiner, noun
-yes | Birds fly | Fish swim | noun, verb | noun, verb
+yes | Birds fly | Dogs swim | noun, verb | noun, verb
+# Types count: "fish" is singular by its form, "birds" plural.
+no | Birds fly | Fish swim | noun, verb | noun, verb
 no | Birds fly | Dogs | noun, verb | noun
 yes | sky | sea | noun | noun
 no | sky | sea | noun | adjective

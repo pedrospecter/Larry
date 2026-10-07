@@ -43,6 +43,17 @@ public:
     [[nodiscard]] Description describe(const Sentence& atom, Memory* memory,
                                        std::span<const Bytes> taught = {}) const;
 
+    /// A7 (first step, Q1 and Q2 as proposed, with emotion): fill the types.
+    /// Each entity gets its grammatical features, from its form and category
+    /// (number, tense, person, degree, from the endings, forms, pronouns and
+    /// auxiliaries in the base rules), and its role by position: subject
+    /// before the first verb, predicate, then object, attribute after a
+    /// copula, complement after a preposition, modifier for adverbs. The
+    /// atom's type is the roles in order and its emotion: sarcasm when a
+    /// marker phrase occurs, else the emotion of the first emotion word,
+    /// else neutral.
+    void types(Description& d) const;
+
 
 private:
     struct Span {

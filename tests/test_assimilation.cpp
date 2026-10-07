@@ -297,6 +297,96 @@ TEST(describe_from_memory) {
     CHECK(question.category.bytes == (Bytes{'q', 'u', 'e', 's', 't', 'i', 'o', 'n'}));
 }
 
+namespace {
+
+std::vector<std::string> types_of(const larry::Description& d, std::size_t i) {
+    std::vector<std::string> out;
+    for (const Bytes& t : d.entities.entities[i].types) {
+        out.emplace_back(t.begin(), t.end());
+    }
+    return out;
+}
+
+std::string type_of(const larry::Description& d) {
+    return {d.type.bytes.begin(), d.type.bytes.end()};
+}
+
+larry::Description taught(std::string_view text, std::vector<std::string_view> categories) {
+    std::vector<Bytes> list;
+    for (const std::string_view c : categories) {
+        list.emplace_back(c.begin(), c.end());
+    }
+    return assimilation().describe(ops().from_text(text), nullptr, list);
+}
+
+}  // namespace
+
+TEST(types_features_and_roles) {
+    using V = std::vector<std::string>;
+    const larry::Description sky = taught("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(types_of(sky, 0) == V{"subject"});
+    CHECK(types_of(sky, 1) == (V{"singular", "subject"}));
+    CHECK(types_of(sky, 2) == (V{"third person", "singular", "present", "predicate"}));
+    CHECK(types_of(sky, 3) == (V{"positive", "attribute"}));
+    CHECK(type_of(sky) == "subject subject predicate attribute / neutral");
+
+    const larry::Description birds = taught("Birds fly.", {"noun", "verb"});
+    CHECK(types_of(birds, 0) == (V{"plural", "subject"}));
+    CHECK(types_of(birds, 1) == (V{"base", "predicate"}));
+    CHECK(type_of(birds) == "subject predicate / neutral");
+
+    const larry::Description mary = taught("Mary went to the kitchen.", {"proper noun", "verb", "preposition", "determiner", "noun"});
+    CHECK(types_of(mary, 0) == (V{"singular", "subject"}));
+    CHECK(types_of(mary, 1) == (V{"past", "predicate"}));
+    CHECK(types_of(mary, 2) == V{"complement"});
+    CHECK(types_of(mary, 4) == (V{"singular", "complement"}));
+
+    const larry::Description tom = taught("Tom has three apples.", {"proper noun", "verb", "numeral", "noun"});
+    CHECK(types_of(tom, 1) == (V{"third person", "predicate"}));
+    CHECK(types_of(tom, 2) == (V{"cardinal", "object"}));
+    CHECK(types_of(tom, 3) == (V{"plural", "object"}));
+    CHECK(type_of(tom) == "subject predicate object object / neutral");
+
+    const larry::Description order = taught("Close the door.", {"verb", "determiner", "noun"});
+    CHECK(types_of(order, 0) == (V{"base", "predicate"}));
+    CHECK(types_of(order, 2) == (V{"singular", "object"}));
+    CHECK(type_of(order) == "predicate object object / neutral");
+
+    const larry::Description more = taught("I came 3rd and they were happier.", {"pronoun", "verb", "numeral", "conjunction", "pronoun", "auxiliary verb", "adjective"});
+    CHECK(types_of(more, 0) == (V{"first person", "singular", "subject"}));
+    CHECK(types_of(more, 1) == (V{"past", "predicate"}));
+    CHECK(types_of(more, 2) == (V{"ordinal", "object"}));
+    CHECK(types_of(more, 3) == V{"link"});
+    CHECK(types_of(more, 4) == (V{"third person", "plural", "object"}));
+    CHECK(types_of(more, 5) == (V{"past", "plural", "predicate"}));
+    CHECK(types_of(more, 6) == (V{"comparative", "object"}));
+
+    // Endings need the category and a long enough word; forms override them.
+    const larry::Description forms = taught("The bus is running.", {"determiner", "noun", "auxiliary verb", "verb"});
+    CHECK(types_of(forms, 1) == (V{"singular", "subject"}));
+    CHECK(types_of(forms, 3) == (V{"progressive", "predicate"}));
+    const larry::Description children = taught("Children sleep.", {"noun", "verb"});
+    CHECK(types_of(children, 0) == (V{"plural", "subject"}));
+    // Without a category there are no features, only the role.
+    const larry::Description unknown = assimilation().describe(ops().from_text("Azure skies."), nullptr);
+    CHECK(types_of(unknown, 0) == V{"subject"});
+    CHECK(type_of(unknown) == "subject subject / neutral");
+    CHECK(type_of(assimilation().describe(ops().from_text("..."), nullptr)) == "/ neutral");
+}
+
+TEST(types_emotion) {
+    CHECK(type_of(taught("I am so happy today.", {"pronoun", "auxiliary verb", "adverb", "adjective", "adverb"})).ends_with("/ joy"));
+    CHECK(type_of(taught("She was sad.", {"pronoun", "auxiliary verb", "adjective"})).ends_with("/ sadness"));
+    CHECK(type_of(taught("I hate rain.", {"pronoun", "verb", "noun"})).ends_with("/ anger"));
+    CHECK(type_of(taught("Wow, it works!", {"interjection", "pronoun", "verb"})).ends_with("/ surprise"));
+    CHECK(type_of(taught("Oh great, it rained again.", {"interjection", "adjective", "pronoun", "verb", "adverb"})).ends_with("/ sarcasm"));
+    CHECK(type_of(assimilation().describe(ops().from_text("Yeah right."), nullptr)) == "subject subject / sarcasm");
+    CHECK(type_of(taught("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"})).ends_with("/ neutral"));
+    // The first emotion word decides; a marker wins over it.
+    CHECK(type_of(assimilation().describe(ops().from_text("Happy and sad."), nullptr)).ends_with("/ joy"));
+    CHECK(type_of(assimilation().describe(ops().from_text("I am happy, yeah right."), nullptr)).ends_with("/ sarcasm"));
+}
+
 int main() {
     return larry::test::run();
 }

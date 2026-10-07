@@ -80,6 +80,36 @@ public:
         return contractions_;
     }
 
+    /// Regular endings and the feature they give a word of a category, from
+    /// endings.txt: the ending, and "category:feature". Longest first.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& endings() const noexcept {
+        return endings_;
+    }
+
+    /// Words whose features the endings get wrong or that have none, from
+    /// forms.txt: the word, and "category:feature;feature".
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& forms() const noexcept {
+        return forms_;
+    }
+
+    /// Pronouns and their features ("first person;singular"), from pronouns.txt.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& pronouns() const noexcept {
+        return pronouns_;
+    }
+
+    /// Auxiliary verbs and their features, from auxiliaries.txt.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& auxiliaries() const noexcept {
+        return auxiliaries_;
+    }
+
+    /// Words that carry an emotion, and which, from emotions.txt.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& emotions() const noexcept {
+        return emotions_;
+    }
+
+    /// Marker phrases of sarcasm, from sarcasm.txt.
+    [[nodiscard]] const std::vector<Bytes>& sarcasm() const noexcept { return sarcasm_; }
+
     /// Reads one rule file. Throws std::runtime_error when the file cannot be
     /// read or a line is not hex bytes.
     [[nodiscard]] static std::vector<Bytes> read(const std::filesystem::path& file);
@@ -107,6 +137,12 @@ private:
     std::vector<Bytes> expressions_;
     std::vector<Bytes> negation_words_;
     std::vector<std::pair<Bytes, Bytes>> contractions_;
+    std::vector<std::pair<Bytes, Bytes>> endings_;
+    std::vector<std::pair<Bytes, Bytes>> forms_;
+    std::vector<std::pair<Bytes, Bytes>> pronouns_;
+    std::vector<std::pair<Bytes, Bytes>> auxiliaries_;
+    std::vector<std::pair<Bytes, Bytes>> emotions_;
+    std::vector<Bytes> sarcasm_;
 };
 
 }  // namespace larry

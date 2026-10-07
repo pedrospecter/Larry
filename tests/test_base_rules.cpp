@@ -99,6 +99,18 @@ TEST(english_rules_load) {
         isnt = isnt || (contraction == b("isn't") && expansion == b("is not"));
     }
     CHECK(isnt);
+    CHECK(!rules.endings().empty());
+    for (std::size_t i = 1; i < rules.endings().size(); ++i) {
+        CHECK(rules.endings()[i - 1].first.size() >= rules.endings()[i].first.size());
+    }
+    CHECK(!rules.forms().empty() && !rules.pronouns().empty() && !rules.auxiliaries().empty());
+    CHECK(!rules.emotions().empty());
+    CHECK(has(rules.sarcasm(), "yeah right"));
+    bool went = false;
+    for (const auto& [word, value] : rules.forms()) {
+        went = went || (word == b("went") && value == b("verb:past"));
+    }
+    CHECK(went);
     // Every abbreviation ends with its full stop and is in lower case.
     for (const Bytes& item : rules.abbreviations()) {
         CHECK(!item.empty() && item.back() == '.');

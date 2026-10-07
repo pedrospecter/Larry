@@ -2,6 +2,7 @@
 
 #include "larry/hex.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <format>
 #include <fstream>
@@ -86,6 +87,15 @@ BaseRules::BaseRules(Language language) : language_(language) {
     expressions_ = read(dir / "expressions.txt");
     negation_words_ = read(dir / "negation_words.txt");
     contractions_ = read_pairs(dir / "contractions.txt");
+    endings_ = read_pairs(dir / "endings.txt");
+    std::ranges::stable_sort(endings_, [](const auto& a, const auto& b) {
+        return a.first.size() > b.first.size();
+    });
+    forms_ = read_pairs(dir / "forms.txt");
+    pronouns_ = read_pairs(dir / "pronouns.txt");
+    auxiliaries_ = read_pairs(dir / "auxiliaries.txt");
+    emotions_ = read_pairs(dir / "emotions.txt");
+    sarcasm_ = read(dir / "sarcasm.txt");
 }
 
 }  // namespace larry
