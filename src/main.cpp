@@ -5,6 +5,7 @@
 #include "larry/constellation.hpp"
 #include "larry/description.hpp"
 #include "larry/electron.hpp"
+#include "larry/lesson.hpp"
 #include "larry/memory.hpp"
 
 #include <cstdio>
@@ -29,9 +30,14 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conception; with the category of each entity,
                                in order, it is taught
   read <file>                  tell every sentence in a text file
+  teach <file>                 tell every lesson in a lesson file: a sentence,
+                               then the category of each entity, in order
+  rebuild                      empty memory and teach every lesson in
+                               lessons/<locale>/, in name order
   count                        how many conceptions and word uses memory holds
 
-Memory is the file LARRY_MEMORY names, or memory/<locale>.atoms.
+Memory is the file LARRY_MEMORY names, or memory/<locale>.atoms. When the
+file does not exist yet, Larry rebuilds it from the lessons first.
 )";
 
 std::string_view as_text(const larry::Bytes& b) {
@@ -46,6 +52,52 @@ std::string_view name(larry::Language language) {
     return "unknown";
 }
 
+std::string_view stored_name(larry::Stored stored) {
+    switch (stored) {
+    case larry::Stored::New:
+        return "new";
+    case larry::Stored::Same:
+        return "same";
+    case larry::Stored::SameForm:
+        return "same form";
+    }
+    return "";
+}
+
+struct Tally {
+    std::size_t sentences = 0;
+    std::size_t stored = 0;
+    std::size_t same = 0;
+    std::size_t same_form = 0;
+
+    void add(larry::Stored stored_as) {
+        ++sentences;
+        switch (stored_as) {
+        case larry::Stored::New:
+            ++stored;
+            break;
+        case larry::Stored::Same:
+            ++same;
+            break;
+        case larry::Stored::SameForm:
+            ++same_form;
+            break;
+        }
+    }
+
+    void add(const Tally& other) {
+        sentences += other.sentences;
+        stored += other.stored;
+        same += other.same;
+        same_form += other.same_form;
+    }
+
+    void print() const {
+        std::println("{} sentences: {} stored, {} already there, {} in the same form", sentences,
+                     stored, same, same_form);
+    }
+};
+
 struct Larry {
     larry::Constellation constellation{larry::Language::English};
     larry::BaseRules rules{constellation.language()};
@@ -53,6 +105,56 @@ struct Larry {
     larry::Cognition cognition;
     larry::AtomOperations ops;
     larry::Memory memory{larry::Memory::file_from_environment(constellation.language())};
+
+    Larry() {
+        if (!std::filesystem::exists(memory.file())) {
+            std::println(stderr, "larry: no memory at {}; rebuilding it from the lessons",
+                         memory.file().string());
+            rebuild(false);
+        }
+    }
+
+    /// Stores every lesson in a lesson file.
+    Tally teach(const std::filesystem::path& file, bool verbose) {
+        Tally tally;
+        for (const larry::Lesson& lesson : larry::read_lessons(file)) {
+            larry::Description d;
+            try {
+                d = assimilation.describe(ops.from_text(lesson.sentence), &memory, lesson.categories);
+            } catch (const std::invalid_argument& e) {
+                throw std::runtime_error(
+                    std::format("{} line {}: {}", file.string(), lesson.line, e.what()));
+            }
+            const larry::Stored stored = memory.store(d.atom, d.metadata);
+            tally.add(stored);
+            if (verbose) {
+                std::println("{:<10} {}", stored_name(stored), lesson.sentence);
+            }
+        }
+        return tally;
+    }
+
+    /// Empties memory and teaches every lesson file, in name order (F7).
+    void rebuild(bool verbose) {
+        memory.clear();
+        Tally total;
+        const std::vector<std::filesystem::path> files =
+            larry::lesson_files(constellation.language());
+        for (const std::filesystem::path& file : files) {
+            const Tally tally = teach(file, false);
+            if (verbose) {
+                std::println("{:<40} {} lessons, {} stored", file.filename().string(),
+                             tally.sentences, tally.stored);
+            }
+            total.add(tally);
+        }
+        if (verbose) {
+            std::println("{} lesson files", files.size());
+            total.print();
+            std::println("{} conceptions, {} word uses, in {}", memory.count(),
+                         memory.count_words(), memory.file().string());
+        }
+    }
 };
 
 std::string source(const larry::EntityNote& note) {
@@ -97,18 +199,6 @@ void print(const Larry& larry, const larry::Description& d) {
     std::println("metadata      : {} bytes", d.metadata.bytes.size());
 }
 
-std::string_view stored_name(larry::Stored stored) {
-    switch (stored) {
-    case larry::Stored::New:
-        return "new";
-    case larry::Stored::Same:
-        return "same";
-    case larry::Stored::SameForm:
-        return "same form";
-    }
-    return "";
-}
-
 std::string join(std::span<const std::string_view> words) {
     std::string out;
     for (const std::string_view word : words) {
@@ -149,33 +239,6 @@ std::string open_words(const larry::Description& d) {
     }
     return out;
 }
-
-struct Tally {
-    std::size_t sentences = 0;
-    std::size_t stored = 0;
-    std::size_t same = 0;
-    std::size_t same_form = 0;
-
-    void add(larry::Stored stored_as) {
-        ++sentences;
-        switch (stored_as) {
-        case larry::Stored::New:
-            ++stored;
-            break;
-        case larry::Stored::Same:
-            ++same;
-            break;
-        case larry::Stored::SameForm:
-            ++same_form;
-            break;
-        }
-    }
-
-    void print() const {
-        std::println("{} sentences: {} stored, {} already there, {} in the same form", sentences,
-                     stored, same, same_form);
-    }
-};
 
 int run(std::span<const std::string_view> args) {
     if (args.empty() || args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
@@ -219,6 +282,17 @@ int run(std::span<const std::string_view> args) {
                          open_words(d));
         }
         tally.print();
+        return 0;
+    }
+    if (command == "teach") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("teach needs one lesson file");
+        }
+        larry.teach(rest[0], true).print();
+        return 0;
+    }
+    if (command == "rebuild") {
+        larry.rebuild(true);
         return 0;
     }
     if (command == "count") {

@@ -1,0 +1,292 @@
+# Lesson 1: the first sentences. A sentence, then the category of each of its
+# entities separated by commas. Blank lines separate lessons (PLAN.md, F7, Q9).
+# Every word here has one category, so that Larry can describe new sentences
+# made of these words without being told.
+
+The sky is blue.
+determiner, noun, auxiliary verb, adjective
+
+The sea is wide.
+determiner, noun, auxiliary verb, adjective
+
+The grass is tall.
+determiner, noun, auxiliary verb, adjective
+
+Leaves are green.
+noun, auxiliary verb, adjective
+
+The sun is hot.
+determiner, noun, auxiliary verb, adjective
+
+The moon is white.
+determiner, noun, auxiliary verb, adjective
+
+Snow is white.
+noun, auxiliary verb, adjective
+
+Coal is black.
+noun, auxiliary verb, adjective
+
+Water is wet.
+noun, auxiliary verb, adjective
+
+Sand is dry.
+noun, auxiliary verb, adjective
+
+The door is open.
+determiner, noun, auxiliary verb, adjective
+
+The window is closed.
+determiner, noun, auxiliary verb, adjective
+
+The car is red.
+determiner, noun, auxiliary verb, adjective
+
+The house is big.
+determiner, noun, auxiliary verb, adjective
+
+The cat is small.
+determiner, noun, auxiliary verb, adjective
+
+The old dog is slow.
+determiner, adjective, noun, auxiliary verb, adjective
+
+A new book is here.
+determiner, adjective, noun, auxiliary verb, adverb
+
+An apple is a fruit.
+determiner, noun, auxiliary verb, determiner, noun
+
+A sparrow is a bird.
+determiner, noun, auxiliary verb, determiner, noun
+
+A robin is a bird.
+determiner, noun, auxiliary verb, determiner, noun
+
+A penguin is a bird.
+determiner, noun, auxiliary verb, determiner, noun
+
+A bird is an animal.
+determiner, noun, auxiliary verb, determiner, noun
+
+A cat is an animal.
+determiner, noun, auxiliary verb, determiner, noun
+
+Birds fly.
+noun, verb
+
+Sparrows fly.
+noun, verb
+
+Fish swim.
+noun, verb
+
+Dogs run.
+noun, verb
+
+Cats sleep.
+noun, verb
+
+Penguins do not fly.
+noun, auxiliary verb, adverb, verb
+
+Birds are animals.
+noun, auxiliary verb, noun
+
+Tom is a teacher.
+proper noun, auxiliary verb, determiner, noun
+
+Mary is a doctor.
+proper noun, auxiliary verb, determiner, noun
+
+Ana is my sister.
+proper noun, auxiliary verb, determiner, noun
+
+Tom has a red car.
+proper noun, verb, determiner, adjective, noun
+
+Mary has a cat.
+proper noun, verb, determiner, noun
+
+Tom has three apples.
+proper noun, verb, numeral, noun
+
+Ana has five apples.
+proper noun, verb, numeral, noun
+
+I have two cats.
+pronoun, verb, numeral, noun
+
+You have one dog.
+pronoun, verb, numeral, noun
+
+We have ten books.
+pronoun, verb, numeral, noun
+
+Tom likes apples.
+proper noun, verb, noun
+
+Mary likes milk.
+proper noun, verb, noun
+
+I like tea.
+pronoun, verb, noun
+
+They like coffee.
+pronoun, verb, noun
+
+Mary went to the kitchen.
+proper noun, verb, preposition, determiner, noun
+
+Tom went to the garden.
+proper noun, verb, preposition, determiner, noun
+
+Ana went to Paris.
+proper noun, verb, preposition, proper noun
+
+The cat sat on the mat.
+determiner, noun, verb, preposition, determiner, noun
+
+The milk is in the kitchen.
+determiner, noun, auxiliary verb, preposition, determiner, noun
+
+The book is on the table.
+determiner, noun, auxiliary verb, preposition, determiner, noun
+
+The keys are in the car.
+determiner, noun, auxiliary verb, preposition, determiner, noun
+
+Paris is the capital of France.
+proper noun, auxiliary verb, determiner, noun, preposition, proper noun
+
+London is the capital of England.
+proper noun, auxiliary verb, determiner, noun, preposition, proper noun
+
+The colour of the sky is blue.
+determiner, noun, preposition, determiner, noun, auxiliary verb, adjective
+
+Clouds cross the sky.
+noun, verb, determiner, noun
+
+The sky is not green.
+determiner, noun, auxiliary verb, adverb, adjective
+
+The door is not closed.
+determiner, noun, auxiliary verb, adverb, adjective
+
+The sky is very blue.
+determiner, noun, auxiliary verb, adverb, adjective
+
+Water boils at 100 degrees.
+noun, verb, preposition, numeral, noun
+
+It rains today.
+pronoun, verb, adverb
+
+It rained yesterday.
+pronoun, verb, adverb
+
+The street is wet.
+determiner, noun, auxiliary verb, adjective
+
+The street is wet because it rained.
+determiner, noun, auxiliary verb, adjective, conjunction, pronoun, verb
+
+The sky is blue and the grass is green.
+determiner, noun, auxiliary verb, adjective, conjunction, determiner, noun, auxiliary verb, adjective
+
+Tea or coffee is fine.
+noun, conjunction, noun, auxiliary verb, adjective
+
+He is here.
+pronoun, auxiliary verb, adverb
+
+She is there.
+pronoun, auxiliary verb, adverb
+
+We are here now.
+pronoun, auxiliary verb, adverb, adverb
+
+Tom can swim.
+proper noun, auxiliary verb, verb
+
+Birds can fly.
+noun, auxiliary verb, verb
+
+Penguins cannot fly.
+noun, auxiliary verb, verb
+
+Tom will come tomorrow.
+proper noun, auxiliary verb, verb, adverb
+
+Mary was late.
+proper noun, auxiliary verb, adjective
+
+They were early.
+pronoun, auxiliary verb, adjective
+
+Does Tom like apples?
+auxiliary verb, proper noun, verb, noun
+
+Is the sky blue?
+auxiliary verb, determiner, noun, adjective
+
+Are birds animals?
+auxiliary verb, noun, noun
+
+Can penguins fly?
+auxiliary verb, noun, verb
+
+Where is Tom?
+adverb, auxiliary verb, proper noun
+
+What is the capital of France?
+pronoun, auxiliary verb, determiner, noun, preposition, proper noun
+
+Who is Mary?
+pronoun, auxiliary verb, proper noun
+
+Close the door.
+verb, determiner, noun
+
+Shut the window.
+verb, determiner, noun
+
+Please sit down.
+interjection, verb, particle
+
+Give me the book.
+verb, pronoun, determiner, noun
+
+Hello.
+interjection
+
+Yes.
+interjection
+
+No.
+interjection
+
+Thanks.
+interjection
+
+Wow.
+interjection
+
+If it rains, the street is wet.
+conjunction, pronoun, verb, determiner, noun, auxiliary verb, adjective
+
+Maybe it rains tomorrow.
+adverb, pronoun, verb, adverb
+
+Larry is an AI model.
+proper noun, auxiliary verb, determiner, noun, noun
+
+Larry has zero weights.
+proper noun, verb, determiner, noun
+
+Larry runs on a CPU.
+proper noun, verb, preposition, determiner, noun
+
+English is a language.
+proper noun, auxiliary verb, determiner, noun
