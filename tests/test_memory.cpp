@@ -282,6 +282,9 @@ TEST(sources_and_status_live_in_the_log) {
         CHECK(recent.size() == 2);
         CHECK(recent.size() == 2 && recent[0].id == 2 && recent[1].id == 1);
         CHECK(memory.recent(1).size() == 1);
+        CHECK(memory.find_id(2)->status == larry::Status::Validated);
+        CHECK(!memory.find_id(3).has_value());
+        CHECK(!memory.find_id(0).has_value());
     }
     // The log reads back to the same state.
     Memory again{file};

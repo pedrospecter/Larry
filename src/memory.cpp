@@ -287,6 +287,13 @@ std::optional<StoredAtom> Memory::find(const MetadataElectron& metadata) const {
     return read(found->second);
 }
 
+std::optional<StoredAtom> Memory::find_id(std::int64_t id) const {
+    if (id < 1 || id > static_cast<std::int64_t>(atoms_.size())) {
+        return std::nullopt;
+    }
+    return read(id);
+}
+
 std::vector<StoredAtom> Memory::find_prefix(const Bytes& prefix) const {
     std::vector<StoredAtom> out;
     for (auto it = by_metadata_.lower_bound(prefix); it != by_metadata_.end(); ++it) {

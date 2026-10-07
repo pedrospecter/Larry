@@ -48,6 +48,9 @@ public:
 
     [[nodiscard]] std::optional<StoredAtom> find(const MetadataElectron& metadata);
 
+    /// The conception with this id.
+    [[nodiscard]] std::optional<StoredAtom> find_id(std::int64_t id);
+
     /// Every conception whose metadata starts with these bytes, in metadata order.
     [[nodiscard]] std::vector<StoredAtom> find_prefix(const Bytes& prefix);
 

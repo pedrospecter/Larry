@@ -10,6 +10,7 @@
 #include "larry/sentence.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -81,8 +82,21 @@ public:
     [[nodiscard]] Reply hear(const Sentence& sentence, std::string_view source = "user");
 
     /// Stores a conception in the cache and, when there is a cloud, in the
-    /// cloud. What the cache says about it is the result.
+    /// cloud. What the cache says about it is the result. A proposed
+    /// conception that two different sources have given becomes validated
+    /// (R2, first step).
     Stored remember(const Description& d, Status status, std::string_view source);
+
+    /// The conceptions waiting for validation: the cloud's when there is a
+    /// cloud, else the cache's.
+    [[nodiscard]] std::vector<StoredAtom> proposed() const;
+
+    /// The conception with this id in the cloud, or in the cache without one.
+    [[nodiscard]] std::optional<StoredAtom> conception(std::int64_t id) const;
+
+    /// Sets a conception's status in the cache and in the cloud. False when
+    /// neither has it.
+    bool set_status(const MetadataElectron& metadata, Status status);
 
     /// N2: pushes every conception of the cache that the cloud does not have,
     /// and pulls the cloud's most recent ones into the cache. Gives the two

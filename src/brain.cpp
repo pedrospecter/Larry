@@ -69,7 +69,43 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
     if (cloud_ != nullptr) {
         cloud_->store(d.atom, d.metadata, status, source);
     }
+    // Two different sources validate a proposed conception.
+    const std::optional<StoredAtom> held =
+        cloud_ != nullptr ? cloud_->find(d.metadata) : memory_->find(d.metadata);
+    if (held && held->status == Status::Proposed) {
+        std::vector<std::string> sources = held->sources;
+        if (const std::optional<StoredAtom> cached = memory_->find(d.metadata)) {
+            for (const std::string& s : cached->sources) {
+                if (!std::ranges::contains(sources, s)) {
+                    sources.push_back(s);
+                }
+            }
+        }
+        if (sources.size() >= 2) {
+            set_status(d.metadata, Status::Validated);
+        }
+    }
     return stored;
+}
+
+std::vector<StoredAtom> Brain::proposed() const {
+    return cloud_ != nullptr ? cloud_->with_status(Status::Proposed)
+                             : memory_->with_status(Status::Proposed);
+}
+
+std::optional<StoredAtom> Brain::conception(std::int64_t id) const {
+    return cloud_ != nullptr ? cloud_->find_id(id) : memory_->find_id(id);
+}
+
+bool Brain::set_status(const MetadataElectron& metadata, Status status) {
+    bool any = memory_->set_status(metadata, status);
+    if (cloud_ != nullptr) {
+        if (const std::optional<StoredAtom> held = cloud_->find(metadata)) {
+            cloud_->set_status(held->id, status);
+            any = true;
+        }
+    }
+    return any;
 }
 
 std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
@@ -289,7 +325,8 @@ Verdict Brain::truth(const Description& claim) const {
                 ++content_words;
             }
             for (StoredAtom& atom : memory_->containing(word)) {
-                if (atom.description.category.bytes != affirmation) {
+                if (atom.description.category.bytes != affirmation ||
+                    atom.status == Status::Withdrawn) {
                     continue;
                 }
                 auto [it, inserted] = shared.try_emplace(atom.id, 0, std::move(atom));
@@ -432,11 +469,20 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     // An affirmation: what does memory hold already? (C16, first step)
     const Verdict verdict = truth(d);
+    const Status before = memory_->find(d.metadata).transform([](const StoredAtom& a) { return a.status; }).value_or(Status::Proposed);
     const Stored stored = remember(d, Status::Proposed, source);
     reply.stored = stored == Stored::New;
+    const bool validated_now =
+        before == Status::Proposed &&
+        memory_->find(d.metadata).transform([](const StoredAtom& a) { return a.status; }).value_or(Status::Proposed) ==
+            Status::Validated;
     if (verdict.truth == Truth::True) {
         reply.text = stored == Stored::New ? "I know. " + text_of(verdict.because.front())
                                           : "I already know that.";
+        if (validated_now) {
+            reply.text += " Now validated: a second source says so.";
+            reply.because.emplace_back("rule: two different sources validate a conception (R2)");
+        }
         reply.because.push_back(text_of(verdict.because.front()));
         return reply;
     }

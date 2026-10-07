@@ -260,6 +260,15 @@ std::optional<StoredAtom> Database::find(const MetadataElectron& metadata) {
     return std::move(found.front());
 }
 
+std::optional<StoredAtom> Database::find_id(std::int64_t id) {
+    std::vector<StoredAtom> found = read_atoms(
+        exec((std::string{select_conceptions} + " where c.id = $1").c_str(), {number(id)}));
+    if (found.empty()) {
+        return std::nullopt;
+    }
+    return std::move(found.front());
+}
+
 std::vector<StoredAtom> Database::find_prefix(const Bytes& prefix) {
     // Every key with the prefix lies in [prefix, upper), where upper is the
     // prefix with its last byte raised. A prefix of only 0xFF has no upper.

@@ -47,6 +47,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                "why?" explains the last reply, "bye" ends
   sync [n]                     push the cache's conceptions to the cloud and
                                pull the cloud's n most recent (100) into it
+  validate                     go through the proposed conceptions one by one:
+                               y validates, n withdraws, s skips, q stops
+  validate list                list the proposed conceptions with their ids
+  validate accept <id>         validate one; validate reject <id> withdraws it
   count                        how many conceptions and word uses memory holds
 
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
@@ -455,6 +459,59 @@ int run(std::span<const std::string_view> args) {
         }
         std::println();
         return 0;
+    }
+    if (command == "validate") {
+        const auto line = [&](const larry::StoredAtom& atom) {
+            std::string sources;
+            for (const std::string& s : atom.sources) {
+                sources += sources.empty() ? "" : ", ";
+                sources += s;
+            }
+            return std::format("{:>6}  {}  [{}]", atom.id, larry.ops.text(atom.description.atom),
+                               sources.empty() ? "no source" : sources);
+        };
+        if (rest.empty()) {
+            const std::vector<larry::StoredAtom> waiting = larry.brain.proposed();
+            std::println("{} proposed conceptions{}", waiting.size(),
+                         larry.cloud ? " in the cloud" : " in the cache");
+            for (const larry::StoredAtom& atom : waiting) {
+                std::print("{}\n  validate? [y/n/s/q] ", line(atom));
+                std::string answer;
+                if (!std::getline(std::cin, answer)) {
+                    std::println();
+                    break;
+                }
+                if (answer == "y") {
+                    larry.brain.set_status(atom.description.metadata, larry::Status::Validated);
+                    std::println("  validated");
+                } else if (answer == "n") {
+                    larry.brain.set_status(atom.description.metadata, larry::Status::Withdrawn);
+                    std::println("  withdrawn");
+                } else if (answer == "q") {
+                    break;
+                }
+            }
+            return 0;
+        }
+        if (rest[0] == "list") {
+            for (const larry::StoredAtom& atom : larry.brain.proposed()) {
+                std::println("{}", line(atom));
+            }
+            return 0;
+        }
+        if ((rest[0] == "accept" || rest[0] == "reject") && rest.size() == 2) {
+            const std::optional<larry::StoredAtom> atom =
+                larry.brain.conception(std::stoll(std::string{rest[1]}));
+            if (!atom) {
+                throw std::runtime_error(std::format("there is no conception {}", rest[1]));
+            }
+            const larry::Status status =
+                rest[0] == "accept" ? larry::Status::Validated : larry::Status::Withdrawn;
+            larry.brain.set_status(atom->description.metadata, status);
+            std::println("{}: {}", larry::name(status), larry.ops.text(atom->description.atom));
+            return 0;
+        }
+        throw std::runtime_error("validate takes nothing, list, accept <id> or reject <id>");
     }
     if (command == "sync") {
         if (!larry.cloud) {

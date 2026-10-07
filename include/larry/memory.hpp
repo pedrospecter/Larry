@@ -106,6 +106,9 @@ public:
     /// The atom stored under this metadata.
     [[nodiscard]] std::optional<StoredAtom> find(const MetadataElectron& metadata) const;
 
+    /// The atom with this id.
+    [[nodiscard]] std::optional<StoredAtom> find_id(std::int64_t id) const;
+
     /// Every atom whose metadata starts with these bytes, in metadata order.
     [[nodiscard]] std::vector<StoredAtom> find_prefix(const Bytes& prefix) const;
 

@@ -172,6 +172,9 @@ TEST(status_changes) {
     CHECK(db().find(c.metadata)->status == Status::Validated);
     db().set_status(1, Status::Withdrawn);
     CHECK(db().find(c.metadata)->status == Status::Withdrawn);
+    CHECK(db().find_id(2)->status == Status::Validated);
+    CHECK(db().find_id(2)->sources == std::vector<std::string>{"lesson:1"});
+    CHECK(!db().find_id(3).has_value());
 }
 
 TEST(bytes_that_are_not_metadata_are_rejected) {

@@ -270,6 +270,51 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(unknown.stored);
 }
 
+TEST(two_sources_validate_a_conception) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_validate.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::Assimilation assimilation{rules()};
+    const larry::AtomOperations ops;
+    const auto describe = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        return assimilation.describe(ops.from_text(text), &cache, taught);
+    };
+    const larry::Description sky = describe("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.remember(sky, larry::Status::Proposed, "lesson:1") == larry::Stored::New);
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    // The same source again changes nothing.
+    CHECK(brain.remember(sky, larry::Status::Proposed, "lesson:1") == larry::Stored::Same);
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    CHECK(brain.proposed().size() == 1);
+    // A second source validates.
+    const larry::Reply heard = brain.hear(ops.from_text("The sky is blue."), "user");
+    CHECK(heard.text == "I already know that. Now validated: a second source says so.");
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Validated);
+    CHECK(cache.find(sky.metadata)->sources == (std::vector<std::string>{"lesson:1", "user"}));
+    CHECK(brain.proposed().empty());
+    // Validated evidence stays evidence; withdrawn evidence does not.
+    CHECK(brain.truth(ops.from_text("the sky is blue")).truth == Truth::True);
+    CHECK(brain.set_status(sky.metadata, larry::Status::Withdrawn));
+    CHECK(brain.truth(ops.from_text("the sky is blue")).truth == Truth::Unknown);
+    CHECK(!brain.set_status(describe("No.", {"interjection"}).metadata, larry::Status::Validated));
+    CHECK(brain.conception(1).has_value());
+    CHECK(brain.conception(1)->status == larry::Status::Withdrawn);
+    CHECK(!brain.conception(2).has_value());
+    // By hand: accept a proposed conception.
+    const larry::Description sea = describe("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    brain.remember(sea, larry::Status::Proposed, "user");
+    CHECK(brain.proposed().size() == 1);
+    CHECK(brain.set_status(brain.proposed().front().description.metadata, larry::Status::Validated));
+    CHECK(brain.proposed().empty());
+    CHECK(cache.find(sea.metadata)->status == larry::Status::Validated);
+}
+
 TEST(hear_handles_orders_assumptions_and_expressions) {
     const larry::Memory& memory = hearing_brain().memory();
     const larry::Reply order = say("Close the window.");
@@ -363,6 +408,13 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     CHECK(heard.text == "Noted.");
     CHECK(cloud->count() == 4);
     CHECK(cloud->all().back().sources == std::vector<std::string>{"user"});
+    // A second source validates in both stores: Tom came from the Pi, now from the user.
+    CHECK(cloud->find(tom.metadata)->status == larry::Status::Proposed);
+    (void)brain.hear(ops.from_text("Tom is a teacher."), "user");
+    CHECK(cloud->find(tom.metadata)->status == larry::Status::Validated);
+    CHECK(cache.find(tom.metadata)->status == larry::Status::Validated);
+    CHECK(brain.proposed().size() == 2);  // the sky and the sky is wide
+    CHECK(brain.conception(cloud->find(sky.metadata)->id)->sources == std::vector<std::string>{"lesson:test"});
     // A withdrawn conception in the cloud is no evidence.
     const larry::Description moon = describe("The moon is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(moon.atom, moon.metadata, larry::Status::Withdrawn, "pi");
