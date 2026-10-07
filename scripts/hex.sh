@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Turns a plain list into a base-rule file: one item per line, each byte as two
-# hex digits (PLAN.md, section 3, rule 4). Lines that start with '#' and empty
-# lines are kept as they are, so a rule file can carry its own comments.
+# hex digits (PLAN.md, section 3, rule 4). Empty lines are kept. When decoding,
+# lines that start with '#' are comments and are kept as they are; when
+# encoding, every line is an item, so add comments to the rule file afterwards.
 #
 #   scripts/hex.sh < plain.txt > base_rules/en/rule.txt
 #   scripts/hex.sh --decode < base_rules/en/rule.txt
@@ -13,10 +14,11 @@ if [ "${1-}" = "--decode" ]; then
 fi
 
 while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-    '' | '#'*)
+    if [ -z "$line" ] || { $decode && [ "${line#\#}" != "$line" ]; }; then
         printf '%s\n' "$line"
-        ;;
+        continue
+    fi
+    case "$line" in
     *)
         if $decode; then
             # shellcheck disable=SC2059

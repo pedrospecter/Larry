@@ -1,0 +1,241 @@
+# A1: sentences and their entities. Fields are separated by " | ": the sentence, then each entity.
+# Lines that start with "#" are comments. No entity after the sentence means it has none.
+The sky is blue. | The | sky | is | blue
+the sky is blue | the | sky | is | blue
+The sea is green! | The | sea | is | green
+Is the sky blue? | Is | the | sky | blue
+The sky, the sea and the grass. | The | sky | the | sea | and | the | grass
+Birds fly. | Birds | fly
+Fly! | Fly
+I am here. | I | am | here
+A cat sat on a mat. | A | cat | sat | on | a | mat
+The quick brown fox jumps over the lazy dog. | The | quick | brown | fox | jumps | over | the | lazy | dog
+Don't do that. | Don't | do | that
+I don't know. | I | don't | know
+It's cold. | It's | cold
+I'm fine, thanks. | I'm | fine | thanks
+We'll see. | We'll | see
+They've gone. | They've | gone
+She's Tom's sister. | She's | Tom's | sister
+It is five o'clock. | It | is | five | o'clock
+Rock'n'roll never dies. | Rock'n'roll | never | dies
+Rock 'n' roll never dies. | Rock | n | roll | never | dies
+The dogs' bones are buried. | The | dogs | bones | are | buried
+'Tis the season. | Tis | the | season
+He said 'hello' to me. | He | said | hello | to | me
+It’s a smart apostrophe. | It’s | a | smart | apostrophe
+A well-known fact. | A | well-known | fact
+Twenty-one birds. | Twenty-one | birds
+My mother-in-law is kind. | My | mother-in-law | is | kind
+Send an e-mail. | Send | an | e-mail
+An X-ray image. | An | X-ray | image
+Well - known. | Well | known
+A re- do. | A | re | do
+Up-to-date software. | Up-to-date | software
+Pi is 3.14. | Pi | is | 3.14
+Pi is 3.14159 roughly. | Pi | is | 3.14159 | roughly
+It costs 1,000 dollars. | It | costs | 1,000 | dollars
+It costs $5.99 today. | It | costs | 5.99 | today
+The meeting is at 10:30. | The | meeting | is | at | 10:30
+The meeting is at 10:30am. | The | meeting | is | at | 10:30am
+Half is 1/2. | Half | is | 1/2
+Half is 1 / 2. | Half | is | 1 | 2
+Today is 2026-10-07. | Today | is | 2026-10-07
+Today is 7/10/2026. | Today | is | 7/10/2026
+Call 555-1234 now. | Call | 555-1234 | now
+About 50% agree. | About | 50 | agree
+It is 20°C outside. | It | is | 20 | C | outside
+Version 1.5.2 is out. | Version | 1.5.2 | is | out
+2+2=4 | 2 | 2 | 4
+The 1990s were great. | The | 1990s | were | great
+He came 3rd. | He | came | 3rd
+A B2B company. | A | B2B | company
+There are 7 days. | There | are | 7 | days
+Add 2 and 2. | Add | 2 | and | 2
+Mr. Smith is here. | Mr. | Smith | is | here
+I saw Mrs. Jones yesterday. | I | saw | Mrs. Jones | yesterday
+Dr. Who is a show. | Dr. | Who | is | a | show
+I met Prof. Lee at noon. | I | met | Prof. Lee | at | noon
+We saw Mr. and Mrs. Brown there. | We | saw | Mr. | and | Mrs. Brown | there
+Apples, pears, etc. are fruit. | Apples | pears | etc. | are | fruit
+Fruit, e.g. apples, is good. | Fruit | e.g. | apples | is | good
+Fruit (e.g., apples) is good. | Fruit | e.g. | apples | is | good
+That is, i.e., clear. | That | is | i.e. | clear
+We live in the U.S.A. | We | live | in | the | U.S.A.
+The U.K. is an island. | The | U.K. | is | an | island
+It left at 10 a.m. sharp. | It | left | at | 10 | a.m. | sharp
+It left at 10 p.m. | It | left | at | 10 | p.m.
+Cats vs. dogs. | Cats | vs. | dogs
+See fig. 3 below. | See | fig. | 3 | below
+Acme Inc. is big. | Acme | Inc. | is | big
+I love St. Louis a lot. | I | love | St. Louis | a | lot
+J. K. Rowling wrote it. | J | K | Rowling | wrote | it
+Go to www.example.com now. | Go | to | www | example | com | now
+Mail a@b.com today. | Mail | a | b | com | today
+Use #larry here. | Use | larry | here
+Ask @tom later. | Ask | tom | later
+I went to New York. | I | went | to | New York
+I went to New York City. | I | went | to | New York City
+New York is big. | New | York | is | big
+Tom Hanks is an actor. | Tom | Hanks | is | an | actor
+I saw Tom Hanks yesterday. | I | saw | Tom Hanks | yesterday
+I saw Tom, Ann and Bob. | I | saw | Tom | Ann | and | Bob
+I saw Tom and Ann. | I | saw | Tom | and | Ann
+I like Monday Night Football. | I | like | Monday Night Football
+The NASA Director spoke. | The | NASA | Director | spoke
+I met the Queen of England. | I | met | the | Queen | of | England
+I climbed Mount Everest once. | I | climbed | Mount Everest | once
+I think Larry is smart. | I | think | Larry | is | smart
+I flew to São Paulo. | I | flew | to | São Paulo
+I read Émile Zola. | I | read | Émile | Zola
+I visited Zürich. | I | visited | Zürich
+Café au lait, please. | Café | au | lait | please
+A naïve approach. | A | naïve | approach
+Olá, tudo bem? | Olá | tudo | bem
+Não sei. | Não | sei
+東京 is big. | 東京 | is | big
+I like 👍 a lot. | I | like | 👍 | a | lot
+“Hello,” she said. | Hello | she | said
+"Hello," she said. | Hello | she | said
+He said “stop”. | He | said | stop
+Wait… what? | Wait | what
+Wait... what? | Wait | what
+Stop—now! | Stop | now
+Stop – now! | Stop | now
+Stop -- now! | Stop | now
+It is (I think) fine. | It | is | I | think | fine
+See [note 1] below. | See | note | 1 | below
+The set {a, b} is small. | The | set | a | b | is | small
+Yes and/or no. | Yes | and | or | no
+Tea; coffee; milk. | Tea | coffee | milk
+Note: this works. | Note | this | works
+Really?! | Really
+Hello!!! | Hello
+What... | What
+... |
+!!! |
+ |
+   |
+the | the
+a | a
+I | I
+Hello world | Hello | world
+Hello  world | Hello | world
+Hello	world | Hello | world
+Hello world. | Hello | world
+   padded sentence   | padded | sentence
+Last word. | Last | word
+Last word.. | Last | word
+Last word?" | Last | word
+(Last word.) | Last | word
+'quoted' | quoted
+"quoted" | quoted
+word' | word
+'word | word
+can't | can't
+can't. | can't
+won't, | won't
+don't! | don't
+Don't | Don't
+DON'T | DON'T
+ain't | ain't
+y'all | y'all
+Tom's | Tom's
+Tom's. | Tom's
+3.14 | 3.14
+3.14. | 3.14
+3. | 3
+.5 | 5
+5. | 5
+1,000,000 | 1,000,000
+1,000, | 1,000
+10:30 | 10:30
+10:30: | 10:30
+1/2 | 1/2
+1/2/ | 1/2
+e.g. | e.g.
+e.g | e | g
+E.g. | E.g.
+U.S.A. | U.S.A.
+u.s.a. | u.s.a.
+U.S.A | U | S | A
+etc. | etc.
+etc | etc
+Etc. | Etc.
+Mr. | Mr.
+mr. | mr.
+Mr | Mr
+Ph.D. | Ph | D
+www.larry.ai | www | larry | ai
+a.b | a | b
+x.y.z | x | y | z
+The cat. The dog. | The | cat | The | dog
+one two three | one | two | three
+ONE TWO THREE | ONE | TWO | THREE
+One Two Three | One | Two Three
+Hello World | Hello | World
+Hello Big World | Hello | Big World
+hello Big World | hello | Big World
+hello Big world | hello | Big | world
+hello Big World today | hello | Big World | today
+hello Big, World | hello | Big | World
+hello Big. World | hello | Big | World
+hello BIG World | hello | BIG | World
+hello Big WORLD | hello | Big | WORLD
+hello iPhone World | hello | iPhone | World
+hello Big-World | hello | Big-World
+hello Big  World | hello | Big World
+The red ball is round. | The | red | ball | is | round
+A ball is round and red. | A | ball | is | round | and | red
+Where is Tom? | Where | is | Tom
+Who are you? | Who | are | you
+What colour is the sky? | What | colour | is | the | sky
+Close the door. | Close | the | door
+Please close the door. | Please | close | the | door
+If it rains, the street is wet. | If | it | rains | the | street | is | wet
+Maybe it rains. | Maybe | it | rains
+Suppose the sky is green. | Suppose | the | sky | is | green
+Thank you very much. | Thank | you | very | much
+Good morning! | Good | morning
+Wow! | Wow
+Oh no. | Oh | no
+Tom has three apples. | Tom | has | three | apples
+Ana has five apples. | Ana | has | five | apples
+The door is open. | The | door | is | open
+The door is closed. | The | door | is | closed
+Mary went to the kitchen. | Mary | went | to | the | kitchen
+Mary went to the garden. | Mary | went | to | the | garden
+Birds fly and fish swim. | Birds | fly | and | fish | swim
+Sparrows fly. | Sparrows | fly
+Penguins do not fly. | Penguins | do | not | fly
+Penguins don't fly. | Penguins | don't | fly
+A sparrow is a bird. | A | sparrow | is | a | bird
+Blue is the colour of the sky. | Blue | is | the | colour | of | the | sky
+Clouds cross the sky. | Clouds | cross | the | sky
+The capital of France is Paris. | The | capital | of | France | is | Paris
+Paris is the capital of France. | Paris | is | the | capital | of | France
+Tom has a red car. | Tom | has | a | red | car
+Tom has a car. | Tom | has | a | car
+Water boils at 100 degrees. | Water | boils | at | 100 | degrees
+I have 2 cats and 3 dogs. | I | have | 2 | cats | and | 3 | dogs
+The year 2026 is here. | The | year | 2026 | is | here
+It is 5°C. | It | is | 5 | C
+Snow is white; coal is black. | Snow | is | white | coal | is | black
+Snow is white: coal is black. | Snow | is | white | coal | is | black
+Is it true? | Is | it | true
+Isn't it true? | Isn't | it | true
+It isn't true. | It | isn't | true
+It is not true. | It | is | not | true
+Nobody knows. | Nobody | knows
+I never said that. | I | never | said | that
+There is no milk. | There | is | no | milk
+We have none. | We | have | none
+Larry is an AI model. | Larry | is | an | AI | model
+Larry runs on a CPU. | Larry | runs | on | a | CPU
+Larry has no weights. | Larry | has | no | weights
+An atom is an assumed truth. | An | atom | is | an | assumed | truth
+Every atom has five electrons. | Every | atom | has | five | electrons
+The metadata is the key. | The | metadata | is | the | key
+A constellation is a language. | A | constellation | is | a | language
+English is a constellation. | English | is | a | constellation
+Portuguese is another constellation. | Portuguese | is | another | constellation

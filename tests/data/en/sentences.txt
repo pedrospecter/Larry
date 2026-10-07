@@ -1,0 +1,60 @@
+# A1: texts and the sentences in them. Fields are separated by " | ": the text, then each
+# sentence. "\n" in a field is a new line. No sentence after the text means it has none.
+The sky is blue. The sea is green. | The sky is blue. | The sea is green.
+Is it blue? Yes! | Is it blue? | Yes!
+Hello world | Hello world
+Hello world. | Hello world.
+Dr. Smith is here. | Dr. Smith is here.
+I saw Dr. Smith. He waved. | I saw Dr. Smith. | He waved.
+I saw Dr. Smith yesterday. | I saw Dr. Smith yesterday.
+I saw Mr. Smith yesterday. He waved. | I saw Mr. Smith yesterday. | He waved.
+I like apples, pears, etc. They are fruit. | I like apples, pears, etc. | They are fruit.
+I like apples, etc. and pears. | I like apples, etc. and pears.
+We live in the U.S.A. It is big. | We live in the U.S.A. | It is big.
+We live in the u.s.a. it is big. | We live in the u.s.a. it is big.
+Pi is 3.14. It is irrational. | Pi is 3.14. | It is irrational.
+Pi is 3.14 and e is 2.71. | Pi is 3.14 and e is 2.71.
+Wait... what? | Wait... what?
+Wait... What? | Wait... | What?
+Wait… what? | Wait… what?
+Wait… What? | Wait… | What?
+He said "Stop." Then he left. | He said "Stop." | Then he left.
+She asked "why?" Then left. | She asked "why?" | Then left.
+He said “Stop.” Then he left. | He said “Stop.” | Then he left.
+One.\n\nTwo | One. | Two
+One\nTwo | One\nTwo
+One\n\n\nTwo | One | Two
+A.\n \nB. | A. | B.
+Line one.\r\nLine two. | Line one. | Line two.
+  Spaces  around.   |  Spaces  around.
+!!! |
+... |
+ |
+\n\n |
+a.b | a.b
+No. 5 is here. | No. | 5 is here.
+Mr. and Mrs. Smith are here. | Mr. and Mrs. Smith are here.
+It costs $5. Buy it! | It costs $5. | Buy it!
+e.g. this | e.g. this
+This is a test (e.g. this one). Next. | This is a test (e.g. this one). | Next.
+Really?! Yes. | Really?! | Yes.
+What?"\n\nNext | What?" | Next
+Name: Tom. Age: 5. | Name: Tom. | Age: 5.
+Olá. Tudo bem? | Olá. | Tudo bem?
+東京。 | 東京。
+He left at 10 a.m. She stayed. | He left at 10 a.m. | She stayed.
+He left at 10 a.m. and she stayed. | He left at 10 a.m. and she stayed.
+I met Prof. Jones. | I met Prof. Jones.
+See fig. 3. Then stop. | See fig. 3. | Then stop.
+Yes.No. | Yes.No.
+Yes. No. | Yes. | No.
+Yes.  No. | Yes. | No.
+Yes.\nNo. | Yes. | No.
+Yes!!! No??? | Yes!!! | No???
+(Yes.) (No.) | (Yes.) | (No.)
+I have 3. You have 4. | I have 3. | You have 4.
+The U.S.A. | The U.S.A.
+I live in the U.S.A. | I live in the U.S.A.
+I love St. Louis. It is nice. | I love St. Louis. | It is nice.
+Tom is here. tom is here. | Tom is here. | tom is here.
+First sentence without a mark\n\nSecond one. Third one. | First sentence without a mark | Second one. | Third one.

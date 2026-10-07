@@ -1,4 +1,5 @@
-# Words whose final full stop is part of the word, in lower case.
+# Words whose final full stop is part of the word, in lower case. Initialisms such as
+# e.g. and U.S.A. need no entry: letters each followed by a full stop are one entity.
 6d722e
 6d72732e
 6d732e
@@ -10,26 +11,16 @@
 73722e
 6574632e
 76732e
-6e6f2e
 6669672e
 696e632e
 6c74642e
-636f2e
 636f72702e
 646570742e
-6573742e
 617070726f782e
 766f6c2e
-65642e
-6564732e
 70702e
-63612e
 63662e
-616c2e
 612e6d2e
 702e6d2e
 652e672e
 692e652e
-752e732e
-752e6b2e
-752e732e612e
