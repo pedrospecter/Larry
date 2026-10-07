@@ -65,13 +65,14 @@ set(LARRY_WARNINGS -Wall -Wextra -Wpedantic -Wconversion)
 
 add_library(larry_core)
 target_sources(larry_core PRIVATE src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp
-                                  src/brain.cpp src/cognition.cpp src/dictionary.cpp src/lesson.cpp
-                                  src/memory.cpp)
+                                  src/brain.cpp src/cognition.cpp src/connection.cpp
+                                  src/dictionary.cpp src/lesson.cpp src/memory.cpp)
 target_compile_definitions(larry_core
                            PUBLIC LARRY_BASE_RULES_DIR="${CMAKE_SOURCE_DIR}/base_rules"
                                   LARRY_DICTIONARY_DIR="${CMAKE_SOURCE_DIR}/dictionary"
                                   LARRY_LESSONS_DIR="${CMAKE_SOURCE_DIR}/lessons"
                                   LARRY_MEMORY_DIR="${CMAKE_SOURCE_DIR}/memory"
+                                  LARRY_ROOT_DIR="${CMAKE_SOURCE_DIR}"
                                   LARRY_SQL_DIR="${CMAKE_SOURCE_DIR}/sql")
 target_include_directories(larry_core PUBLIC include)
 if(LARRY_HAS_CLOUD)
@@ -92,7 +93,7 @@ target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 # database test needs a PostgreSQL server (scripts/setup.sh starts one) and
 # reports "skipped" (exit 77) when it cannot connect.
 enable_testing()
-set(LARRY_TESTS assimilation atom_operations base_rules brain cognition database dictionary lesson memory)
+set(LARRY_TESTS assimilation atom_operations base_rules brain cognition connection database dictionary lesson memory)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)

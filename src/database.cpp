@@ -1,6 +1,7 @@
 #include "larry/database.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/connection.hpp"
 #include "larry/hex.hpp"
 
 #include <algorithm>
@@ -114,7 +115,7 @@ Database::~Database() {
 std::string Database::connection_from_environment() {
     const char* const from_environment = std::getenv("LARRY_DB");
     if (from_environment != nullptr && *from_environment != '\0') {
-        return from_environment;
+        return libpq_connection(from_environment);
     }
     return "";
 }

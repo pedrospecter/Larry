@@ -27,12 +27,14 @@ searches in the cloud and remembers.
 
     # A Raspberry Pi on the network
     export LARRY_DB="host=192.168.10.133 dbname=larry user=postgres"
-    # Azure Database for PostgreSQL (SSL is required there)
-    export LARRY_DB="host=<server>.postgres.database.azure.com port=5432 dbname=larry user=<user> password=<password> sslmode=require"
+    # Azure Database for PostgreSQL, in the form the portal shows (Larry adds sslmode=require)
+    export LARRY_DB="Host=<server>.postgres.database.azure.com;Port=5432;Username=<user>;Password=<password>;Database={0}"
 
-The tables are in `sql/schema.sql`; Larry applies it on first contact, and
-`psql -d larry -f sql/schema.sql` does the same by hand. On first use Larry
-rebuilds its cache from `lessons/en/` and pushes the lessons to the cloud.
+Instead of exporting, put the line in a `.env` file at the repository root
+(see `.env.example`; git ignores `.env`): Larry reads it on every run. The
+tables are in `sql/schema.sql`; Larry creates the database when the server
+lacks it and applies the schema on first contact. On first use Larry rebuilds
+its cache from `lessons/en/` and pushes the lessons to the cloud.
 
 ## Who decides what is true
 
