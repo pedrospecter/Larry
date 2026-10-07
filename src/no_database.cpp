@@ -3,6 +3,7 @@
 
 #include "larry/database.hpp"
 
+#include <memory>
 #include <stdexcept>
 
 namespace larry {
@@ -27,6 +28,10 @@ Database::~Database() = default;
 
 std::string Database::connection_from_environment() {
     return "";
+}
+
+std::unique_ptr<Database> Database::open(const std::string& /*connection*/) {
+    absent();
 }
 
 void Database::apply_schema() {

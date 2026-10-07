@@ -199,6 +199,47 @@ TEST(status_changes) {
     db().run("truncate validators restart identity");
 }
 
+TEST(open_makes_the_database_when_the_server_lacks_it) {
+    // The scratch database must not exist; open() creates it through "postgres".
+    db().run("drop database if exists larry_test_open");
+    const std::string base = std::getenv("LARRY_TEST_DB") != nullptr && *std::getenv("LARRY_TEST_DB") != '\0'
+                                 ? std::getenv("LARRY_TEST_DB")
+                             : std::getenv("LARRY_DB") != nullptr && *std::getenv("LARRY_DB") != '\0'
+                                 ? std::getenv("LARRY_DB")
+                                 : "dbname=larry";
+    std::string connection;
+    bool replaced = false;
+    std::string_view rest{base};
+    while (!rest.empty()) {
+        const std::size_t space = rest.find(' ');
+        const std::string_view item = rest.substr(0, space);
+        connection += item.starts_with("dbname=") ? (replaced = true, "dbname=larry_test_open") : std::string{item};
+        if (space == std::string_view::npos) {
+            break;
+        }
+        connection += ' ';
+        rest.remove_prefix(space + 1);
+    }
+    if (!replaced) {
+        connection += " dbname=larry_test_open";
+    }
+    CHECK_THROWS(Database{connection}, std::runtime_error);
+    {
+        const std::unique_ptr<Database> made = Database::open(connection);
+        CHECK(made->count() == 0);
+        made->add_validator("pedro");
+        CHECK(made->validators() == std::vector<std::string>{"pedro"});
+    }
+    {
+        // The second time it is simply opened.
+        const std::unique_ptr<Database> again = Database::open(connection);
+        CHECK(again->validators() == std::vector<std::string>{"pedro"});
+    }
+    db().run("drop database larry_test_open");
+    // A server that is not there is still an error.
+    CHECK_THROWS(Database::open("host=192.0.2.1 connect_timeout=1 dbname=larry"), std::runtime_error);
+}
+
 TEST(bytes_that_are_not_metadata_are_rejected) {
     db().clear();
     const AtomOperations ops;

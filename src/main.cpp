@@ -164,8 +164,7 @@ struct Larry {
         const std::string connection = larry::Database::connection_from_environment();
         if (!connection.empty()) {
             try {
-                cloud = std::make_unique<larry::Database>(connection);
-                cloud->apply_schema();
+                cloud = larry::Database::open(connection);
             } catch (const std::exception& e) {
                 std::println(stderr, "larry: no cloud: {}", e.what());
             }

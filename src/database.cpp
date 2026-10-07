@@ -9,6 +9,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -116,6 +117,92 @@ std::string Database::connection_from_environment() {
         return from_environment;
     }
     return "";
+}
+
+namespace {
+
+// The value of a key in a connection string ("dbname=larry"), or empty.
+std::string connection_value(const std::string& connection, std::string_view key) {
+    const std::string pattern = std::string{key} + '=';
+    std::size_t at = 0;
+    while ((at = connection.find(pattern, at)) != std::string::npos) {
+        if (at == 0 || connection[at - 1] == ' ') {
+            std::size_t end = connection.find(' ', at);
+            std::string value = connection.substr(at + pattern.size(),
+                                                  end == std::string::npos ? std::string::npos
+                                                                           : end - at - pattern.size());
+            if (value.size() >= 2 && value.front() == '\'' && value.back() == '\'') {
+                value = value.substr(1, value.size() - 2);
+            }
+            return value;
+        }
+        at += pattern.size();
+    }
+    return "";
+}
+
+// The connection string with another database name.
+std::string with_database(const std::string& connection, std::string_view name) {
+    std::string out;
+    std::string_view rest{connection};
+    bool replaced = false;
+    while (!rest.empty()) {
+        const std::size_t space = rest.find(' ');
+        const std::string_view item = rest.substr(0, space);
+        if (item.starts_with("dbname=")) {
+            out += "dbname=";
+            out += name;
+            replaced = true;
+        } else {
+            out += item;
+        }
+        if (space == std::string_view::npos) {
+            break;
+        }
+        out += ' ';
+        rest.remove_prefix(space + 1);
+    }
+    if (!replaced) {
+        out += out.empty() ? "" : " ";
+        out += "dbname=";
+        out += name;
+    }
+    return out;
+}
+
+bool is_safe_name(std::string_view name) {
+    if (name.empty() || name.size() > 63) {
+        return false;
+    }
+    for (const char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+std::unique_ptr<Database> Database::open(const std::string& connection) {
+    try {
+        auto cloud = std::make_unique<Database>(connection);
+        cloud->apply_schema();
+        return cloud;
+    } catch (const std::runtime_error& e) {
+        const std::string why = e.what();
+        const std::string name = connection_value(connection, "dbname");
+        if (why.find("does not exist") == std::string::npos || !is_safe_name(name) ||
+            name == "postgres") {
+            throw;
+        }
+        // The server is there and the database is not: make it.
+        Database postgres{with_database(connection, "postgres")};
+        postgres.run("create database " + name);
+    }
+    auto cloud = std::make_unique<Database>(connection);
+    cloud->apply_schema();
+    return cloud;
 }
 
 Database::Result Database::exec(const char* sql, const std::vector<Param>& params) {

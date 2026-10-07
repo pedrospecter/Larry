@@ -5,6 +5,7 @@
 #include "larry/sentence.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -31,6 +32,12 @@ public:
     /// The connection string from the environment variable LARRY_DB, or empty
     /// when there is no cloud.
     [[nodiscard]] static std::string connection_from_environment();
+
+    /// Opens the cloud, and when the server has no database of that name yet
+    /// (a new Azure server has only "postgres"), creates it first through the
+    /// "postgres" database, then applies the schema. Throws std::runtime_error
+    /// when the server cannot be reached or the database cannot be made.
+    [[nodiscard]] static std::unique_ptr<Database> open(const std::string& connection);
 
     /// Runs sql/schema.sql. Safe to run again.
     void apply_schema();
