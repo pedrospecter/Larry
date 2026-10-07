@@ -1,0 +1,29 @@
+# C3 alignment: which entity in one corresponds to which in the other? It holds
+# when every entity of both lines up. Pairs with the same word count double a pair
+# with the same category, and entities keep their order.
+C3 yes 0=0 1=1 2=2 3=3 | the sky is blue | the sky is blue
+C3 yes 0=0 1~1 2=2 3=3 | the sky is blue | the sea is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+C3 no 0=0 2=2 3=3 a1 b1 | the sky is blue | the sea is blue
+C3 yes 0=0 1~1 2=2 3~3 | the sky is blue | the grass is green | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+C3 no 0=0 1=1 2=2 b3 | the sky is | the sky is blue
+C3 no 0=0 1=1 2=2 a3 | the sky is blue | the sky is
+C3 no 0=0 1=1 2=2 3=3 b4 b5 b6 b7 b8 | the sky is blue | the sky is blue and the grass is green
+C3 no 0=0 1=1 2=2 4=3 a3 | the sky is not blue | the sky is blue
+C3 no 0=0 1=1 2=2 4=3 a3 | the sky is not blue | the sky is blue | determiner, noun, auxiliary verb, adverb, adjective | determiner, noun, auxiliary verb, adjective
+C3 no 0=2 1=3 a2 a3 b0 b1 | the sky is blue | blue is the sky
+C3 no 0=0 1=1 2=3 b2 | Tom has apples | Tom has three apples | proper noun, verb, noun | proper noun, verb, numeral, noun
+C3 yes 0~0 1=1 2~2 3=3 | Tom has three apples | Ana has five apples | proper noun, verb, numeral, noun | proper noun, verb, numeral, noun
+C3 no 0=0 1=1 3=3 a2 b2 | Tom has three apples | Tom has five apples
+C3 yes 0=0 1=1 2~2 3=3 | Tom has three apples | Tom has five apples | proper noun, verb, numeral, noun | proper noun, verb, numeral, noun
+C3 no a0 b0 | sky | sea
+C3 yes 0~0 | sky | sea | noun | noun
+C3 yes | ... | ...
+C3 no a0 | sky | ...
+C3 no b0 | ... | sky
+C3 yes 0=0 1=1 2=2 3=3 | The sky is blue. | the sky is blue
+C3 yes 0=0 1=1 2=2 3=3 4~4 | Mary went to the kitchen | Mary went to the garden | proper noun, verb, preposition, determiner, noun | proper noun, verb, preposition, determiner, noun
+C3 no 0=0 1=1 2=2 a3 b3 | the door is open | the door is closed
+C3 yes 0=0 1=1 2=2 3~3 | the door is open | the door is closed | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+# A category match never joins entities with different, unknown categories.
+C3 no a0 b0 | sky | sea | noun | adjective
+C3 no a0 b0 | sky | sea | noun |

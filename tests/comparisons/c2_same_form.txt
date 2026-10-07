@@ -1,0 +1,25 @@
+# C2 same form: the same apart from capitals, spacing and punctuation?
+yes | the sky is blue | the sky is blue
+yes | The sky is blue. | the sky is blue
+yes | THE SKY IS BLUE! | the sky is blue
+yes | the sky  is   blue | the sky is blue
+yes | "The sky is blue," he said | the sky is blue he said
+yes | the sky, is blue | the sky is blue
+no | the sky is blue | the sea is blue
+no | the sky is blue | the sky is
+no | the sky is blue | the sky is blue blue
+no | the sky is blue | blue is the sky
+no | the sky is blue | the sky is not blue
+no | don't | do not
+yes | Don't! | don't
+yes | Tom's cat | tom's cat
+no | the sky isn't blue | the sky is not blue
+yes | I went to New York | i went to New York
+# Names join only when capitalized, so the same words in lower case are more entities.
+no | I went to New York | i went to new york
+no | I went to New York | New York I went to
+yes | Olá, tudo bem? | olá tudo bem
+no | Olá | Ola
+C2 yes 0=0 1=1 2=2 3=3 | The sky is blue. | the sky is blue
+C2 no 0=0 1~1 2=2 3=3 | the sky is blue | the sea is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+C2 no 0=0 1=1 2=2 b3 | the sky is | the sky is blue

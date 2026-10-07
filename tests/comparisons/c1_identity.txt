@@ -1,0 +1,14 @@
+# C1 identity: are the bits the same?
+yes | the sky is blue | the sky is blue
+yes | The sky is blue. | The sky is blue.
+no | the sky is blue | The sky is blue
+no | the sky is blue | the sky is blue.
+no | the sky is blue | the sky is  blue
+no | the sky is blue | the sea is blue
+no | the sky is blue | the sky is blue and the grass is green
+no | the sky is blue | ...
+yes | céu | céu
+no | céu | ceu
+C1 yes 0=0 1=1 2=2 3=3 | the sky is blue | the sky is blue
+C1 no 0=0 1=1 2=2 3=3 | the sky is blue | The sky is blue.
+C1 no 0=0 1=1 2=2 a3 | the sky is blue | the sky is

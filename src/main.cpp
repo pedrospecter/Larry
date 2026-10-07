@@ -34,6 +34,7 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                then the category of each entity, in order
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
+  compare <text> <text>        compare two sentences: C1 to C5
   count                        how many conceptions and word uses memory holds
 
 Memory is the file LARRY_MEMORY names, or memory/<locale>.atoms. When the
@@ -293,6 +294,61 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "rebuild") {
         larry.rebuild(true);
+        return 0;
+    }
+    if (command == "compare") {
+        if (rest.size() != 2) {
+            throw std::runtime_error("compare needs two sentences");
+        }
+        const larry::Description a =
+            larry.assimilation.describe(larry.ops.from_text(rest[0]), &larry.memory);
+        const larry::Description b =
+            larry.assimilation.describe(larry.ops.from_text(rest[1]), &larry.memory);
+        const auto word = [](const larry::Description& d, std::size_t i) {
+            return as_text(d.entities.entities[i].word);
+        };
+        const auto yes = [](bool holds) { return holds ? "yes" : "no"; };
+        const auto structure = [](const larry::Description& d) {
+            std::string out;
+            for (const larry::Entity& e : d.entities.entities) {
+                out += out.empty() ? "" : " ";
+                out += e.category.empty() ? "?" : as_text(e.category);
+            }
+            return out;
+        };
+        std::println("a                : {}", rest[0]);
+        std::println("                   {}", structure(a));
+        std::println("b                : {}", rest[1]);
+        std::println("                   {}", structure(b));
+        std::println("C1 identity      : {}", yes(larry.cognition.identity(a, b).holds));
+        std::println("C2 same form     : {}", yes(larry.cognition.same_form(a, b).holds));
+        const larry::Comparison alignment = larry.cognition.align(a, b);
+        std::string pairs;
+        for (const larry::Match& m : alignment.matches) {
+            pairs += std::format(" {}{}{}", word(a, m.a), m.same_word ? '=' : '~', word(b, m.b));
+        }
+        for (const std::size_t i : alignment.only_a) {
+            pairs += std::format(" {}~", word(a, i));
+        }
+        for (const std::size_t i : alignment.only_b) {
+            pairs += std::format(" ~{}", word(b, i));
+        }
+        std::println("C3 alignment     : {}{}", yes(alignment.holds), pairs);
+        const larry::Comparison difference = larry.cognition.difference(a, b);
+        std::size_t differing = difference.only_a.size() + difference.only_b.size();
+        std::string differences;
+        for (const larry::Match& m : difference.matches) {
+            if (!m.same_word) {
+                ++differing;
+                differences += std::format(" {} / {}", word(a, m.a), word(b, m.b));
+            }
+        }
+        std::println("C4 difference    : {} ({} differing){}{}", yes(difference.holds), differing,
+                     differences,
+                     difference.pattern.empty()
+                         ? std::string{}
+                         : std::format("  pattern: {}", as_text(difference.pattern)));
+        std::println("C5 same structure: {}", yes(larry.cognition.same_structure(a, b).holds));
         return 0;
     }
     if (command == "count") {

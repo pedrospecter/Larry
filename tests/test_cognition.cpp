@@ -5,6 +5,7 @@
 #include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/description.hpp"
 
 #include "check.hpp"
 
@@ -104,6 +105,9 @@ std::string_view trim(std::string_view s) {
 
 std::vector<std::string> fields(std::string_view line) {
     std::vector<std::string> out;
+    if (line.ends_with(" |")) {
+        line.remove_suffix(2);  // an empty last field
+    }
     while (true) {
         const std::size_t next = line.find(" | ");
         out.emplace_back(trim(line.substr(0, next)));
@@ -206,6 +210,102 @@ TEST(qualification_suite) {
     }
     CHECK(cases >= 300);
     CHECK(failed == 0);
+}
+
+namespace {
+
+larry::Description describe(std::string_view sentence, std::string_view categories) {
+    static const larry::Assimilation assimilation{rules()};
+    const larry::AtomOperations ops;
+    std::vector<Bytes> taught;
+    if (!trim(categories).empty()) {
+        taught = split_categories(categories);
+    }
+    return assimilation.describe(ops.from_text(sentence), nullptr, taught);
+}
+
+std::string text(const Bytes& bytes) {
+    return {bytes.begin(), bytes.end()};
+}
+
+// Runs one comparison suite: see tests/comparisons/README.md.
+void run_suite(std::string_view file_name, larry::ComparisonKind kind,
+               larry::Comparison (Cognition::*compare)(const larry::Description&,
+                                                      const larry::Description&) const) {
+    const std::filesystem::path file =
+        std::filesystem::path{LARRY_TEST_DATA_DIR} / ".." / "comparisons" / file_name;
+    std::ifstream in{file, std::ios::binary};
+    CHECK(static_cast<bool>(in));
+    const Cognition cognition;
+    std::size_t cases = 0;
+    std::size_t failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        std::vector<std::string> f = fields(line);
+        f.resize(5);
+        ++cases;
+        std::string got;
+        try {
+            const larry::Description a = describe(f[1], f[3]);
+            const larry::Description b = describe(f[2], f[4]);
+            const larry::Comparison result = (cognition.*compare)(a, b);
+            CHECK(result.kind == kind);
+            got = f[0].starts_with('C') ? text(result.bytes()) : (result.holds ? "yes" : "no");
+        } catch (const std::exception& e) {
+            got = e.what();
+        }
+        if (got != f[0]) {
+            ++failed;
+            std::println(stderr, "{} line {}: \"{}\" / \"{}\"\n  expected {}\n  got      {}",
+                         file_name, number, f[1], f[2], f[0], got);
+        }
+    }
+    CHECK(cases >= 10);
+    CHECK(failed == 0);
+}
+
+}  // namespace
+
+TEST(c1_identity) {
+    run_suite("c1_identity.txt", larry::ComparisonKind::Identity, &Cognition::identity);
+}
+
+TEST(c2_same_form) {
+    run_suite("c2_same_form.txt", larry::ComparisonKind::SameForm, &Cognition::same_form);
+}
+
+TEST(c3_alignment) {
+    run_suite("c3_alignment.txt", larry::ComparisonKind::Alignment, &Cognition::align);
+}
+
+TEST(c4_difference) {
+    run_suite("c4_difference.txt", larry::ComparisonKind::Difference, &Cognition::difference);
+}
+
+TEST(c5_same_structure) {
+    run_suite("c5_same_structure.txt", larry::ComparisonKind::SameStructure,
+              &Cognition::same_structure);
+}
+
+TEST(comparison_results_as_bytes) {
+    // The result as bytes is deterministic and names the kind, the answer,
+    // the matches, what matched nothing, and the pattern.
+    const larry::Description a = describe("the sky is blue", "determiner, noun, auxiliary verb, adjective");
+    const larry::Description b = describe("the sea is blue", "determiner, noun, auxiliary verb, adjective");
+    const Cognition cognition;
+    CHECK(text(cognition.identity(a, b).bytes()) == "C1 no 0=0 1~1 2=2 3=3");
+    CHECK(text(cognition.same_form(a, b).bytes()) == "C2 no 0=0 1~1 2=2 3=3");
+    CHECK(text(cognition.align(a, b).bytes()) == "C3 yes 0=0 1~1 2=2 3=3");
+    CHECK(text(cognition.difference(a, b).bytes()) == "C4 yes 0=0 1~1 2=2 3=3 pattern:the [noun] is blue");
+    CHECK(text(cognition.same_structure(a, b).bytes()) == "C5 yes 0=0 1~1 2=2 3=3");
+    CHECK(text(cognition.difference(a, b).bytes()) == text(cognition.difference(a, b).bytes()));
 }
 
 int main() {

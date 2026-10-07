@@ -49,6 +49,31 @@ bool ends_with_question_mark(std::string_view text, const BaseRules& rules) {
     return question;
 }
 
+std::vector<Bytes> folded_words(const Description& d) {
+    const AtomOperations ops;
+    std::vector<Bytes> out;
+    out.reserve(d.entities.entities.size());
+    for (const Entity& e : d.entities.entities) {
+        out.push_back(ops.fold(e.word));
+    }
+    return out;
+}
+
+void match_in_place(Comparison& c, const Description& a, const Description& b) {
+    const std::vector<Bytes> fa = folded_words(a);
+    const std::vector<Bytes> fb = folded_words(b);
+    const std::size_t n = std::min(fa.size(), fb.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        c.matches.push_back({i, i, fa[i] == fb[i]});
+    }
+    for (std::size_t i = n; i < fa.size(); ++i) {
+        c.only_a.push_back(i);
+    }
+    for (std::size_t i = n; i < fb.size(); ++i) {
+        c.only_b.push_back(i);
+    }
+}
+
 }  // namespace
 
 std::string_view name(Qualification qualification) noexcept {
@@ -65,6 +90,24 @@ std::string_view name(Qualification qualification) noexcept {
         return "expression";
     }
     return "";
+}
+
+Bytes Comparison::bytes() const {
+    std::string out = std::format("C{} {}", static_cast<int>(kind), holds ? "yes" : "no");
+    for (const Match& m : matches) {
+        out += std::format(" {}{}{}", m.a, m.same_word ? '=' : '~', m.b);
+    }
+    for (const std::size_t i : only_a) {
+        out += std::format(" a{}", i);
+    }
+    for (const std::size_t i : only_b) {
+        out += std::format(" b{}", i);
+    }
+    if (!pattern.empty()) {
+        out += " pattern:";
+        out.append(pattern.begin(), pattern.end());
+    }
+    return bytes_of(out);
 }
 
 Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectron& entities,
@@ -159,6 +202,139 @@ void Cognition::categorize(EntitiesElectron& entities, std::span<const Bytes> ca
     for (std::size_t i = 0; i < categories.size(); ++i) {
         entities.entities[i].category = categories[i];
     }
+}
+
+Comparison Cognition::identity(const Description& a, const Description& b) const {
+    const AtomOperations ops;
+    Comparison c;
+    c.kind = ComparisonKind::Identity;
+    c.holds = std::ranges::equal(ops.bytes(a.atom), ops.bytes(b.atom));
+    match_in_place(c, a, b);
+    return c;
+}
+
+Comparison Cognition::same_form(const Description& a, const Description& b) const {
+    Comparison c;
+    c.kind = ComparisonKind::SameForm;
+    match_in_place(c, a, b);
+    c.holds = c.only_a.empty() && c.only_b.empty() &&
+              std::ranges::all_of(c.matches, [](const Match& m) { return m.same_word; });
+    return c;
+}
+
+Comparison Cognition::align(const Description& a, const Description& b) const {
+    const std::vector<Bytes> fa = folded_words(a);
+    const std::vector<Bytes> fb = folded_words(b);
+    const std::vector<Entity>& ea = a.entities.entities;
+    const std::vector<Entity>& eb = b.entities.entities;
+    const std::size_t n = fa.size();
+    const std::size_t m = fb.size();
+
+    // 2 for the same word, 1 for the same known category, 0 for no match.
+    const auto score = [&](std::size_t i, std::size_t j) -> int {
+        if (fa[i] == fb[j]) {
+            return 2;
+        }
+        if (!ea[i].category.empty() && ea[i].category == eb[j].category) {
+            return 1;
+        }
+        return 0;
+    };
+    std::vector<std::vector<int>> best(n + 1, std::vector<int>(m + 1, 0));
+    for (std::size_t i = 1; i <= n; ++i) {
+        for (std::size_t j = 1; j <= m; ++j) {
+            int value = std::max(best[i - 1][j], best[i][j - 1]);
+            const int s = score(i - 1, j - 1);
+            if (s > 0) {
+                value = std::max(value, best[i - 1][j - 1] + s);
+            }
+            best[i][j] = value;
+        }
+    }
+    Comparison c;
+    c.kind = ComparisonKind::Alignment;
+    std::size_t i = n;
+    std::size_t j = m;
+    while (i > 0 && j > 0) {
+        const int s = score(i - 1, j - 1);
+        if (s > 0 && best[i][j] == best[i - 1][j - 1] + s) {
+            c.matches.push_back({i - 1, j - 1, s == 2});
+            --i;
+            --j;
+        } else if (best[i][j] == best[i - 1][j]) {
+            --i;
+        } else {
+            --j;
+        }
+    }
+    std::ranges::reverse(c.matches);
+    std::vector<bool> matched_a(n, false);
+    std::vector<bool> matched_b(m, false);
+    for (const Match& match : c.matches) {
+        matched_a[match.a] = true;
+        matched_b[match.b] = true;
+    }
+    for (std::size_t k = 0; k < n; ++k) {
+        if (!matched_a[k]) {
+            c.only_a.push_back(k);
+        }
+    }
+    for (std::size_t k = 0; k < m; ++k) {
+        if (!matched_b[k]) {
+            c.only_b.push_back(k);
+        }
+    }
+    c.holds = c.only_a.empty() && c.only_b.empty();
+    return c;
+}
+
+Comparison Cognition::difference(const Description& a, const Description& b) const {
+    Comparison c = align(a, b);
+    c.kind = ComparisonKind::Difference;
+    std::size_t differing = 0;
+    std::size_t where = 0;
+    for (const Match& m : c.matches) {
+        if (!m.same_word) {
+            ++differing;
+            where = m.a;
+        }
+    }
+    c.holds = differing > 0 || !c.only_a.empty() || !c.only_b.empty();
+    if (differing == 1 && c.only_a.empty() && c.only_b.empty()) {
+        const std::vector<Entity>& ea = a.entities.entities;
+        for (std::size_t i = 0; i < ea.size(); ++i) {
+            if (i > 0) {
+                c.pattern.push_back(' ');
+            }
+            if (i == where) {
+                c.pattern.push_back('[');
+                if (ea[i].category.empty()) {
+                    c.pattern.push_back('?');
+                } else {
+                    c.pattern.insert(c.pattern.end(), ea[i].category.begin(),
+                                     ea[i].category.end());
+                }
+                c.pattern.push_back(']');
+            } else {
+                c.pattern.insert(c.pattern.end(), ea[i].word.begin(), ea[i].word.end());
+            }
+        }
+    }
+    return c;
+}
+
+Comparison Cognition::same_structure(const Description& a, const Description& b) const {
+    Comparison c;
+    c.kind = ComparisonKind::SameStructure;
+    match_in_place(c, a, b);
+    const std::vector<Entity>& ea = a.entities.entities;
+    const std::vector<Entity>& eb = b.entities.entities;
+    c.holds = ea.size() == eb.size() && a.type.bytes == b.type.bytes;
+    for (std::size_t i = 0; c.holds && i < ea.size(); ++i) {
+        c.holds = !ea[i].category.empty() && ea[i].category == eb[i].category &&
+                  ea[i].types == eb[i].types;
+    }
+    return c;
 }
 
 }  // namespace larry

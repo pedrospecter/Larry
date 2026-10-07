@@ -1,0 +1,23 @@
+# C5 same structure: the same categories and types in the same order? It holds
+# only when every category is known.
+yes | the sky is blue | the grass is green | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+yes | the sky is blue | the sea is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+yes | the sky is blue | the sky is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+yes | The sky is blue. | the sky is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+no | the sky is blue | the sky is blue
+no | the sky is blue | the sea is blue | determiner, noun, auxiliary verb, adjective |
+no | the sky is blue | the sky is not blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adverb, adjective
+no | the sky is blue | blue is the sky | determiner, noun, auxiliary verb, adjective | adjective, auxiliary verb, determiner, noun
+no | the sky is blue | the sky is | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb
+yes | Tom has three apples | Ana has five apples | proper noun, verb, numeral, noun | proper noun, verb, numeral, noun
+no | Tom has three apples | Tom has apples | proper noun, verb, numeral, noun | proper noun, verb, noun
+yes | Mary went to the kitchen | Tom went to the garden | proper noun, verb, preposition, determiner, noun | proper noun, verb, preposition, determiner, noun
+yes | Birds fly | Fish swim | noun, verb | noun, verb
+no | Birds fly | Dogs | noun, verb | noun
+yes | sky | sea | noun | noun
+no | sky | sea | noun | adjective
+yes | ... | ...
+no | sky | ... | noun |
+C5 yes 0=0 1~1 2=2 3~3 | the sky is blue | the grass is green | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+C5 yes 0=0 1~1 2=2 3=3 | the sky is blue | the sea is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+C5 no 0=0 1=1 2=2 3~3 a4 | the sky is not blue | the sky is blue | determiner, noun, auxiliary verb, adverb, adjective | determiner, noun, auxiliary verb, adjective
