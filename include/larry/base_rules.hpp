@@ -3,22 +3,91 @@
 #include "larry/constellation.hpp"
 #include "larry/electron.hpp"
 
+#include <filesystem>
+#include <string_view>
 #include <vector>
 
 namespace larry {
 
 /// The base rules of a language, read from its directory in base_rules/, which
-/// is named by the language's locale ("en").
+/// is named by the language's locale ("en"). Each file holds one item per line,
+/// each byte written as two hex digits (PLAN.md, section 3, rule 4). Empty
+/// lines and lines that start with '#' are comments. scripts/hex.sh turns a
+/// plain list into this form and back.
 class BaseRules {
 public:
     explicit BaseRules(Language language);
 
-    /// The categories a word can have, from categories.txt. Each line of the
-    /// file is one category as bytes, written as two hex digits for each byte.
+    [[nodiscard]] Language language() const noexcept { return language_; }
+
+    /// The categories a word can have, from categories.txt.
     [[nodiscard]] const std::vector<Bytes>& categories() const noexcept { return categories_; }
 
+    /// Marks that are never part of a word, from punctuation.txt. A mark is
+    /// not an entity: it stays in the atom's bits (Q6).
+    [[nodiscard]] const std::vector<Bytes>& punctuation() const noexcept { return punctuation_; }
+
+    /// Marks that end a sentence, from sentence_ends.txt.
+    [[nodiscard]] const std::vector<Bytes>& sentence_ends() const noexcept {
+        return sentence_ends_;
+    }
+
+    /// Quotes and brackets that may follow the end of a sentence, from closers.txt.
+    [[nodiscard]] const std::vector<Bytes>& closers() const noexcept { return closers_; }
+
+    /// Marks that join two parts of one word ("don't", "well-known"), from joiners.txt.
+    [[nodiscard]] const std::vector<Bytes>& joiners() const noexcept { return joiners_; }
+
+    /// Marks that join two runs of digits ("3.14", "1,000", "10:30"), from
+    /// number_joiners.txt.
+    [[nodiscard]] const std::vector<Bytes>& number_joiners() const noexcept {
+        return number_joiners_;
+    }
+
+    /// Words that end with a full stop that is part of them ("mr.", "etc."), in
+    /// lower case, from abbreviations.txt.
+    [[nodiscard]] const std::vector<Bytes>& abbreviations() const noexcept {
+        return abbreviations_;
+    }
+
+    /// Abbreviations after which a capital does not start a new sentence
+    /// ("Dr. Smith"), from titles.txt.
+    [[nodiscard]] const std::vector<Bytes>& titles() const noexcept { return titles_; }
+
+    /// Words that open a question ("what"), from question_words.txt.
+    [[nodiscard]] const std::vector<Bytes>& question_words() const noexcept {
+        return question_words_;
+    }
+
+    /// Words a sentence hangs on to be an assumption ("if"), from assumption_words.txt.
+    [[nodiscard]] const std::vector<Bytes>& assumption_words() const noexcept {
+        return assumption_words_;
+    }
+
+    /// Whole sentences that are expressions ("hello", "thank you"), in lower
+    /// case, from expressions.txt.
+    [[nodiscard]] const std::vector<Bytes>& expressions() const noexcept { return expressions_; }
+
+    /// Reads one rule file. Throws std::runtime_error when the file cannot be
+    /// read or a line is not hex bytes.
+    [[nodiscard]] static std::vector<Bytes> read(const std::filesystem::path& file);
+
+    /// The directory the rules of this language are read from.
+    [[nodiscard]] std::filesystem::path directory() const;
+
 private:
+    Language language_;
     std::vector<Bytes> categories_;
+    std::vector<Bytes> punctuation_;
+    std::vector<Bytes> sentence_ends_;
+    std::vector<Bytes> closers_;
+    std::vector<Bytes> joiners_;
+    std::vector<Bytes> number_joiners_;
+    std::vector<Bytes> abbreviations_;
+    std::vector<Bytes> titles_;
+    std::vector<Bytes> question_words_;
+    std::vector<Bytes> assumption_words_;
+    std::vector<Bytes> expressions_;
 };
 
 }  // namespace larry

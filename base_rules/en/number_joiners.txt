@@ -1,0 +1,5 @@
+# Marks that join two runs of digits: 3.14, 1,000, 10:30, 1/2.
+2e
+2c
+3a
+2f

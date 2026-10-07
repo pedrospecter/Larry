@@ -1,3 +1,4 @@
+# The 13 word categories. One per line, each byte as two hex digits (scripts/hex.sh).
 6e6f756e
 70726f6e6f756e
 76657262

@@ -1,12 +1,12 @@
 #pragma once
 
 #include "larry/base_rules.hpp"
-#include "larry/constellation.hpp"
 #include "larry/electron.hpp"
 #include "larry/sentence.hpp"
 
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace larry {
 
@@ -19,12 +19,16 @@ enum class Qualification : std::uint8_t {
     Expression,
 };
 
+/// The name of a qualification: the bytes of the category electron.
+[[nodiscard]] std::string_view name(Qualification qualification) noexcept;
+
 /// Cognition: the process that compares atoms.
 class Cognition {
 public:
-    /// Qualify a sentence using the rules in the constellation.
-    [[nodiscard]] Qualification qualify(const Sentence& sentence,
-                                        const Constellation& constellation) const;
+    /// Qualify a sentence with the rules of its constellation and the
+    /// categories its entities have.
+    [[nodiscard]] Qualification qualify(const Sentence& sentence, const EntitiesElectron& entities,
+                                        const BaseRules& rules) const;
 
     /// Store the category of each word: the entity at each position gets the
     /// category at the same position. Every category has to be one of the

@@ -1,0 +1,8 @@
+# Abbreviations after which a capital letter does not start a new sentence.
+6d722e
+6d72732e
+6d732e
+64722e
+70726f662e
+73742e
+6d742e

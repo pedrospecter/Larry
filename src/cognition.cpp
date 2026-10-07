@@ -8,8 +8,24 @@
 
 namespace larry {
 
-Qualification Cognition::qualify(const Sentence& /*sentence*/,
-                                 const Constellation& /*constellation*/) const {
+std::string_view name(Qualification qualification) noexcept {
+    switch (qualification) {
+    case Qualification::Affirmation:
+        return "affirmation";
+    case Qualification::Question:
+        return "question";
+    case Qualification::Order:
+        return "order";
+    case Qualification::Assumption:
+        return "assumption";
+    case Qualification::Expression:
+        return "expression";
+    }
+    return "";
+}
+
+Qualification Cognition::qualify(const Sentence& /*sentence*/, const EntitiesElectron& /*entities*/,
+                                 const BaseRules& /*rules*/) const {
     throw std::logic_error("Cognition::qualify: the constellation has no qualification rules yet");
 }
 
