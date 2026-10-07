@@ -38,9 +38,11 @@ These names are the user's. Use them as they are and do not rename them.
 | Constellation | A language. | `Constellation`, `Language` |
 | Base rules | The rules of a language, read from files in `base_rules/<locale>/`. Today they hold the 13 word categories. | `BaseRules` |
 | Cognition | The process that compares atoms. | `Cognition` |
-| Database | What the brain uses to get information. PostgreSQL, one table: `atoms(metadata bytea primary key, bytes bytea)`. | `Database` |
-| Neural network | Named in code comments as what finds an atom by its metadata. No code yet (Q4). | none |
-| Brain | Named in a code comment as what uses the database. No code yet (Q4). | none |
+| Database | What the brain uses to get information. PostgreSQL on the user's Raspberry Pi. Parked for now (the user will adjust it later to save the conceptions): the class builds only with `LARRY_POSTGRES=ON`. | `Database` |
+| Neural network | What finds an atom by its metadata. Today: the metadata order and the word index in memory. The spreading lookup is N5 (Q4). | `Memory::find`, `find_prefix`, `uses` |
+| Brain | The loop that takes input, uses memory and cognition, and replies (Q4, proposed answer in use). | `Brain` |
+| Conception | An atom Larry holds: what it has been told, stored in memory with its electrons. The user's term. | `StoredAtom`, `Memory::store` |
+| Memory | Where Larry keeps its conceptions: a local file, one atom per line as hex, with the word index built from it. The database can later be its place of record (N2). | `Memory`, `memory/<locale>.atoms` |
 
 This plan needs four names that the user has not chosen. They are proposals (Q12):
 
@@ -55,31 +57,34 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 
 1. **Do not invent definitions.** Where this plan says "proposed", the user has not agreed yet. An item that depends on an open question in section 10 waits for the user's answer, unless the question is marked as not blocking.
 2. **No weights.** No fitted floating-point parameters, no gradient training, no pretrained models or embeddings, no machine-learning libraries, and no call to a language model when Larry runs.
-3. **Bytes, not text.** In the database, anything Larry reads is a `bytea` column, every table has an `id` key, and a language is named by its locale code (`en`). This is the user's instruction.
+3. **Bytes, not text.** In the database, anything Larry reads is a `bytea` column, every table has an `id` key, and a language is named by its locale code (`en`). This is the user's instruction. The memory file follows it: every atom is its metadata and its bytes, written as hex.
 4. **Data read on every run lives in files, not in the database.** It goes in `base_rules/<locale>/`, one item per line, each byte written as two hex digits. The database is for what Larry stores and looks up. This is the user's instruction: a database call on every run is too slow.
 5. **CPU only.** C++23, the warning flags in `CMakeLists.txt`, the style in `.clang-format`. Add a dependency only when the item cannot be built without it.
 6. **Every result can be traced.** Any description, comparison, answer or conclusion can list the atoms and rules it came from.
 7. **Every item lands with tests.** The build and all tests pass before a commit.
 8. **Claim only what was measured.** Write measured numbers in the log. A capability exists when its test passes.
 
-## 4. Where the code stands (2026-10-07)
+## 4. Where the code stands (2026-10-07, end of the first prototype session)
 
-`./build/larry` builds and runs. It prints the description of "the sky is blue", with the four words and their categories written by hand in `main.cpp`.
+`./build/larry` builds and runs on Linux (GCC 14) and should still build on the user's Mac (Apple clang 21). Memory is a local file; the PostgreSQL database is parked (see the table in section 2). On first use Larry rebuilds its memory from the lessons.
 
 | Part | State |
 |---|---|
-| Atom from text, atom as bits | Works (`AtomOperations::from_text`, `to_bits`). |
-| Metadata | Works. Each part is escaped and ended with a marker, so two different sets of electrons never give the same key. |
-| Word categories | 13 categories load from `base_rules/en/categories.txt`. `Cognition::categorize` checks categories it is given and stores them. It does not work them out. |
-| Qualification | `Cognition::qualify` throws: there are no rules yet. |
-| Type electron, entity types | Always empty. |
-| Image | A copy of the text. |
-| Splitting a sentence into words | Does not exist. |
-| Database | `Database::store` inserts one atom. Nothing reads atoms back. `main.cpp` does not use the database. Storing the same metadata twice fails on the primary key. |
-| Tests | None. |
-| Comparisons, memory, reasoning, speaking | Do not exist. |
-
-The code has been built only on the user's Mac: Apple clang 21, CMake 4.4, Homebrew libpqxx 8.0.2. The user's database is on a private network address, which a cloud session cannot reach. A cloud session runs on Linux and has no Homebrew.
+| Atom from text, atom as bits | Works (`AtomOperations::from_text`, `to_bits`, `text`, `bytes`). |
+| Metadata | Works, and reads back into electrons (`AtomOperations::electrons`). A prefix of leading parts finds neighbours (`metadata_prefix`). |
+| Base rules | 13 word categories plus the rule files the splitter, qualification and the brain need: punctuation, sentence ends, closers, joiners, number joiners, abbreviations, titles, question words, assumption words, expressions, negation words, contractions. Hex, with `#` comments; `scripts/hex.sh` converts. |
+| Sentences and entities (A1) | Works. Suites: 240 sentences, 55 texts, random bytes under the sanitizers. Known gaps: a name of several words at the start of a sentence is not joined, initials ("J. K.") and web addresses split, an emoji is a word. |
+| Qualification (A3) | Works with the proposed rules (Q5). Suite: 407 sentences. |
+| Taught categories and describing from memory (A2) | Works: `larry show "the grass is green"` fills every category after the first lesson. A word with several categories stays open with its candidates. |
+| Type electron, entity types | Still empty (Q1, Q2). |
+| Image | Still a copy of the text (Q3). |
+| Memory (F3, F5, N1) | `Memory` stores conceptions in `memory/<locale>.atoms` (or `LARRY_MEMORY`), finds them by metadata and by prefix, and keeps the word index with each use's category and context (the words before and after). The same atom twice changes nothing; the same words in another form keep the first atom. |
+| Lessons and rebuild (F7) | `lessons/en/01_first_sentences.txt`: 96 sentences. Two rebuilds give the same file byte for byte. |
+| Comparisons of form (C1 to C5) | Work; `larry compare`. Results are bytes but not yet stored as bonds (N3). Suites: 103 pairs. |
+| Truth of a concept (R1, first step) | `larry ask`: true, false or unknown from the conceptions, with the conception it came from; yes/no questions read as statements; contractions and negation handled. Word forms (A4) and meaning (A9) are not read yet, so "has" does not match "have". |
+| Hearing requests (G3, first step) | `larry say`, `larry chat`: affirmations stored with a novelty check and a conflict report, questions answered (yes/no, and open questions by the gap pattern), orders refused, assumptions kept apart, expressions returned, "why?" explains. |
+| Database | Parked. `Database` (PostgreSQL, libpqxx 8.0.2) compiles with `-DLARRY_POSTGRES=ON`; `scripts/setup.sh --postgres` installs what it needs. Not used by any command. |
+| Tests | 7 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`. |
 
 ## 5. The design
 
@@ -113,22 +118,26 @@ Nothing in the step is a trained number. This table shows what does the work tha
 Tick an item when its "done when" holds. Items are described in section 7. A question number after an item means the item waits for that answer.
 
 **Stage 1 — Foundation**
-- [ ] F1 Session instructions
-- [ ] F2 Environment script
-- [ ] F3 Connection from the environment
-- [ ] F4 Tests
-- [ ] F5 Read path and duplicates
-- [ ] F6 Command line
+- [x] F1 Session instructions
+- [x] F2 Environment script
+- [x] F3 Connection from the environment (as the memory file, `LARRY_MEMORY`; the database is parked)
+- [x] F4 Tests
+- [x] F5 Read path and duplicates (in `Memory`)
+- [x] F6 Command line
 
 **Stage 2 — First sentences**
-- [ ] A1 Sentences and entities
-- [ ] N1 Word index
-- [ ] A2 Taught categories
-- [ ] F7 Lessons and rebuild (Q9)
-- [ ] C1–C5 Comparisons of form
-- [ ] A3 Qualification (Q5)
+- [x] A1 Sentences and entities
+- [x] N1 Word index (in `Memory`)
+- [x] A2 Taught categories
+- [x] F7 Lessons and rebuild (Q9, proposed answer used)
+- [x] C1–C5 Comparisons of form
+- [x] A3 Qualification (Q5, proposed answer used)
 
-Milestone 1: after one lesson, `larry show "the grass is green"` fills in every category without being told, and `larry compare "the sky is blue" "the sea is blue"` reports the same structure with one difference, sky and sea.
+Milestone 1: after one lesson, `larry show "the grass is green"` fills in every category without being told, and `larry compare "the sky is blue" "the sea is blue"` reports the same structure with one difference, sky and sea. **Reached on 2026-10-07.**
+
+**Stage 2b — The first prototype** (the user asked for these early; each is a first step of a later item)
+- [x] R1a Truth of a concept: `larry ask` (first step of R1, see section 7)
+- [x] G3a Hearing requests: `larry say`, `larry chat` (first step of G3, with first steps of C16, R2, A5 and G4)
 
 **Stage 3 — Memory**
 - [ ] F8 Benchmarks
@@ -201,23 +210,23 @@ Milestone 5: `larry chat` holds a conversation and answers "why?" after any repl
 **F1 · Session instructions.** Add `CLAUDE.md` at the repository root: a few lines telling a session to read `PLAN.md` first and follow section 3. Cloud sessions load `CLAUDE.md` automatically and do not load this file unless told.
 Done when: a new session given only "continue the plan" picks the right next item.
 
-**F2 · Environment script.** `scripts/setup.sh` prepares a clean Linux machine: a compiler with C++23 `<print>` and `std::ranges::contains` (GCC 14 or newer, or Clang 18 or newer), CMake 3.28 or newer, libpq, libpqxx, and a PostgreSQL server started locally with a database `larry` and `sql/schema.sql` applied. The code is written against libpqxx 8.0.2. Linux distributions often package 7.x, which may not compile this code, so the script checks the version and builds 8.0.x from source when needed.
-Done when: on a fresh cloud session the script, the configure step, the build and `./build/larry` all succeed with no manual step, and the macOS build still succeeds.
+**F2 · Environment script.** `scripts/setup.sh` prepares a clean Linux machine: a compiler with C++23 `<print>` and `std::ranges::contains` (GCC 14 or newer, or Clang 18 or newer) and CMake 3.28 or newer. With `--postgres` it also installs libpq, libpqxx 8.0.2 (built from source from the Debian source tarball when the distribution's package is older) and a local PostgreSQL server with a database `larry` and `sql/schema.sql` applied, for the parked database class. CMake picks GCC 14 on Linux when no compiler was chosen, and fails early with a clear message when `<print>` is missing.
+Done when: on a fresh cloud session the script, the configure step, the build and `./build/larry` all succeed with no manual step, and the macOS build still succeeds. Done on Linux; the macOS build is not verified by a session.
 
-**F3 · Connection from the environment.** The database connection string comes from the environment variable `LARRY_DB` and defaults to the local server from F2. No address is written in the source.
-Done when: the same binary uses the local database in a cloud session and the user's database on their network, with only the variable changed.
+**F3 · Connection from the environment.** Memory is the file `LARRY_MEMORY` names, or `memory/<locale>.atoms` in the repository. The parked database takes its connection string from `LARRY_DB` (default `dbname=larry`). No address is written in the source.
+Done when: the same binary uses another memory file with only the variable changed. Done.
 
 **F4 · Tests.** A `ctest` target with one test file per class, covering what exists: metadata (different electrons give different bytes, including words that contain a zero byte; atoms that share leading parts sort together), the hex file reader (odd length, non-hex characters, empty lines), and `categorize` (wrong count, unknown category). The tests also run with `LARRY_SANITIZE=ON`.
 Done when: `ctest` passes in both builds on Linux and macOS.
 
-**F5 · Read path and duplicates.** Add `Database::find(metadata)` and `Database::find_prefix(prefix)`. Decide what `store` does when the metadata is already there. Two cases need an answer: the same sentence stored again, and a different sentence with the same metadata, which can happen if punctuation is not an entity (Q6).
-Done when: a store-then-find round trip and both duplicate cases are tested. Needs F2, F3, F4.
+**F5 · Read path and duplicates.** `Memory::find(metadata)` and `Memory::find_prefix(prefix)`. Decided: the same sentence stored again changes nothing (`Stored::Same`); a different sentence with the same metadata, the same words in another form of capitals, spacing or punctuation (Q6), keeps the first atom (`Stored::SameForm`).
+Done when: a store-then-find round trip and both duplicate cases are tested. Done, in `Memory`; the parked `Database` has the same operations.
 
-**F6 · Command line.** Subcommands that later items extend: `larry show <text>` describes a sentence without storing it, `larry tell <text>` describes and stores it, `larry read <file>` tells every sentence in a file. Later items add `compare`, `ask`, `chat`, `rebuild` and `bench`. `show` replaces the fixed demo in `main.cpp`.
-Done when: `larry show "the sky is blue"` prints what the demo prints today.
+**F6 · Command line.** Subcommands that later items extend: `larry show <text>` describes a sentence without storing it, `larry tell <text> [category ...]` describes and stores it (taught when the categories follow), `larry read <file>` tells every sentence in a file. Also there now: `teach`, `rebuild`, `compare`, `ask`, `say`, `chat`, `count`. Later: `bench`, `sync`. `larry help` lists them.
+Done when: `larry show "the sky is blue"` prints what the demo prints today. Done.
 
-**F7 · Lessons and rebuild.** A cloud session starts with an empty database, so what Larry has been taught must live in the repository. Lessons are files in `lessons/<locale>/`. `larry rebuild` empties the database and assimilates every lesson in a fixed order. This also makes a design change cheap to try: change a rule, rebuild, and compare the results.
-Done when: two rebuilds give the same `atoms` contents, byte for byte. Needs A1, A2, Q9.
+**F7 · Lessons and rebuild.** A cloud session starts with an empty memory, so what Larry has been taught must live in the repository. Lessons are files in `lessons/<locale>/`: plain UTF-8 (Q9), a sentence line, then the category of each entity separated by commas, blank lines between lessons, `#` comments. `larry rebuild` empties memory and assimilates every lesson file in name order, and Larry does this by itself when the memory file does not exist yet. A test checks every lesson in the repository: one category per entity, all in the base rules, no word taught with two categories. This also makes a design change cheap to try: change a rule, rebuild, and compare the results.
+Done when: two rebuilds give the same `atoms` contents, byte for byte. Done: the memory files are identical.
 
 **F8 · Benchmarks.** `larry bench` measures sentences assimilated per second, lookups per second, memory per atom, and time to answer, with ten thousand and with one million atoms. Generated atoms are fine for this. A session that changes storage or lookup writes the new numbers in the log.
 Done when: the benchmark finishes in a few minutes and prints one line per measure.
@@ -233,13 +242,13 @@ Assimilation turns text into atoms with every electron filled in, and uses each 
 | 2 | Free | The sentence. | Describes all of it and marks what it guessed. |
 
 **A1 · Sentences and entities.** Split text into sentences and each sentence into entities: words, numerals, contractions ("don't"), hyphenated words, abbreviations, and names of more than one word. The splitting rules are data in `base_rules/en/`. It must handle any UTF-8 input.
-Done when: a suite of at least 200 sentences with their expected entities passes, and random bytes as input never crash the sanitizer build. Q6 is open but does not block: use the proposed answer.
+Done when: a suite of at least 200 sentences with their expected entities passes, and random bytes as input never crash the sanitizer build. Q6 is open but does not block: use the proposed answer. Done (240 sentences, 55 texts). Known gaps, kept in the suites as they are: a name of several words joins only after the first word of a sentence and only when each word is capitalized in ASCII ("New York is big" stays two entities; joining at the start needs memory, A6/A8); initials ("J. K. Rowling") and web addresses split at the full stops; a single newline is white space and a blank line ends a sentence.
 
 **A2 · Taught categories (level 0).** A lesson gives a sentence and the category of each word. `larry tell` stores the atom with those categories. Larry's knowledge of a word is then the set of stored atoms that contain it, so no separate dictionary is needed.
-Done when: after a lesson, `larry show` on a new sentence made only of taught words with one category each fills in every category. Needs A1, N1.
+Done when: after a lesson, `larry show` on a new sentence made only of taught words with one category each fills in every category. Needs A1, N1. Done. Each entity is marked taught, memory, open (with its candidates) or unknown.
 
 **A3 · Qualification.** Fill in `Cognition::qualify` from rules in `base_rules/en/`. Proposed starting rules: a sentence that ends with "?" or opens with a question word or an auxiliary verb before its subject is a question; one that opens with a verb in its base form and has no subject is an order; one that opens with or hangs on a word such as "if", "suppose", "maybe" or "perhaps" is an assumption; one made only of interjections or a greeting is an expression; anything else is an affirmation.
-Done when: a suite of at least 300 sentences labelled by hand passes. Needs A2, Q5.
+Done when: a suite of at least 300 sentences labelled by hand passes. Needs A2, Q5. Done with the proposed rules (407 sentences) and two refinements the suite asked for: an auxiliary verb followed by a verb opens an order ("Do not stop"), and a question word used as a noun does not make a question. Known gaps: "I wonder if it rains" is an assumption by the rule; "What a day!" is a question by the rule.
 
 **A4 · Word forms.** Relate the forms of one word: sky and skies, is and was, blue and bluer. Larry finds regular endings by lining up taught words that share a beginning and differ at the end. Irregular forms are taught as pairs. Each relation is stored as a "form of" bond between entities.
 Done when: for a held-out list of regular forms Larry finds the base form, and an unknown word with a known ending gets a proposed category. Needs N3.
@@ -273,8 +282,8 @@ Done when: the suites for A1 to A6 pass for the new locale and the change to `sr
 
 Proposed definition (Q4): the neural network is the stored atoms, the connections between them (the order of the metadata keys, the word index, and the bonds), and the lookup that walks from the atoms in hand to their neighbours.
 
-**N1 · Word index.** For each word, the atoms that contain it, the position, and the category it has there. It answers "which atoms mention sky?" and "which categories has 'run' been seen with?". The metadata key alone cannot answer these, because it only finds atoms by their leading parts. The table follows rule 3.
-Done when: both questions are answered correctly for a set of stored atoms, and building the index twice from the same atoms gives the same result. Needs A1, F5.
+**N1 · Word index.** For each word, the atoms that contain it, the position, the category it has there, and its context: the words before and after it. It answers "which atoms mention sky?" and "which categories has 'run' been seen with?". The metadata key alone cannot answer these, because it only finds atoms by their leading parts. The index is built from the atoms when the memory file is read, so it is always the same for the same atoms.
+Done when: both questions are answered correctly for a set of stored atoms, and building the index twice from the same atoms gives the same result. Done, in `Memory`.
 
 **N2 · Local copy of the atoms.** Describing or answering one sentence will take thousands of lookups. A network round trip to the database for each would take seconds per sentence. Proposed: Larry keeps the atoms and indexes in a local file mapped into memory and finds keys and prefixes by binary search. The database stays the place of record, and `larry sync` refreshes the local copy.
 Done when (proposed targets): with one million atoms, a prefix lookup takes under 10 microseconds and start-up takes under one second. Needs F8, Q11.
@@ -324,12 +333,13 @@ Build them in four groups:
 - **Truth, C8, C9, C14, C15.** Needs the meaning group. Also measured on FraCaS, a public set of 346 inference problems built by hand, each answered yes, no or unknown.
 - **Use, C10, C11, C13.** Needs the truth group. C13 is built with R8.
 
-Done when, for each comparison: its suite passes, it reports which entities matched, and its result can be stored and read back as a bond.
+Done when, for each comparison: its suite passes, it reports which entities matched, and its result can be stored and read back as a bond. C1 to C5 done except the bond, which waits for N3; their results are bytes (`Comparison::bytes`) ready to be stored.
 
 ### Track R — Reasoning (goal 3)
 
 **R1 · Answering from memory.** Take a question atom, find the affirmations that answer it (C10) and reply with the best one. When nothing answers, the reply is "I don't know". Larry never produces an answer it cannot trace to atoms.
 Done when: a suite of questions about a lesson passes, including questions with no answer, and bAbI tasks 4 and 5 are measured. Needs C10, N5, Q13.
+First step done (R1a, `Brain::truth`, `Brain::answers`, `larry ask`): a sentence is reduced to its core (words in lower case, contractions expanded, negation words and do-support removed, a polarity); a concept is true when an affirmation has the same core with the same polarity, false with the opposite polarity, unknown otherwise, and only affirmations count. A yes/no question is read as the statements it asks about (the auxiliary verb moved after each possible subject; a negative question asks about the positive). A question that opens with a question word is answered by the conceptions whose core has its known words around the gap ("What is the sky?" asks for "the sky is [?]", also answered by "[?] is the sky"). Unknown answers list the nearest conceptions by shared content words. Not yet: word forms (A4), meaning (A9), the C10 comparison itself.
 
 **R2 · Truth keeping.** Atoms are assumed truths, so some will turn out false. Each atom gets a status (assumed, concluded, in conflict, withdrawn) and its support: its source, or the atoms it was concluded from. When C9 finds a conflict, Larry records it and does not choose silently. When an atom is withdrawn, so is everything concluded only from it.
 Done when: a suite passes, and bAbI tasks 9 and 10 are measured. Needs C9, N3, Q14.
@@ -364,6 +374,7 @@ Done when: for the A9 suite, assimilating a sentence, generating from its image 
 
 **G3 · Conversation.** `larry chat` keeps a molecule for the conversation and treats each qualification in its own way. An affirmation goes through novelty (C16) and is stored, or Larry objects if it conflicts. A question is answered. An order is carried out or refused. An assumption is reasoned about without being stored as a truth. An expression is answered in kind.
 Done when: scripted conversations pass. Needs N6, R1, R2, Q13.
+First step done (G3a, `Brain::hear`, `larry say`, `larry chat`): an affirmation is stored after a first novelty check (the same conception: "I already know that"; a conflicting one is kept and reported, as R2 asks; a new one is stored and Larry asks about the first word it does not know, as A5 asks); a question is answered through R1a; an order is refused ("I cannot do that yet"); an assumption is stored as one; an expression is answered in kind. `chat` keeps no molecule yet (N4) and answers "why?" with what the last reply came from (first step of G4).
 
 **G4 · Explaining.** After any reply, "why?" lists the atoms and rules used, as sentences.
 
@@ -439,8 +450,8 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q1 | What is the type of an atom (the type electron)? | Its structure: the ordered roles of its entities, such as subject, linking verb, attribute. | A7 |
 | Q2 | What goes in an entity's list of types? | Its grammatical features (number, tense, person, degree) and its role in the sentence. | A7, A8 |
 | Q3 | What is the image? | The form in which two sentences that say the same thing are equal (see A9). | A9 and every item that depends on meaning |
-| Q4 | What are the neural network and the brain, as parts of the program? | The network is the stored atoms, their connections and the lookup that walks them. The brain is the loop that takes input, uses the network and cognition, and replies. | N5 |
-| Q5 | What are the rules that tell the five qualifications apart? | The starting rules in A3. | A3 |
+| Q4 | What are the neural network and the brain, as parts of the program? | The network is the stored atoms, their connections and the lookup that walks them. The brain is the loop that takes input, uses the network and cognition, and replies. The proposed answer is in use: `Brain` exists. | N5 |
+| Q5 | What are the rules that tell the five qualifications apart? | The starting rules in A3, in use with two refinements (see A3). | A3 (done with the proposal) |
 | Q6 | Is a punctuation mark an entity? The 13 categories have none for it. | No. It stays in the atom's bits, and qualification reads it. | Nothing |
 | Q7 | May Larry use evidence counts? A count is a whole number, worked out from the stored atoms and always possible to work out again, so it is a tally and not a trained weight. It is still a number that sways choices. | Yes. | A6, R5 |
 | Q8 | Where do lessons come from? They can be written by the user, taken from public resources made by people (Universal Dependencies, WordNet, Simple English Wikipedia), or written by Claude sessions. With the third, Larry's knowledge would come indirectly from a weight-based model. | The first two for lessons. Sessions write test suites only. | A2 beyond the first lessons |
@@ -451,6 +462,10 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q13 | The `atoms` table is described as assumed truths. Are questions and orders stored there too? | Every sentence becomes an atom and is kept in its molecule. Only affirmations are treated as truths. | R1, G3 |
 | Q14 | When two atoms conflict, which one stands? | From the same source, the later one stands and the earlier is withdrawn. From different sources, both are kept and marked, and Larry asks. | R2 |
 | Q15 | Which language is the second constellation? | None proposed. | A12 |
+| Q16 | Where do conceptions live for good: the local memory file, the user's PostgreSQL on the Raspberry Pi, or both, with the database as the place of record and `larry sync` (N2)? The user said the database is an idea to adjust later. | The file for now; the parked `Database` class is ready to be adjusted. | N2 |
+| Q17 | When a new affirmation conflicts with a conception, should Larry store it (it does now, and reports the conflict) or ask first? | Store and report, as R2 proposes. | R2 |
+| Q18 | Is the copula ("is" in "the sky is blue") an auxiliary verb or a verb? The first lesson teaches it as an auxiliary verb, which makes "Is the sky blue" a question by the A3 rule. | Auxiliary verb. | A2 lessons, A3 |
+| Q19 | May a lesson sentence have a word Larry cannot categorize? Today every lesson gives every category (level 0). | No: lessons are level 0. Level 1 and 2 come with A5 and A6. | F7 |
 
 ## 11. Earlier work worth reading
 
@@ -469,3 +484,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Date | Items | Measured | Notes |
 |---|---|---|---|
 | 2026-10-07 | Plan written | `./build/larry` builds and runs on macOS. No tests exist. | Q1 to Q15 are open. |
+| 2026-10-07 | F1 to F7, A1, A2, A3, N1, C1 to C5, R1a, G3a | Linux, GCC 14: build and 7 test executables pass, also with `LARRY_SANITIZE=ON`. Suites: 240 sentences with entities, 55 texts with sentences, 407 qualified sentences, 103 comparison pairs. Lesson 1: 96 sentences, 379 word uses, memory file 20,344 bytes (212 bytes per atom). `larry rebuild` 0.017 s; `larry ask "Is the sky blue?"` 0.005 s (wall time, one run each, 4 CPUs). Milestone 1 reached. | The user parked the PostgreSQL database and asked for a prototype: memory is a local file. Q4, Q5, Q9 used their proposed answers. Q16 to Q19 added. macOS build not verified this session. |
