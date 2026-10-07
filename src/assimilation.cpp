@@ -1,6 +1,8 @@
 #include "larry/assimilation.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/cognition.hpp"
+#include "larry/memory.hpp"
 #include "larry/utf8.hpp"
 
 #include <algorithm>
@@ -336,6 +338,43 @@ std::vector<Sentence> Assimilation::sentences(std::string_view text) const {
         push(start, n);
     }
     return out;
+}
+
+Description Assimilation::describe(const Sentence& atom, Memory* memory,
+                                   std::span<const Bytes> taught) const {
+    const AtomOperations ops;
+    const Cognition cognition;
+    Description d;
+    d.atom = atom;
+    d.entities = entities(atom);
+    const std::size_t n = d.entities.entities.size();
+    d.notes.assign(n, EntityNote{});
+    if (!taught.empty()) {
+        cognition.categorize(d.entities, taught, *rules_);
+        for (EntityNote& note : d.notes) {
+            note.source = Source::Taught;
+        }
+    } else if (memory != nullptr) {
+        for (std::size_t i = 0; i < n; ++i) {
+            Entity& entity = d.entities.entities[i];
+            const std::vector<CategoryCount> found = memory->categories_of(ops.fold(entity.word));
+            if (found.size() == 1) {
+                entity.category = found.front().category;
+                d.notes[i].source = Source::Memory;
+            } else if (found.size() > 1) {
+                d.notes[i].source = Source::Open;
+                for (const CategoryCount& f : found) {
+                    d.notes[i].candidates.push_back(f.category);
+                }
+            }
+        }
+    }
+    const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
+    d.category.bytes.assign(qualification.begin(), qualification.end());
+    const std::span<const std::uint8_t> bytes = ops.bytes(atom);
+    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.metadata = ops.metadata(d.category, d.type, d.entities);
+    return d;
 }
 
 }  // namespace larry

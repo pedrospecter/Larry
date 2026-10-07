@@ -4,6 +4,8 @@
 
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/description.hpp"
+#include "larry/memory.hpp"
 
 #include "check.hpp"
 
@@ -221,6 +223,78 @@ TEST(random_bytes_never_crash) {
     }
     CHECK(sentences > 0);
     CHECK(entities > 0);
+}
+
+TEST(describe_without_memory) {
+    const larry::Description d = assimilation().describe(ops().from_text("The sky."), nullptr);
+    CHECK(d.entities.entities.size() == 2);
+    CHECK(d.notes.size() == 2);
+    CHECK(d.notes[0].source == larry::Source::Unknown);
+    CHECK(d.entities.entities[0].category.empty());
+    CHECK(d.image.bytes == (Bytes{'T', 'h', 'e', ' ', 's', 'k', 'y', '.'}));
+    CHECK(d.atom.size() == 64);
+    CHECK(d.category.bytes == (Bytes{'a', 'f', 'f', 'i', 'r', 'm', 'a', 't', 'i', 'o', 'n'}));
+    CHECK(!d.metadata.bytes.empty());
+    CHECK(ops().electrons(d.metadata).entities.entities.size() == 2);
+}
+
+TEST(describe_with_taught_categories) {
+    const std::vector<Bytes> taught{Bytes{'d', 'e', 't', 'e', 'r', 'm', 'i', 'n', 'e', 'r'},
+                                    Bytes{'n', 'o', 'u', 'n'}};
+    const larry::Description d = assimilation().describe(ops().from_text("The sky."), nullptr, taught);
+    CHECK(d.entities.entities[0].category == taught[0]);
+    CHECK(d.entities.entities[1].category == taught[1]);
+    CHECK(d.notes[0].source == larry::Source::Taught);
+    CHECK(d.notes[1].source == larry::Source::Taught);
+    const std::vector<Bytes> wrong_count{taught[0]};
+    CHECK_THROWS(assimilation().describe(ops().from_text("The sky."), nullptr, wrong_count),
+                 std::invalid_argument);
+}
+
+TEST(describe_from_memory) {
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_describe.atoms";
+    std::filesystem::remove(file);
+    larry::Memory memory{file};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation().describe(ops().from_text(text), &memory, taught);
+        CHECK(memory.store(d.atom, d.metadata) == larry::Stored::New);
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The grass is tall.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Leaves are green.", {"noun", "auxiliary verb", "adjective"});
+    teach("I run.", {"pronoun", "verb"});
+    teach("A run.", {"determiner", "noun"});
+
+    // A new sentence made only of taught words with one category each.
+    const larry::Description d = assimilation().describe(ops().from_text("The grass is green."), &memory);
+    CHECK(d.entities.entities.size() == 4);
+    const Bytes determiner{'d', 'e', 't', 'e', 'r', 'm', 'i', 'n', 'e', 'r'};
+    CHECK(d.entities.entities[0].category == determiner);
+    CHECK(d.entities.entities[1].category == (Bytes{'n', 'o', 'u', 'n'}));
+    CHECK(d.entities.entities[3].category == (Bytes{'a', 'd', 'j', 'e', 'c', 't', 'i', 'v', 'e'}));
+    for (const larry::EntityNote& note : d.notes) {
+        CHECK(note.source == larry::Source::Memory);
+    }
+    CHECK(d.category.bytes == (Bytes{'a', 'f', 'f', 'i', 'r', 'm', 'a', 't', 'i', 'o', 'n'}));
+    // Capitals do not matter: "the" was taught as "The".
+    CHECK(assimilation().describe(ops().from_text("the grass"), &memory).notes[0].source ==
+          larry::Source::Memory);
+    // A word with two categories stays open, with both as candidates.
+    const larry::Description open = assimilation().describe(ops().from_text("The run is tall."), &memory);
+    CHECK(open.notes[1].source == larry::Source::Open);
+    CHECK(open.notes[1].candidates.size() == 2);
+    CHECK(open.entities.entities[1].category.empty());
+    // An unknown word is unknown.
+    const larry::Description unknown = assimilation().describe(ops().from_text("The sky is azure."), &memory);
+    CHECK(unknown.notes[3].source == larry::Source::Unknown);
+    CHECK(unknown.notes[0].source == larry::Source::Memory);
+    // Memory makes the question rule work: "Is" is an auxiliary verb.
+    const larry::Description question = assimilation().describe(ops().from_text("Is the sky blue"), &memory);
+    CHECK(question.category.bytes == (Bytes{'q', 'u', 'e', 's', 't', 'i', 'o', 'n'}));
 }
 
 int main() {

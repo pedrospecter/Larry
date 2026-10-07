@@ -1,15 +1,19 @@
 #pragma once
 
 #include "larry/base_rules.hpp"
+#include "larry/description.hpp"
 #include "larry/electron.hpp"
 #include "larry/sentence.hpp"
 
 #include <cstddef>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace larry {
+
+class Memory;
 
 /// Assimilation: how Larry takes in language (PLAN.md, track A). It splits
 /// text into sentences and entities with the rules of the constellation, and
@@ -30,6 +34,14 @@ public:
     /// "e.g.") or, after the first word of the sentence, a name of several
     /// capitalized words ("New York"). Punctuation is not an entity (Q6).
     [[nodiscard]] EntitiesElectron entities(const Sentence& sentence) const;
+
+    /// A2: describe a sentence: its entities, their categories, its
+    /// qualification, image and metadata. With taught categories (one per
+    /// entity, in order) the description is level 0. Otherwise each word
+    /// takes the one category the atoms in memory give it, stays open when
+    /// they give several, and is unknown when memory has none or is null.
+    [[nodiscard]] Description describe(const Sentence& atom, Memory* memory,
+                                       std::span<const Bytes> taught = {}) const;
 
 
 private:
