@@ -16,6 +16,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <print>
 #include <span>
@@ -51,6 +52,8 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                y validates, n withdraws, s skips, q stops
   validate list                list the proposed conceptions with their ids
   validate accept <id>         validate one; validate reject <id> withdraws it
+  words [word]                 the vocabulary: every word with its categories
+                               and uses, or one word with its types and contexts
   count                        how many conceptions and word uses memory holds
 
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
@@ -206,6 +209,14 @@ std::string source(const larry::EntityNote& note) {
         }
         return out;
     }
+    case larry::Source::Guess: {
+        std::string out = "guess from the context:";
+        for (const larry::Bytes& candidate : note.candidates) {
+            out += ' ';
+            out += as_text(candidate);
+        }
+        return out;
+    }
     }
     return "";
 }
@@ -268,7 +279,8 @@ std::string open_words(const larry::Description& d) {
     std::string out;
     for (std::size_t i = 0; i < d.notes.size(); ++i) {
         if (d.notes[i].source == larry::Source::Unknown ||
-            d.notes[i].source == larry::Source::Open) {
+            d.notes[i].source == larry::Source::Open ||
+            d.notes[i].source == larry::Source::Guess) {
             out += out.empty() ? "  ?" : ",";
             out += ' ';
             out += as_text(d.entities.entities[i].word);
@@ -529,6 +541,70 @@ int run(std::span<const std::string_view> args) {
         std::println("{} conceptions pushed to the cloud, {} pulled into the cache", pushed, pulled);
         std::println("{} conceptions here, {} in the cloud", larry.memory.count(),
                      larry.cloud->count());
+        return 0;
+    }
+    if (command == "words") {
+        if (rest.empty()) {
+            std::println("{:<20} {:<32} {:>5}  {}", "word", "categories", "uses", "context");
+            for (const larry::Bytes& word : larry.memory.words()) {
+                const std::vector<larry::WordUse> uses = larry.memory.uses(word);
+                std::string categories;
+                for (const larry::CategoryCount& c : larry.memory.categories_of(word)) {
+                    categories += categories.empty() ? "" : ", ";
+                    categories += std::format("{} {}", as_text(c.category), c.count);
+                }
+                const larry::WordUse& first = uses.front();
+                std::println("{:<20} {:<32} {:>5}  {} _ {}", as_text(word),
+                             categories.empty() ? "?" : categories, uses.size(),
+                             first.before.empty() ? "^" : as_text(first.before),
+                             first.after.empty() ? "$" : as_text(first.after));
+            }
+            std::println("{} words", larry.memory.words().size());
+            return 0;
+        }
+        const larry::Bytes word = larry.ops.fold(larry::Bytes(rest[0].begin(), rest[0].end()));
+        const std::vector<larry::WordUse> uses = larry.memory.uses(word);
+        if (uses.empty()) {
+            std::println("\"{}\" is not in the vocabulary", rest[0]);
+            return 0;
+        }
+        std::println("{}: {} uses", as_text(word), uses.size());
+        for (const larry::CategoryCount& c : larry.memory.categories_of(word)) {
+            std::println("  category {}: {} uses", as_text(c.category), c.count);
+        }
+        std::map<std::string, std::int64_t> types;
+        std::map<std::string, std::int64_t> contexts;
+        for (const larry::StoredAtom& atom : larry.memory.containing(word)) {
+            for (const larry::Entity& e : atom.description.entities.entities) {
+                if (larry.ops.fold(e.word) != word) {
+                    continue;
+                }
+                std::string list;
+                for (const larry::Bytes& type : e.types) {
+                    list += list.empty() ? "" : ", ";
+                    list += as_text(type);
+                }
+                ++types[list];
+            }
+        }
+        for (const larry::WordUse& use : uses) {
+            ++contexts[std::format("{} _ {}", use.before.empty() ? "^" : as_text(use.before),
+                                   use.after.empty() ? "$" : as_text(use.after))];
+        }
+        for (const auto& [list, count] : types) {
+            std::println("  types {}: {} uses", list, count);
+        }
+        for (const auto& [context, count] : contexts) {
+            std::println("  context {}: {}", context, count);
+        }
+        std::size_t shown = 0;
+        for (const larry::StoredAtom& atom : larry.memory.containing(word)) {
+            if (shown++ == 5) {
+                std::println("  ...");
+                break;
+            }
+            std::println("  in: {}", larry.ops.text(atom.description.atom));
+        }
         return 0;
     }
     if (command == "count") {

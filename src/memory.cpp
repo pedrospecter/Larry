@@ -204,14 +204,19 @@ void Memory::clear() {
 void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
     const AtomOperations ops;
     const std::vector<Entity> entities = ops.electrons(metadata).entities.entities;
+    // A guessed category is no evidence: the index keeps it empty.
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    const auto category_of = [&](std::size_t i) {
+        return std::ranges::contains(entities[i].types, guessed) ? Bytes{} : entities[i].category;
+    };
     for (std::size_t i = 0; i < entities.size(); ++i) {
         WordUse use{.atom = id,
                     .position = i,
-                    .category = entities[i].category,
+                    .category = category_of(i),
                     .before = i > 0 ? ops.fold(entities[i - 1].word) : Bytes{},
                     .after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{},
-                    .before_category = i > 0 ? entities[i - 1].category : Bytes{},
-                    .after_category = i + 1 < entities.size() ? entities[i + 1].category : Bytes{}};
+                    .before_category = i > 0 ? category_of(i - 1) : Bytes{},
+                    .after_category = i + 1 < entities.size() ? category_of(i + 1) : Bytes{}};
         words_[ops.fold(entities[i].word)].push_back(std::move(use));
         ++word_uses_;
     }
@@ -353,6 +358,15 @@ std::vector<CategoryCount> Memory::categories_of(const Bytes& word) const {
     out.reserve(counts.size());
     for (const auto& [category, count] : counts) {
         out.push_back({category, count});
+    }
+    return out;
+}
+
+std::vector<Bytes> Memory::words() const {
+    std::vector<Bytes> out;
+    out.reserve(words_.size());
+    for (const auto& [word, uses] : words_) {
+        out.push_back(word);
     }
     return out;
 }

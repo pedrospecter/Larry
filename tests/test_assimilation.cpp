@@ -9,6 +9,7 @@
 
 #include "check.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -290,8 +291,10 @@ TEST(describe_from_memory) {
     CHECK(open.entities.entities[1].category.empty());
     // An unknown word is unknown.
     const larry::Description unknown = assimilation().describe(ops().from_text("The sky is azure."), &memory);
-    CHECK(unknown.notes[3].source == larry::Source::Unknown);
+    CHECK(unknown.notes[3].source == larry::Source::Guess);  // from the context, see below
     CHECK(unknown.notes[0].source == larry::Source::Memory);
+    CHECK(assimilation().describe(ops().from_text("Zorp"), &memory).notes[0].source ==
+          larry::Source::Unknown);
     // Memory makes the question rule work: "Is" is an auxiliary verb.
     const larry::Description question = assimilation().describe(ops().from_text("Is the sky blue"), &memory);
     CHECK(question.category.bytes == (Bytes{'q', 'u', 'e', 's', 't', 'i', 'o', 'n'}));
@@ -320,6 +323,57 @@ larry::Description taught(std::string_view text, std::vector<std::string_view> c
 }
 
 }  // namespace
+
+TEST(describe_guesses_an_unknown_word_from_its_context) {
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_guess.atoms";
+    std::filesystem::remove(file);
+    larry::Memory memory{file};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> list;
+        for (const std::string_view c : categories) {
+            list.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation().describe(ops().from_text(text), &memory, list);
+        memory.store(d.atom, d.metadata);
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The grass is tall.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Snow is white.", {"noun", "auxiliary verb", "adjective"});
+    teach("Birds fly.", {"noun", "verb"});
+    // "azure" after "is" at the end: the words after "is" are adjectives.
+    const larry::Description azure = assimilation().describe(ops().from_text("The sky is azure."), &memory);
+    CHECK(azure.notes[3].source == larry::Source::Guess);
+    CHECK(azure.entities.entities[3].category == (Bytes{'a', 'd', 'j', 'e', 'c', 't', 'i', 'v', 'e'}));
+    CHECK(!azure.notes[3].candidates.empty());
+    CHECK(azure.entities.entities[3].types.back() == (Bytes{'g', 'u', 'e', 's', 's', 'e', 'd'}));
+    CHECK(azure.notes[0].source == larry::Source::Memory);
+    // "moon" between "the" and "is": the words there are nouns.
+    const larry::Description moon = assimilation().describe(ops().from_text("The moon is white."), &memory);
+    CHECK(moon.notes[1].source == larry::Source::Guess);
+    CHECK(moon.entities.entities[1].category == (Bytes{'n', 'o', 'u', 'n'}));
+    // No context in memory: no guess.
+    const larry::Description alone = assimilation().describe(ops().from_text("Zorp"), &memory);
+    CHECK(alone.notes[0].source == larry::Source::Unknown);
+    // A stored guess is no evidence: the word stays unknown to memory.
+    CHECK(memory.store(azure.atom, azure.metadata) == larry::Stored::New);
+    CHECK(memory.categories_of(Bytes{'a', 'z', 'u', 'r', 'e'}).empty());
+    CHECK(memory.uses(Bytes{'a', 'z', 'u', 'r', 'e'}).size() == 1);
+    CHECK(memory.uses(Bytes{'a', 'z', 'u', 'r', 'e'}).front().category.empty());
+    // Its neighbour's context does not count it either.
+    bool azure_after_is = false;
+    for (const larry::WordUse& use : memory.uses(Bytes{'i', 's'})) {
+        if (use.after == (Bytes{'a', 'z', 'u', 'r', 'e'})) {
+            azure_after_is = true;
+            CHECK(use.after_category.empty());
+        }
+    }
+    CHECK(azure_after_is);
+    const larry::Description again = assimilation().describe(ops().from_text("The sky is azure."), &memory);
+    CHECK(again.notes[3].source == larry::Source::Guess);
+    CHECK(std::ranges::contains(memory.words(), Bytes{'a', 'z', 'u', 'r', 'e'}));
+    CHECK(memory.words().size() == 13);
+}
 
 TEST(types_features_and_roles) {
     using V = std::vector<std::string>;

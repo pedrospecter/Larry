@@ -495,14 +495,20 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     reply.text = "Noted.";
     reply.because.emplace_back("rule: an affirmation is stored as a conception");
+    bool asked = false;
     for (std::size_t i = 0; i < d.notes.size(); ++i) {
-        if (d.notes[i].source == Source::Unknown) {
-            const Entity& entity = d.entities.entities[i];
-            reply.text += std::format(" What is \"{}\"?",
-                                      std::string_view{reinterpret_cast<const char*>(entity.word.data()),
-                                                       entity.word.size()});
+        const Entity& entity = d.entities.entities[i];
+        const std::string_view word{reinterpret_cast<const char*>(entity.word.data()),
+                                    entity.word.size()};
+        if (d.notes[i].source == Source::Guess) {
+            reply.text += std::format(" I take \"{}\" as {}.", word,
+                                      std::string_view{reinterpret_cast<const char*>(entity.category.data()),
+                                                       entity.category.size()});
+            reply.because.emplace_back("rule: an unknown word takes the category of known words in the same context, as a guess (A6)");
+        } else if (d.notes[i].source == Source::Unknown && !asked) {
+            reply.text += std::format(" What is \"{}\"?", word);
             reply.because.emplace_back("rule: Larry asks about a word it does not know (A5)");
-            break;
+            asked = true;
         }
     }
     return reply;

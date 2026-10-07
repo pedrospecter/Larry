@@ -261,12 +261,13 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(fresh.text == "Noted.");
     CHECK(fresh.stored);
     CHECK(say("Is the door blue?").text == "Yes.");
-    CHECK(say("The sea is blue.").text == "Noted. What is \"sea\"?");
+    CHECK(say("The sea is blue.").text == "Noted. I take \"sea\" as noun.");
+    CHECK(say("Zorp.").text == "Noted. What is \"Zorp\"?");
     const larry::Reply conflict = say("The sky is not blue.");
     CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
     CHECK(conflict.stored);
     const larry::Reply unknown = say("The sky is azure.");
-    CHECK(unknown.text == "Noted. What is \"azure\"?");
+    CHECK(unknown.text == "Noted. I take \"azure\" as adjective.");
     CHECK(unknown.stored);
 }
 

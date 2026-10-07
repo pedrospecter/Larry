@@ -156,6 +156,14 @@ TEST(word_index_with_context) {
     db().store(unknown.atom, unknown.metadata, Status::Proposed, "");
     CHECK(db().categories_of(b("azure")).empty());
     CHECK(db().uses(b("azure")).size() == 1);
+    // A guessed category is no evidence in the index either.
+    Description guessed = describe("Azure sea.", {"Azure", "sea"}, {"adjective", "noun"});
+    guessed.entities.entities[0].types.push_back(b("guessed"));
+    const AtomOperations ops;
+    guessed.metadata = ops.metadata(guessed.category, guessed.type, guessed.entities);
+    db().store(guessed.atom, guessed.metadata, Status::Proposed, "");
+    CHECK(db().categories_of(b("azure")).empty());
+    CHECK(db().uses(b("sea")).front().before_category.empty());
 }
 
 TEST(status_changes) {

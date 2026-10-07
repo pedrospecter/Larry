@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <string>
+#include <utility>
 
 namespace larry {
 
@@ -368,8 +370,49 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
                 }
             }
         }
+        // A6 (first step): an unknown word takes the category that known words
+        // have in the same context, the words before and after it, when the
+        // votes have one winner. It is a guess, marked as one.
+        for (std::size_t i = 0; i < n; ++i) {
+            if (d.notes[i].source != Source::Unknown) {
+                continue;
+            }
+            std::map<Bytes, std::int64_t> votes;
+            if (i > 0) {
+                for (const WordUse& use : memory->uses(ops.fold(d.entities.entities[i - 1].word))) {
+                    if (!use.after_category.empty()) {
+                        ++votes[use.after_category];
+                    }
+                }
+            }
+            if (i + 1 < n) {
+                for (const WordUse& use : memory->uses(ops.fold(d.entities.entities[i + 1].word))) {
+                    if (!use.before_category.empty()) {
+                        ++votes[use.before_category];
+                    }
+                }
+            }
+            std::vector<std::pair<std::int64_t, Bytes>> ranked;
+            for (const auto& [category, count] : votes) {
+                ranked.emplace_back(count, category);
+            }
+            std::ranges::sort(ranked, [](const auto& a, const auto& b) { return a.first > b.first; });
+            if (ranked.empty() || (ranked.size() > 1 && ranked[0].first == ranked[1].first)) {
+                continue;
+            }
+            d.entities.entities[i].category = ranked.front().second;
+            d.notes[i].source = Source::Guess;
+            for (const auto& [count, category] : ranked) {
+                d.notes[i].candidates.push_back(category);
+            }
+        }
     }
     types(d);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (d.notes[i].source == Source::Guess) {
+            d.entities.entities[i].types.push_back(Bytes{'g', 'u', 'e', 's', 's', 'e', 'd'});
+        }
+    }
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);

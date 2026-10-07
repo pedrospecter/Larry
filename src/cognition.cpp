@@ -141,9 +141,16 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
     if (in(rules.expressions(), whole)) {
         return Qualification::Expression;
     }
+    // A guessed category (A6) never drives the rules: it counts as unknown here.
+    static const Bytes guessed = bytes_of("guessed");
+    const auto category_of = [&](const Entity& e) -> const Bytes& {
+        static const Bytes none;
+        return std::ranges::contains(e.types, guessed) ? none : e.category;
+    };
     const auto skip = [&](std::size_t from, const std::vector<const Bytes*>& categories) {
-        while (from < list.size() &&
-               std::ranges::any_of(categories, [&](const Bytes* c) { return list[from].category == *c; })) {
+        while (from < list.size() && std::ranges::any_of(categories, [&](const Bytes* c) {
+                   return category_of(list[from]) == *c;
+               })) {
             ++from;
         }
         return from;
@@ -155,16 +162,16 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
     const Entity& opening = list[first];
     // 3. A sentence that opens with a question word is a question, unless the
     // word is used as a noun ("What is a question word").
-    if (in(rules.question_words(), ops.fold(opening.word)) && opening.category != noun &&
-        opening.category != proper_noun) {
+    if (in(rules.question_words(), ops.fold(opening.word)) && category_of(opening) != noun &&
+        category_of(opening) != proper_noun) {
         return Qualification::Question;
     }
     // 4. A sentence that opens with an auxiliary verb is a question ("Can birds
     // fly"), unless a verb follows it: then it is an order ("Do not stop").
     bool imperative = false;
-    if (opening.category == auxiliary_verb) {
+    if (category_of(opening) == auxiliary_verb) {
         const std::size_t next = skip(first + 1, {&adverb});
-        if (next < list.size() && list[next].category == verb) {
+        if (next < list.size() && category_of(list[next]) == verb) {
             imperative = true;
         } else {
             return Qualification::Question;
@@ -178,7 +185,7 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
     }
     // 6. A sentence that opens with a verb, after any adverb, is an order.
     const std::size_t head = skip(first, {&interjection, &adverb});
-    if (imperative || (head < list.size() && list[head].category == verb)) {
+    if (imperative || (head < list.size() && category_of(list[head]) == verb)) {
         return Qualification::Order;
     }
     // 7. Anything else is an affirmation.

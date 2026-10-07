@@ -120,8 +120,11 @@ public:
     [[nodiscard]] std::vector<WordUse> uses(const Bytes& word) const;
 
     /// The categories a word has been seen with, in category order. Uses with
-    /// no category do not count.
+    /// no category, and guessed ones, do not count.
     [[nodiscard]] std::vector<CategoryCount> categories_of(const Bytes& word) const;
+
+    /// Every word in the index, in byte order: the vocabulary.
+    [[nodiscard]] std::vector<Bytes> words() const;
 
     /// The atoms that contain a word, in the order they were stored.
     [[nodiscard]] std::vector<StoredAtom> containing(const Bytes& word) const;

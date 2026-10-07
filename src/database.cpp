@@ -3,6 +3,7 @@
 #include "larry/atom_operations.hpp"
 #include "larry/hex.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -159,16 +160,21 @@ void Database::clear() {
 void Database::index(std::int64_t id, const MetadataElectron& metadata) {
     const AtomOperations ops;
     const std::vector<Entity> entities = ops.electrons(metadata).entities.entities;
+    // A guessed category is no evidence: the index keeps it empty.
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    const auto category_of = [&](std::size_t i) {
+        return std::ranges::contains(entities[i].types, guessed) ? Bytes{} : entities[i].category;
+    };
     for (std::size_t i = 0; i < entities.size(); ++i) {
         const Bytes before = i > 0 ? ops.fold(entities[i - 1].word) : Bytes{};
         const Bytes after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{};
-        const Bytes before_category = i > 0 ? entities[i - 1].category : Bytes{};
-        const Bytes after_category = i + 1 < entities.size() ? entities[i + 1].category : Bytes{};
+        const Bytes before_category = i > 0 ? category_of(i - 1) : Bytes{};
+        const Bytes after_category = i + 1 < entities.size() ? category_of(i + 1) : Bytes{};
         (void)exec("insert into words (word, conception, position, category, word_before, "
                    "word_after, category_before, category_after) "
                    "values ($1, $2, $3, $4, $5, $6, $7, $8)",
                    {binary(ops.fold(entities[i].word)), number(id),
-                    number(static_cast<std::int64_t>(i)), binary(entities[i].category),
+                    number(static_cast<std::int64_t>(i)), binary(category_of(i)),
                     binary(before), binary(after), binary(before_category),
                     binary(after_category)});
     }

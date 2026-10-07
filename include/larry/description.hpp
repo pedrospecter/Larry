@@ -14,12 +14,16 @@ enum class Source : std::uint8_t {
     Memory,   ///< The one category the stored atoms give the word.
     Open,     ///< The stored atoms give the word several categories. None is chosen.
     Unknown,  ///< No stored atom contains the word.
+    Guess,    ///< No stored atom contains the word; the category is what known
+              ///< words have in the same context (A6, first step). Stored as a
+              ///< guess, never as evidence.
 };
 
 /// What describing a sentence noted about one entity.
 struct EntityNote {
     Source source = Source::Unknown;
-    /// The categories memory gives the word, when the source is Open.
+    /// The categories memory gives the word, when the source is Open, or the
+    /// categories the context voted for, most votes first, when it is Guess.
     std::vector<Bytes> candidates;
 };
 
