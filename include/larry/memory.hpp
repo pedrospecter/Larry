@@ -10,24 +10,47 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace larry {
 
-/// An atom as memory holds it, with its electrons read back.
+/// What a conception stands at: an atom Larry was told is proposed until it
+/// is validated, by the user or by a second source, and withdrawn when it is
+/// rejected (R2, first step).
+enum class Status : std::uint8_t {
+    Proposed,
+    Validated,
+    Withdrawn,
+};
+
+/// The name of a status: the bytes the database stores.
+[[nodiscard]] std::string_view name(Status status) noexcept;
+
+/// The status with this name, if any.
+[[nodiscard]] std::optional<Status> status_from(std::string_view name) noexcept;
+
+/// An atom as memory or the database holds it, with its electrons read back.
 struct StoredAtom {
-    std::int64_t id;
+    std::int64_t id = 0;
     Description description;
+    Status status = Status::Proposed;
+    /// Where it came from: "lesson:<file>", "user", "read:<file>", "cloud".
+    std::vector<std::string> sources;
 };
 
 /// One use of a word: the atom, the position of the entity in it, the
-/// category the word has there, and its context: the words before and after.
+/// category the word has there, and its context: the words before and after,
+/// with their categories.
 struct WordUse {
     std::int64_t atom;
     std::size_t position;
     Bytes category;
-    Bytes before;  ///< The word before it, or empty at the start of the atom.
-    Bytes after;   ///< The word after it, or empty at the end.
+    Bytes before;           ///< The word before it, or empty at the start of the atom.
+    Bytes after;            ///< The word after it, or empty at the end.
+    Bytes before_category;  ///< The category of the word before, or empty.
+    Bytes after_category;   ///< The category of the word after, or empty.
 };
 
 /// A category a word has been seen with, and in how many atoms.

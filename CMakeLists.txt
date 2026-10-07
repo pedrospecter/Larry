@@ -36,44 +36,43 @@ if(LARRY_SANITIZE)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
-# The PostgreSQL database is parked (PLAN.md, section 4): memory lives in a
-# local file for now. Build the database class with -DLARRY_POSTGRES=ON; it
-# needs libpq and libpqxx 8.0.x (scripts/setup.sh --postgres).
-option(LARRY_POSTGRES "Build the PostgreSQL database class" OFF)
+# The database: PostgreSQL through libpq, which every distribution and
+# Homebrew package (libpq-dev, libpq). pg_config gives the paths when it is
+# there.
+execute_process(COMMAND pg_config --includedir OUTPUT_VARIABLE LARRY_PG_INCLUDE
+                OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+execute_process(COMMAND pg_config --libdir OUTPUT_VARIABLE LARRY_PG_LIB
+                OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+find_path(PQ_INCLUDE_DIR libpq-fe.h
+          HINTS ${LARRY_PG_INCLUDE} /opt/homebrew/opt/libpq/include /usr/include/postgresql
+                /usr/local/include REQUIRED)
+find_library(PQ_LIBRARY pq HINTS ${LARRY_PG_LIB} /opt/homebrew/opt/libpq/lib /usr/local/lib REQUIRED)
 
 set(LARRY_WARNINGS -Wall -Wextra -Wpedantic -Wconversion)
 
 add_library(larry_core)
 target_sources(larry_core PRIVATE src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp
-                                  src/brain.cpp src/cognition.cpp src/lesson.cpp src/memory.cpp)
+                                  src/brain.cpp src/cognition.cpp src/database.cpp src/lesson.cpp
+                                  src/memory.cpp)
 target_compile_definitions(larry_core
                            PUBLIC LARRY_BASE_RULES_DIR="${CMAKE_SOURCE_DIR}/base_rules"
                                   LARRY_LESSONS_DIR="${CMAKE_SOURCE_DIR}/lessons"
-                                  LARRY_MEMORY_DIR="${CMAKE_SOURCE_DIR}/memory")
+                                  LARRY_MEMORY_DIR="${CMAKE_SOURCE_DIR}/memory"
+                                  LARRY_SQL_DIR="${CMAKE_SOURCE_DIR}/sql")
 target_include_directories(larry_core PUBLIC include)
+target_include_directories(larry_core SYSTEM PUBLIC ${PQ_INCLUDE_DIR})
+target_link_libraries(larry_core PUBLIC ${PQ_LIBRARY})
 target_compile_options(larry_core PRIVATE ${LARRY_WARNINGS})
-
-if(LARRY_POSTGRES)
-    find_path(PQXX_INCLUDE_DIR pqxx/pqxx
-              HINTS /opt/homebrew/opt/libpqxx/include /usr/local/include REQUIRED)
-    find_library(PQXX_LIBRARY pqxx HINTS /opt/homebrew/opt/libpqxx/lib /usr/local/lib REQUIRED)
-    find_path(PQ_INCLUDE_DIR libpq-fe.h
-              HINTS /opt/homebrew/opt/libpq/include /usr/include/postgresql REQUIRED)
-    find_library(PQ_LIBRARY pq HINTS /opt/homebrew/opt/libpq/lib REQUIRED)
-    target_sources(larry_core PRIVATE src/database.cpp)
-    target_compile_definitions(larry_core PUBLIC LARRY_POSTGRES=1
-                                                 LARRY_SQL_DIR="${CMAKE_SOURCE_DIR}/sql")
-    target_include_directories(larry_core SYSTEM PUBLIC ${PQXX_INCLUDE_DIR} ${PQ_INCLUDE_DIR})
-    target_link_libraries(larry_core PUBLIC ${PQXX_LIBRARY} ${PQ_LIBRARY})
-endif()
 
 add_executable(larry src/main.cpp)
 target_link_libraries(larry PRIVATE larry_core)
 target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 
-# Tests: one executable per class (PLAN.md, item F4), run with ctest.
+# Tests: one executable per class (PLAN.md, item F4), run with ctest. The
+# database test needs a PostgreSQL server (scripts/setup.sh starts one) and
+# reports "skipped" (exit 77) when it cannot connect.
 enable_testing()
-set(LARRY_TESTS assimilation atom_operations base_rules brain cognition lesson memory)
+set(LARRY_TESTS assimilation atom_operations base_rules brain cognition database lesson memory)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)
@@ -81,3 +80,4 @@ foreach(name ${LARRY_TESTS})
     target_compile_options(test_${name} PRIVATE ${LARRY_WARNINGS})
     add_test(NAME ${name} COMMAND test_${name})
 endforeach()
+set_tests_properties(database PROPERTIES SKIP_RETURN_CODE 77)

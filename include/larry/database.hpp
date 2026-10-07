@@ -7,64 +7,87 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include <pqxx/connection>
-#include <pqxx/transaction>
+struct pg_conn;
 
 namespace larry {
 
-/// The database: what the brain uses to get information. Parked (PLAN.md,
-/// section 4): built only with LARRY_POSTGRES=ON. Memory is the local file
-/// for now; the database can become its place of record (N2). It shares the
-/// StoredAtom, WordUse, CategoryCount and Stored types with Memory.
+/// The database: the cloud, where the conceptions are on record. PostgreSQL,
+/// reached through libpq. The machine keeps the language and a cache of
+/// recent conceptions in Memory; what the cache cannot answer, the brain
+/// searches here (N2). It shares its types with Memory.
 class Database {
 public:
     /// For example "host=192.168.10.133 port=5432 dbname=larry user=postgres".
-    /// The password is read from ~/.pgpass.
+    /// The password is read from ~/.pgpass. Throws std::runtime_error when
+    /// the connection fails.
     explicit Database(const std::string& connection);
+    ~Database();
+    Database(const Database&) = delete;
+    Database& operator=(const Database&) = delete;
 
-    /// The connection string from the environment variable LARRY_DB, or
-    /// "dbname=larry", the local server scripts/setup.sh prepares (F3).
+    /// The connection string from the environment variable LARRY_DB, or empty
+    /// when there is no cloud.
     [[nodiscard]] static std::string connection_from_environment();
 
     /// Runs sql/schema.sql. Safe to run again.
     void apply_schema();
 
-    /// Empties every table and restarts the ids, so that a rebuild gives the
-    /// same contents byte for byte (F7).
+    /// Runs SQL as it is, for setup and tests.
+    void run(const std::string& sql);
+
+    /// Empties every table and restarts the ids.
     void clear();
 
-    /// Store an atom under its metadata, which is where the neural network
-    /// finds it, and index its words (N1).
-    Stored store(const Sentence& atom, const MetadataElectron& metadata);
+    /// Store a conception under its metadata, index its words, and record
+    /// its source. When it is already there, only the source is added.
+    Stored store(const Sentence& atom, const MetadataElectron& metadata, Status status,
+                 std::string_view source);
 
-    /// The atom stored under this metadata.
     [[nodiscard]] std::optional<StoredAtom> find(const MetadataElectron& metadata);
 
-    /// Every atom whose metadata starts with these bytes, in metadata order.
+    /// Every conception whose metadata starts with these bytes, in metadata order.
     [[nodiscard]] std::vector<StoredAtom> find_prefix(const Bytes& prefix);
 
-    /// Every atom, in the order they were stored.
+    /// Every conception, in the order they were stored.
     [[nodiscard]] std::vector<StoredAtom> all();
 
-    /// Where a word (as the index keys it, see AtomOperations::fold) is used,
-    /// in atom and position order.
+    /// The last conceptions stored, newest first.
+    [[nodiscard]] std::vector<StoredAtom> recent(std::int64_t count);
+
+    /// The conceptions at a status, in the order they were stored.
+    [[nodiscard]] std::vector<StoredAtom> with_status(Status status);
+
+    void set_status(std::int64_t id, Status status);
+
+    /// Where a word (as the index keys it) is used, in conception and position order.
     [[nodiscard]] std::vector<WordUse> uses(const Bytes& word);
 
-    /// The categories a word has been seen with, in category order.
+    /// The categories a word has been seen with, in category order. Uses with
+    /// no category do not count.
     [[nodiscard]] std::vector<CategoryCount> categories_of(const Bytes& word);
 
-    /// Rebuilds the word index from the stored atoms.
-    void rebuild_index();
+    /// The conceptions that contain a word, in the order they were stored.
+    [[nodiscard]] std::vector<StoredAtom> containing(const Bytes& word);
 
     [[nodiscard]] std::int64_t count();
     [[nodiscard]] std::int64_t count_words();
 
-private:
-    void index(pqxx::work& tx, std::int64_t id, const MetadataElectron& metadata);
+    /// One parameter of a query: bytes sent as they are, or as text.
+    struct Param {
+        Bytes bytes;
+        bool binary;
+    };
 
-    pqxx::connection connection_;
+private:
+    class Result;
+    [[nodiscard]] Result exec(const char* sql, const std::vector<Param>& params = {});
+    [[nodiscard]] std::vector<StoredAtom> read_atoms(const Result& result);
+    void index(std::int64_t id, const MetadataElectron& metadata);
+
+    pg_conn* connection_;
 };
 
 }  // namespace larry

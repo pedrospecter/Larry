@@ -156,6 +156,9 @@ TEST(word_index_answers_both_questions) {
     CHECK(sky.size() == 2);
     CHECK(sky.size() == 2 && sky[0].atom == 1 && sky[0].position == 1 && sky[0].category == b("noun"));
     CHECK(sky.size() == 2 && sky[0].before == b("the") && sky[0].after == b("is"));
+    CHECK(sky.size() == 2 && sky[0].before_category == b("determiner") &&
+          sky[0].after_category == b("auxiliary verb"));
+    CHECK(sky.size() == 2 && sky[1].after_category.empty());
     CHECK(sky.size() == 2 && sky[1].atom == 3 && sky[1].position == 3 && sky[1].after.empty());
     CHECK(sky.size() == 2 && sky[1].before == b("the"));
     const auto clouds = memory.uses(b("clouds"));
@@ -254,6 +257,14 @@ TEST(a_file_that_is_not_memory_is_rejected) {
         out << "ff\t41\n";
     }
     CHECK_THROWS(Memory{file}, std::invalid_argument);
+}
+
+TEST(status_names) {
+    CHECK(larry::name(larry::Status::Proposed) == "proposed");
+    CHECK(larry::name(larry::Status::Validated) == "validated");
+    CHECK(larry::name(larry::Status::Withdrawn) == "withdrawn");
+    CHECK(larry::status_from("validated") == larry::Status::Validated);
+    CHECK(!larry::status_from("maybe").has_value());
 }
 
 TEST(the_file_comes_from_the_environment) {

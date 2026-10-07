@@ -21,6 +21,27 @@ std::string line_of(const MetadataElectron& metadata, const Bytes& bytes) {
 
 }  // namespace
 
+std::string_view name(Status status) noexcept {
+    switch (status) {
+    case Status::Proposed:
+        return "proposed";
+    case Status::Validated:
+        return "validated";
+    case Status::Withdrawn:
+        return "withdrawn";
+    }
+    return "";
+}
+
+std::optional<Status> status_from(std::string_view text) noexcept {
+    for (const Status status : {Status::Proposed, Status::Validated, Status::Withdrawn}) {
+        if (name(status) == text) {
+            return status;
+        }
+    }
+    return std::nullopt;
+}
+
 Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
     std::ifstream in{file_, std::ios::binary};
     if (!in) {
@@ -84,7 +105,9 @@ void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
                     .position = i,
                     .category = entities[i].category,
                     .before = i > 0 ? ops.fold(entities[i - 1].word) : Bytes{},
-                    .after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{}};
+                    .after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{},
+                    .before_category = i > 0 ? entities[i - 1].category : Bytes{},
+                    .after_category = i + 1 < entities.size() ? entities[i + 1].category : Bytes{}};
         words_[ops.fold(entities[i].word)].push_back(std::move(use));
         ++word_uses_;
     }
@@ -121,7 +144,8 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata) {
 StoredAtom Memory::read(std::int64_t id) const {
     const AtomOperations ops;
     const Record& record = atoms_[static_cast<std::size_t>(id - 1)];
-    StoredAtom out{.id = id, .description = {}};
+    StoredAtom out;
+    out.id = id;
     Description& d = out.description;
     d.atom = ops.from_text(
         std::string_view{reinterpret_cast<const char*>(record.bytes.data()), record.bytes.size()});

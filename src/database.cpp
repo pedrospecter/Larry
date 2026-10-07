@@ -1,47 +1,138 @@
 #include "larry/database.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/hex.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <iterator>
-#include <span>
-#include <sstream>
 #include <stdexcept>
+#include <utility>
 
-#include <pqxx/pqxx>
+#include <libpq-fe.h>
 
 namespace larry {
 
+/// A query result, freed when it goes out of scope.
+class Database::Result {
+public:
+    explicit Result(PGresult* result) : result_(result) {}
+    ~Result() { PQclear(result_); }
+    Result(const Result&) = delete;
+    Result& operator=(const Result&) = delete;
+    Result(Result&& other) noexcept : result_(std::exchange(other.result_, nullptr)) {}
+
+    [[nodiscard]] PGresult* get() const noexcept { return result_; }
+    [[nodiscard]] int rows() const noexcept { return PQntuples(result_); }
+    [[nodiscard]] bool null(int row, int column) const noexcept {
+        return PQgetisnull(result_, row, column) != 0;
+    }
+    [[nodiscard]] Bytes bytes(int row, int column) const {
+        const char* value = PQgetvalue(result_, row, column);
+        const int length = PQgetlength(result_, row, column);
+        return Bytes(reinterpret_cast<const std::uint8_t*>(value),
+                     reinterpret_cast<const std::uint8_t*>(value) + length);
+    }
+    /// A binary integer column: big-endian, 8 or 4 bytes.
+    [[nodiscard]] std::int64_t integer(int row, int column) const {
+        const Bytes b = bytes(row, column);
+        std::uint64_t value = 0;
+        for (const std::uint8_t byte : b) {
+            value = (value << 8) | byte;
+        }
+        if (b.size() == 4) {
+            return static_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+        }
+        return static_cast<std::int64_t>(value);
+    }
+
+private:
+    PGresult* result_;
+};
+
 namespace {
 
-pqxx::bytes_view view(const Bytes& bytes) {
-    return std::as_bytes(std::span{bytes});
+Database::Param binary(const Bytes& bytes) {
+    return {bytes, true};
 }
 
-Bytes from(const pqxx::bytes& bytes) {
-    Bytes out;
-    out.reserve(bytes.size());
-    for (const std::byte b : bytes) {
-        out.push_back(std::to_integer<std::uint8_t>(b));
-    }
-    return out;
+Database::Param binary(std::span<const std::uint8_t> bytes) {
+    return {Bytes(bytes.begin(), bytes.end()), true};
 }
 
-const char* const select_atoms = "select id, metadata, bytes from atoms";
+// libpq reads a text parameter as a C string, so it ends with a zero byte.
+Database::Param text(std::string_view text) {
+    Bytes bytes(text.begin(), text.end());
+    bytes.push_back(0);
+    return {std::move(bytes), false};
+}
+
+Database::Param number(std::int64_t value) {
+    return text(std::to_string(value));
+}
+
+const char* const select_conceptions =
+    "select c.id, c.metadata, c.bytes, c.status, "
+    "(select string_agg(encode(s.source, 'hex'), ',' order by s.id) "
+    " from sources s where s.conception = c.id) "
+    "from conceptions c";
 
 }  // namespace
 
-Database::Database(const std::string& connection) : connection_{connection} {}
+Database::Database(const std::string& connection) : connection_(PQconnectdb(connection.c_str())) {
+    if (PQstatus(connection_) != CONNECTION_OK) {
+        const std::string why = PQerrorMessage(connection_);
+        PQfinish(connection_);
+        connection_ = nullptr;
+        throw std::runtime_error(std::format("Database: {}", why));
+    }
+}
+
+Database::~Database() {
+    if (connection_ != nullptr) {
+        PQfinish(connection_);
+    }
+}
 
 std::string Database::connection_from_environment() {
     const char* const from_environment = std::getenv("LARRY_DB");
     if (from_environment != nullptr && *from_environment != '\0') {
         return from_environment;
     }
-    return "dbname=larry";
+    return "";
+}
+
+Database::Result Database::exec(const char* sql, const std::vector<Param>& params) {
+    std::vector<const char*> values;
+    std::vector<int> lengths;
+    std::vector<int> formats;
+    static const char empty = '\0';
+    for (const Param& param : params) {
+        // A null pointer would mean SQL null: an empty value keeps a pointer.
+        values.push_back(param.bytes.empty() ? &empty
+                                             : reinterpret_cast<const char*>(param.bytes.data()));
+        lengths.push_back(static_cast<int>(param.binary ? param.bytes.size() : param.bytes.size() - 1));
+        formats.push_back(param.binary ? 1 : 0);
+    }
+    Result result{PQexecParams(connection_, sql, static_cast<int>(params.size()), nullptr,
+                               values.data(), lengths.data(), formats.data(), 1)};
+    const ExecStatusType status = PQresultStatus(result.get());
+    if (status != PGRES_COMMAND_OK && status != PGRES_TUPLES_OK) {
+        throw std::runtime_error(
+            std::format("Database: {}", PQresultErrorMessage(result.get())));
+    }
+    return result;
+}
+
+void Database::run(const std::string& sql) {
+    Result result{PQexec(connection_, sql.c_str())};
+    const ExecStatusType status = PQresultStatus(result.get());
+    if (status != PGRES_COMMAND_OK && status != PGRES_TUPLES_OK) {
+        throw std::runtime_error(
+            std::format("Database: {}", PQresultErrorMessage(result.get())));
+    }
 }
 
 void Database::apply_schema() {
@@ -50,95 +141,115 @@ void Database::apply_schema() {
     if (!in) {
         throw std::runtime_error(std::format("Database: cannot read {}", file.string()));
     }
-    const std::string sql{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-    pqxx::work tx{connection_};
-    std::stringstream statements{sql};
-    for (std::string statement; std::getline(statements, statement, ';');) {
-        if (statement.find_first_not_of(" \t\r\n") == std::string::npos) {
-            continue;
-        }
-        tx.exec(statement);
-    }
-    tx.commit();
+    run(std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}});
 }
 
 void Database::clear() {
-    pqxx::work tx{connection_};
-    tx.exec("truncate atoms, words restart identity cascade");
-    tx.commit();
+    run("truncate conceptions, sources, words restart identity cascade");
 }
 
-void Database::index(pqxx::work& tx, std::int64_t id, const MetadataElectron& metadata) {
+void Database::index(std::int64_t id, const MetadataElectron& metadata) {
     const AtomOperations ops;
-    const Electrons electrons = ops.electrons(metadata);
-    int position = 0;
-    for (const Entity& entity : electrons.entities.entities) {
-        const Bytes word = ops.fold(entity.word);
-        tx.exec("insert into words (word, atom, position, category) values ($1, $2, $3, $4)",
-                pqxx::params{tx, view(word), static_cast<long long>(id), position,
-                             view(entity.category)})
-            .no_rows();
-        ++position;
+    const std::vector<Entity> entities = ops.electrons(metadata).entities.entities;
+    for (std::size_t i = 0; i < entities.size(); ++i) {
+        const Bytes before = i > 0 ? ops.fold(entities[i - 1].word) : Bytes{};
+        const Bytes after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{};
+        const Bytes before_category = i > 0 ? entities[i - 1].category : Bytes{};
+        const Bytes after_category = i + 1 < entities.size() ? entities[i + 1].category : Bytes{};
+        (void)exec("insert into words (word, conception, position, category, word_before, "
+                   "word_after, category_before, category_after) "
+                   "values ($1, $2, $3, $4, $5, $6, $7, $8)",
+                   {binary(ops.fold(entities[i].word)), number(id),
+                    number(static_cast<std::int64_t>(i)), binary(entities[i].category),
+                    binary(before), binary(after), binary(before_category),
+                    binary(after_category)});
     }
 }
 
-Stored Database::store(const Sentence& atom, const MetadataElectron& metadata) {
-    pqxx::work tx{connection_};
-    const pqxx::result inserted =
-        tx.exec("insert into atoms (metadata, bytes) values ($1, $2) "
-                "on conflict (metadata) do nothing returning id",
-                pqxx::params{tx, view(metadata.bytes), view(atom.bytes_)});
-    if (inserted.empty()) {
-        const pqxx::row existing =
-            tx.exec("select bytes from atoms where metadata = $1",
-                    pqxx::params{tx, view(metadata.bytes)})
-                .one_row();
-        const Bytes stored = from(existing[0].as<pqxx::bytes>());
-        return stored == atom.bytes_ ? Stored::Same : Stored::SameForm;
-    }
-    const auto id = inserted[0][0].as<long long>();
-    index(tx, id, metadata);
-    tx.commit();
-    return Stored::New;
-}
-
-namespace {
-
-StoredAtom read_atom(pqxx::row_ref row) {
+Stored Database::store(const Sentence& atom, const MetadataElectron& metadata, Status status,
+                       std::string_view source) {
     const AtomOperations ops;
-    StoredAtom out;
-    out.id = row[0].as<long long>();
-    out.description.metadata.bytes = from(row[1].as<pqxx::bytes>());
-    const Bytes bytes = from(row[2].as<pqxx::bytes>());
-    out.description.atom = ops.from_text(
-        std::string_view{reinterpret_cast<const char*>(bytes.data()), bytes.size()});
-    Electrons electrons = ops.electrons(out.description.metadata);
-    out.description.category = std::move(electrons.category);
-    out.description.type = std::move(electrons.type);
-    out.description.entities = std::move(electrons.entities);
-    out.description.image.bytes = bytes;
-    return out;
+    (void)ops.electrons(metadata);  // validate before anything is written
+    run("begin");
+    try {
+        const Result inserted =
+            exec("insert into conceptions (metadata, bytes, status) values ($1, $2, $3) "
+                 "on conflict (metadata) do nothing returning id",
+                 {binary(metadata.bytes), binary(ops.bytes(atom)), text(name(status))});
+        std::int64_t id = 0;
+        Stored outcome = Stored::New;
+        if (inserted.rows() == 1) {
+            id = inserted.integer(0, 0);
+            index(id, metadata);
+        } else {
+            const Result existing = exec("select id, bytes from conceptions where metadata = $1",
+                                         {binary(metadata.bytes)});
+            id = existing.integer(0, 0);
+            const Bytes stored = existing.bytes(0, 1);
+            outcome = std::ranges::equal(stored, ops.bytes(atom)) ? Stored::Same : Stored::SameForm;
+        }
+        if (!source.empty()) {
+            (void)exec("insert into sources (conception, source) values ($1, $2) "
+                       "on conflict (conception, source) do nothing",
+                       {number(id), text(source)});
+        }
+        run("commit");
+        return outcome;
+    } catch (...) {
+        run("rollback");
+        throw;
+    }
 }
 
-std::vector<StoredAtom> read_atoms(const pqxx::result& rows) {
+std::vector<StoredAtom> Database::read_atoms(const Result& result) {
+    const AtomOperations ops;
     std::vector<StoredAtom> out;
-    out.reserve(rows.size());
-    for (const pqxx::row_ref row : rows) {
-        out.push_back(read_atom(row));
+    out.reserve(static_cast<std::size_t>(result.rows()));
+    for (int row = 0; row < result.rows(); ++row) {
+        StoredAtom atom;
+        atom.id = result.integer(row, 0);
+        Description& d = atom.description;
+        d.metadata.bytes = result.bytes(row, 1);
+        const Bytes bytes = result.bytes(row, 2);
+        d.atom = ops.from_text(
+            std::string_view{reinterpret_cast<const char*>(bytes.data()), bytes.size()});
+        Electrons electrons = ops.electrons(d.metadata);
+        d.category = std::move(electrons.category);
+        d.type = std::move(electrons.type);
+        d.entities = std::move(electrons.entities);
+        d.image.bytes = bytes;
+        const Bytes status = result.bytes(row, 3);
+        atom.status = status_from(std::string_view{reinterpret_cast<const char*>(status.data()),
+                                                   status.size()})
+                          .value_or(Status::Proposed);
+        if (!result.null(row, 4)) {
+            const Bytes list = result.bytes(row, 4);
+            std::string_view rest{reinterpret_cast<const char*>(list.data()), list.size()};
+            while (!rest.empty()) {
+                const std::size_t comma = rest.find(',');
+                const std::optional<Bytes> source = hex::decode(rest.substr(0, comma));
+                if (source) {
+                    atom.sources.emplace_back(source->begin(), source->end());
+                }
+                if (comma == std::string_view::npos) {
+                    break;
+                }
+                rest.remove_prefix(comma + 1);
+            }
+        }
+        out.push_back(std::move(atom));
     }
     return out;
 }
-
-}  // namespace
 
 std::optional<StoredAtom> Database::find(const MetadataElectron& metadata) {
-    pqxx::read_transaction tx{connection_};
-    const pqxx::result rows = tx.exec(std::string{select_atoms} + " where metadata = $1",
-                                      pqxx::params{tx, view(metadata.bytes)});
-    if (rows.empty()) {
+    std::vector<StoredAtom> found = read_atoms(
+        exec((std::string{select_conceptions} + " where c.metadata = $1").c_str(),
+             {binary(metadata.bytes)}));
+    if (found.empty()) {
         return std::nullopt;
     }
-    return read_atom(rows[0]);
+    return std::move(found.front());
 }
 
 std::vector<StoredAtom> Database::find_prefix(const Bytes& prefix) {
@@ -148,74 +259,83 @@ std::vector<StoredAtom> Database::find_prefix(const Bytes& prefix) {
     while (!upper.empty() && upper.back() == 0xFF) {
         upper.pop_back();
     }
-    pqxx::read_transaction tx{connection_};
     if (upper.empty()) {
-        return read_atoms(tx.exec(std::string{select_atoms} + " where metadata >= $1 order by metadata",
-                                  pqxx::params{tx, view(prefix)}));
+        return read_atoms(
+            exec((std::string{select_conceptions} + " where c.metadata >= $1 order by c.metadata").c_str(),
+                 {binary(prefix)}));
     }
     ++upper.back();
-    return read_atoms(tx.exec(std::string{select_atoms} +
-                                  " where metadata >= $1 and metadata < $2 order by metadata",
-                              pqxx::params{tx, view(prefix), view(upper)}));
+    return read_atoms(exec((std::string{select_conceptions} +
+                            " where c.metadata >= $1 and c.metadata < $2 order by c.metadata")
+                               .c_str(),
+                           {binary(prefix), binary(upper)}));
 }
 
 std::vector<StoredAtom> Database::all() {
-    pqxx::read_transaction tx{connection_};
-    return read_atoms(tx.exec(std::string{select_atoms} + " order by id"));
+    return read_atoms(exec((std::string{select_conceptions} + " order by c.id").c_str()));
+}
+
+std::vector<StoredAtom> Database::recent(std::int64_t count) {
+    return read_atoms(
+        exec((std::string{select_conceptions} + " order by c.id desc limit $1").c_str(),
+             {number(count)}));
+}
+
+std::vector<StoredAtom> Database::with_status(Status status) {
+    return read_atoms(
+        exec((std::string{select_conceptions} + " where c.status = $1 order by c.id").c_str(),
+             {text(name(status))}));
+}
+
+void Database::set_status(std::int64_t id, Status status) {
+    (void)exec("update conceptions set status = $2 where id = $1", {number(id), text(name(status))});
 }
 
 std::vector<WordUse> Database::uses(const Bytes& word) {
-    pqxx::read_transaction tx{connection_};
-    const pqxx::result rows =
-        tx.exec("select atom, position, category from words where word = $1 "
-                "order by atom, position",
-                pqxx::params{tx, view(word)});
+    const Result rows =
+        exec("select conception, position, category, word_before, word_after, category_before, "
+             "category_after from words where word = $1 order by conception, position",
+             {binary(word)});
     std::vector<WordUse> out;
-    out.reserve(rows.size());
-    for (const pqxx::row_ref row : rows) {
-        out.push_back({.atom = row[0].as<long long>(),
-                       .position = static_cast<std::size_t>(row[1].as<int>()),
-                       .category = from(row[2].as<pqxx::bytes>()),
-                       .before = {},
-                       .after = {}});
+    out.reserve(static_cast<std::size_t>(rows.rows()));
+    for (int row = 0; row < rows.rows(); ++row) {
+        out.push_back({.atom = rows.integer(row, 0),
+                       .position = static_cast<std::size_t>(rows.integer(row, 1)),
+                       .category = rows.bytes(row, 2),
+                       .before = rows.bytes(row, 3),
+                       .after = rows.bytes(row, 4),
+                       .before_category = rows.bytes(row, 5),
+                       .after_category = rows.bytes(row, 6)});
     }
     return out;
 }
 
 std::vector<CategoryCount> Database::categories_of(const Bytes& word) {
-    pqxx::read_transaction tx{connection_};
-    const pqxx::result rows =
-        tx.exec("select category, count(*) from words where word = $1 "
-                "group by category order by category",
-                pqxx::params{tx, view(word)});
+    const Result rows = exec("select category, count(*) from words "
+                             "where word = $1 and octet_length(category) > 0 "
+                             "group by category order by category",
+                             {binary(word)});
     std::vector<CategoryCount> out;
-    out.reserve(rows.size());
-    for (const pqxx::row_ref row : rows) {
-        out.push_back({.category = from(row[0].as<pqxx::bytes>()), .count = row[1].as<long long>()});
+    for (int row = 0; row < rows.rows(); ++row) {
+        out.push_back({.category = rows.bytes(row, 0), .count = rows.integer(row, 1)});
     }
     return out;
 }
 
-void Database::rebuild_index() {
-    pqxx::work tx{connection_};
-    tx.exec("truncate words restart identity");
-    const pqxx::result rows = tx.exec("select id, metadata from atoms order by id");
-    for (const pqxx::row_ref row : rows) {
-        MetadataElectron metadata;
-        metadata.bytes = from(row[1].as<pqxx::bytes>());
-        index(tx, row[0].as<long long>(), metadata);
-    }
-    tx.commit();
+std::vector<StoredAtom> Database::containing(const Bytes& word) {
+    return read_atoms(exec((std::string{select_conceptions} +
+                            " where c.id in (select conception from words where word = $1) "
+                            "order by c.id")
+                               .c_str(),
+                           {binary(word)}));
 }
 
 std::int64_t Database::count() {
-    pqxx::read_transaction tx{connection_};
-    return tx.exec("select count(*) from atoms").one_field().as<long long>();
+    return exec("select count(*) from conceptions").integer(0, 0);
 }
 
 std::int64_t Database::count_words() {
-    pqxx::read_transaction tx{connection_};
-    return tx.exec("select count(*) from words").one_field().as<long long>();
+    return exec("select count(*) from words").integer(0, 0);
 }
 
 }  // namespace larry
