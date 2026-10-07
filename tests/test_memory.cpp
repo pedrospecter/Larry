@@ -3,6 +3,7 @@
 #include "larry/memory.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/hex.hpp"
 
 #include "check.hpp"
 
@@ -257,6 +258,72 @@ TEST(a_file_that_is_not_memory_is_rejected) {
         out << "ff\t41\n";
     }
     CHECK_THROWS(Memory{file}, std::invalid_argument);
+}
+
+TEST(sources_and_status_live_in_the_log) {
+    const std::filesystem::path file = fresh("larry_test_log.atoms");
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    {
+        Memory memory{file};
+        CHECK(memory.store(c.atom, c.metadata, larry::Status::Proposed, "lesson:1") == Stored::New);
+        CHECK(memory.store(c.atom, c.metadata, larry::Status::Proposed, "lesson:1") == Stored::Same);
+        CHECK(memory.store(c.atom, c.metadata, larry::Status::Proposed, "user") == Stored::Same);
+        CHECK(memory.store(d.atom, d.metadata, larry::Status::Validated, "") == Stored::New);
+        CHECK(memory.find(c.metadata)->sources == (std::vector<std::string>{"lesson:1", "user"}));
+        CHECK(memory.find(c.metadata)->status == larry::Status::Proposed);
+        CHECK(memory.find(d.metadata)->sources.empty());
+        CHECK(memory.find(d.metadata)->status == larry::Status::Validated);
+        CHECK(memory.set_status(c.metadata, larry::Status::Validated));
+        CHECK(!memory.set_status(sky_clouds().metadata, larry::Status::Validated));
+        CHECK(memory.with_status(larry::Status::Validated).size() == 2);
+        CHECK(memory.with_status(larry::Status::Proposed).empty());
+        const auto recent = memory.recent(5);
+        CHECK(recent.size() == 2);
+        CHECK(recent.size() == 2 && recent[0].id == 2 && recent[1].id == 1);
+        CHECK(memory.recent(1).size() == 1);
+    }
+    // The log reads back to the same state.
+    Memory again{file};
+    CHECK(again.count() == 2);
+    CHECK(again.find(c.metadata)->sources == (std::vector<std::string>{"lesson:1", "user"}));
+    CHECK(again.find(c.metadata)->status == larry::Status::Validated);
+    CHECK(again.find(d.metadata)->status == larry::Status::Validated);
+    CHECK(again.store(c.atom, c.metadata, larry::Status::Proposed, "user") == Stored::Same);
+    CHECK(again.find(c.metadata)->sources.size() == 2);
+    // A source with a comma or a tab is no problem: sources are hex.
+    CHECK(again.store(d.atom, d.metadata, larry::Status::Proposed, "read:a,b\tc") == Stored::Same);
+    Memory third{file};
+    CHECK(third.find(d.metadata)->sources == std::vector<std::string>{"read:a,b\tc"});
+}
+
+TEST(the_first_form_of_the_file_still_reads) {
+    const std::filesystem::path file = fresh("larry_test_first_form.atoms");
+    const Description c = sky_blue();
+    {
+        std::ofstream out{file, std::ios::binary};
+        out << larry::hex::encode(c.metadata.bytes) << '\t' << larry::hex::encode(c.image.bytes) << '\n';
+    }
+    Memory memory{file};
+    CHECK(memory.count() == 1);
+    CHECK(memory.find(c.metadata)->status == larry::Status::Proposed);
+    CHECK(memory.find(c.metadata)->sources.empty());
+    const AtomOperations ops;
+    CHECK(ops.text(memory.find(c.metadata)->description.atom) == "The sky is blue.");
+}
+
+TEST(a_log_line_that_changes_a_missing_atom_is_rejected) {
+    const std::filesystem::path file = fresh("larry_test_bad_log.atoms");
+    {
+        std::ofstream out{file, std::ios::binary};
+        out << "status\t00\tvalidated\n";
+    }
+    CHECK_THROWS(Memory{file}, std::runtime_error);
+    {
+        std::ofstream out{file, std::ios::binary | std::ios::trunc};
+        out << "atom\t" << larry::hex::encode(sky_blue().metadata.bytes) << "\t41\tmaybe\n";
+    }
+    CHECK_THROWS(Memory{file}, std::runtime_error);
 }
 
 TEST(status_names) {

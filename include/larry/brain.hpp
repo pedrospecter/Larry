@@ -3,6 +3,7 @@
 #include "larry/assimilation.hpp"
 #include "larry/base_rules.hpp"
 #include "larry/cognition.hpp"
+#include "larry/database.hpp"
 #include "larry/description.hpp"
 #include "larry/electron.hpp"
 #include "larry/memory.hpp"
@@ -10,6 +11,8 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace larry {
@@ -29,6 +32,8 @@ struct Verdict {
     std::vector<StoredAtom> because;
     /// When unknown, the conceptions that share the most words with the concept.
     std::vector<StoredAtom> nearest;
+    /// Whether the answer came from the cloud, not from the cache.
+    bool from_cloud = false;
 };
 
 /// What Larry says back, with what it used to say it (rule 6).
@@ -49,10 +54,13 @@ struct Core {
 };
 
 /// The brain (Q4, proposed): the loop that takes input, uses the network
-/// (memory) and cognition, and replies.
+/// (memory, and the cloud behind it) and cognition, and replies. Memory is
+/// the cache on the machine and answers first; what it cannot answer, the
+/// brain searches in the cloud, and what it finds there goes into the cache.
 class Brain {
 public:
-    Brain(const BaseRules& rules, Memory& memory);
+    /// Without a cloud, the brain has only the cache.
+    Brain(const BaseRules& rules, Memory& memory, Database* cloud = nullptr);
 
     /// R1 (first step): is this concept true? A concept is true when an
     /// affirmation in memory has the same core with the same polarity, false
@@ -70,7 +78,16 @@ public:
     /// a conception that fills the gap, or "I don't know". An order is
     /// refused for now. An assumption is stored as one, never as a truth. An
     /// expression is answered in kind.
-    [[nodiscard]] Reply hear(const Sentence& sentence);
+    [[nodiscard]] Reply hear(const Sentence& sentence, std::string_view source = "user");
+
+    /// Stores a conception in the cache and, when there is a cloud, in the
+    /// cloud. What the cache says about it is the result.
+    Stored remember(const Description& d, Status status, std::string_view source);
+
+    /// N2: pushes every conception of the cache that the cloud does not have,
+    /// and pulls the cloud's most recent ones into the cache. Gives the two
+    /// counts. Throws when there is no cloud.
+    std::pair<std::int64_t, std::int64_t> sync(std::int64_t pull);
 
     /// R1 (first step): the conceptions that answer a question that opens
     /// with a question word: those whose core has the known words of the
@@ -89,6 +106,7 @@ public:
     [[nodiscard]] std::vector<Core> statements(const Description& question) const;
 
     [[nodiscard]] Memory& memory() const noexcept { return *memory_; }
+    [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
     [[nodiscard]] const Cognition& cognition() const noexcept { return cognition_; }
 
@@ -97,10 +115,17 @@ private:
     [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;
 
+    /// The conceptions of the cache or the cloud that contain the rarest word
+    /// of a core, affirmations only.
+    [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
+    /// Puts a conception the cloud gave into the cache.
+    void cache(const StoredAtom& atom) const;
+
     const BaseRules* rules_;
     Assimilation assimilation_;
     Cognition cognition_;
     Memory* memory_;
+    Database* cloud_;
 };
 
 }  // namespace larry

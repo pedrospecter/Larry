@@ -3,6 +3,7 @@
 #include "larry/atom_operations.hpp"
 #include "larry/hex.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <format>
 #include <fstream>
@@ -15,8 +16,46 @@ namespace larry {
 
 namespace {
 
-std::string line_of(const MetadataElectron& metadata, const Bytes& bytes) {
-    return hex::encode(metadata.bytes) + '\t' + hex::encode(bytes) + '\n';
+// The memory file is a log. Each line is tagged:
+//   atom    <hex metadata> <hex bytes> <status> <hex source>,<hex source>
+//   source  <hex metadata> <hex source>
+//   status  <hex metadata> <status>
+// with tabs between the fields. The first form of the file had untagged
+// lines of two fields, metadata and bytes, which still read.
+constexpr char tab = '\t';
+
+std::vector<std::string_view> fields(std::string_view line) {
+    std::vector<std::string_view> out;
+    while (true) {
+        const std::size_t next = line.find(tab);
+        out.push_back(line.substr(0, next));
+        if (next == std::string_view::npos) {
+            break;
+        }
+        line.remove_prefix(next + 1);
+    }
+    return out;
+}
+
+std::string hex_of(std::string_view text) {
+    return hex::encode(std::span{reinterpret_cast<const std::uint8_t*>(text.data()), text.size()});
+}
+
+std::vector<std::string> sources_of(std::string_view list) {
+    std::vector<std::string> out;
+    while (!list.empty()) {
+        const std::size_t comma = list.find(',');
+        const std::optional<Bytes> source = hex::decode(list.substr(0, comma));
+        if (!source) {
+            throw std::runtime_error("Memory: a source is not hex bytes");
+        }
+        out.emplace_back(source->begin(), source->end());
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        list.remove_prefix(comma + 1);
+    }
+    return out;
 }
 
 }  // namespace
@@ -48,6 +87,10 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
         return;
     }
     std::size_t number = 0;
+    const auto bad = [&](const char* why) {
+        throw std::runtime_error(
+            std::format("Memory: {} line {} {}", file_.string(), number, why));
+    };
     for (std::string line; std::getline(in, line);) {
         ++number;
         if (!line.empty() && line.back() == '\r') {
@@ -56,23 +99,71 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
         if (line.empty()) {
             continue;
         }
-        const std::size_t tab = line.find('\t');
-        const std::optional<Bytes> metadata =
-            tab == std::string::npos ? std::nullopt : hex::decode(std::string_view{line}.substr(0, tab));
-        const std::optional<Bytes> bytes =
-            tab == std::string::npos ? std::nullopt : hex::decode(std::string_view{line}.substr(tab + 1));
-        if (!metadata || !bytes) {
-            throw std::runtime_error(
-                std::format("Memory: {} line {} is not an atom", file_.string(), number));
+        const std::vector<std::string_view> f = fields(line);
+        if (f.size() < 2) {
+            bad("is not an atom");
         }
-        if (by_metadata_.contains(*metadata)) {
-            throw std::runtime_error(std::format("Memory: {} line {} repeats an atom's metadata",
-                                                 file_.string(), number));
+        std::string_view tag = f[0];
+        std::size_t first = 1;
+        if (f.size() == 2 && hex::decode(f[0])) {
+            tag = "atom";  // the first form of the file
+            first = 0;
         }
-        atoms_.push_back({MetadataElectron{*metadata}, *bytes});
-        const auto id = static_cast<std::int64_t>(atoms_.size());
-        by_metadata_.emplace(*metadata, id);
-        index(id, atoms_.back().metadata);
+        const std::optional<Bytes> metadata = hex::decode(f[first]);
+        if (!metadata) {
+            bad("is not an atom");
+        }
+        if (tag == "atom") {
+            if (f.size() < first + 2) {
+                bad("is not an atom");
+            }
+            const std::optional<Bytes> bytes = hex::decode(f[first + 1]);
+            if (!bytes) {
+                bad("is not an atom");
+            }
+            if (by_metadata_.contains(*metadata)) {
+                bad("repeats an atom's metadata");
+            }
+            Record record{MetadataElectron{*metadata}, *bytes, Status::Proposed, {}};
+            if (f.size() > first + 2) {
+                const std::optional<Status> status = status_from(f[first + 2]);
+                if (!status) {
+                    bad("has an unknown status");
+                }
+                record.status = *status;
+            }
+            if (f.size() > first + 3) {
+                record.sources = sources_of(f[first + 3]);
+            }
+            atoms_.push_back(std::move(record));
+            const auto id = static_cast<std::int64_t>(atoms_.size());
+            by_metadata_.emplace(*metadata, id);
+            index(id, atoms_.back().metadata);
+            continue;
+        }
+        const auto found = by_metadata_.find(*metadata);
+        if (found == by_metadata_.end() || f.size() != 3) {
+            bad("changes an atom that is not there");
+        }
+        Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
+        if (tag == "source") {
+            const std::optional<Bytes> source = hex::decode(f[2]);
+            if (!source) {
+                bad("has a source that is not hex bytes");
+            }
+            std::string text(source->begin(), source->end());
+            if (!std::ranges::contains(record.sources, text)) {
+                record.sources.push_back(std::move(text));
+            }
+        } else if (tag == "status") {
+            const std::optional<Status> status = status_from(f[2]);
+            if (!status) {
+                bad("has an unknown status");
+            }
+            record.status = *status;
+        } else {
+            bad("has an unknown tag");
+        }
     }
 }
 
@@ -83,6 +174,19 @@ std::filesystem::path Memory::file_from_environment(Language language) {
     }
     return std::filesystem::path{LARRY_MEMORY_DIR} /
            (std::string{locale(language)} + ".atoms");
+}
+
+void Memory::append(const std::string& line) {
+    std::filesystem::create_directories(file_.parent_path().empty() ? "." : file_.parent_path());
+    std::ofstream out{file_, std::ios::binary | std::ios::app};
+    if (!out) {
+        throw std::runtime_error(std::format("Memory: cannot write {}", file_.string()));
+    }
+    out << line << '\n';
+    out.flush();
+    if (!out) {
+        throw std::runtime_error(std::format("Memory: cannot write {}", file_.string()));
+    }
 }
 
 void Memory::clear() {
@@ -113,32 +217,47 @@ void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
     }
 }
 
-Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata) {
+Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Status status,
+                     std::string_view source) {
     const AtomOperations ops;
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);
     const auto found = by_metadata_.find(metadata.bytes);
     if (found != by_metadata_.end()) {
-        const Bytes& stored = atoms_[static_cast<std::size_t>(found->second - 1)].bytes;
-        return std::ranges::equal(stored, bytes) ? Stored::Same : Stored::SameForm;
+        Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
+        if (!source.empty() && !std::ranges::contains(record.sources, std::string{source})) {
+            append(std::format("source{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
+                               hex_of(source)));
+            record.sources.emplace_back(source);
+        }
+        return std::ranges::equal(record.bytes, bytes) ? Stored::Same : Stored::SameForm;
     }
-    // Validate the metadata before anything is written.
-    (void)ops.electrons(metadata);
-    std::filesystem::create_directories(file_.parent_path().empty() ? "." : file_.parent_path());
-    std::ofstream out{file_, std::ios::binary | std::ios::app};
-    if (!out) {
-        throw std::runtime_error(std::format("Memory: cannot write {}", file_.string()));
-    }
+    (void)ops.electrons(metadata);  // validate before anything is written
     Bytes copy(bytes.begin(), bytes.end());
-    out << line_of(metadata, copy);
-    out.flush();
-    if (!out) {
-        throw std::runtime_error(std::format("Memory: cannot write {}", file_.string()));
+    append(std::format("atom{}{}{}{}{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
+                       hex::encode(copy), tab, name(status), tab,
+                       source.empty() ? std::string{} : hex_of(source)));
+    Record record{metadata, std::move(copy), status, {}};
+    if (!source.empty()) {
+        record.sources.emplace_back(source);
     }
-    atoms_.push_back({metadata, std::move(copy)});
+    atoms_.push_back(std::move(record));
     const auto id = static_cast<std::int64_t>(atoms_.size());
     by_metadata_.emplace(metadata.bytes, id);
     index(id, metadata);
     return Stored::New;
+}
+
+bool Memory::set_status(const MetadataElectron& metadata, Status status) {
+    const auto found = by_metadata_.find(metadata.bytes);
+    if (found == by_metadata_.end()) {
+        return false;
+    }
+    Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
+    if (record.status != status) {
+        append(std::format("status{}{}{}{}", tab, hex::encode(metadata.bytes), tab, name(status)));
+        record.status = status;
+    }
+    return true;
 }
 
 StoredAtom Memory::read(std::int64_t id) const {
@@ -146,6 +265,8 @@ StoredAtom Memory::read(std::int64_t id) const {
     const Record& record = atoms_[static_cast<std::size_t>(id - 1)];
     StoredAtom out;
     out.id = id;
+    out.status = record.status;
+    out.sources = record.sources;
     Description& d = out.description;
     d.atom = ops.from_text(
         std::string_view{reinterpret_cast<const char*>(record.bytes.data()), record.bytes.size()});
@@ -183,6 +304,25 @@ std::vector<StoredAtom> Memory::all() const {
     out.reserve(atoms_.size());
     for (std::size_t i = 0; i < atoms_.size(); ++i) {
         out.push_back(read(static_cast<std::int64_t>(i + 1)));
+    }
+    return out;
+}
+
+std::vector<StoredAtom> Memory::recent(std::int64_t count) const {
+    std::vector<StoredAtom> out;
+    for (std::int64_t id = static_cast<std::int64_t>(atoms_.size()); id >= 1 && count > 0;
+         --id, --count) {
+        out.push_back(read(id));
+    }
+    return out;
+}
+
+std::vector<StoredAtom> Memory::with_status(Status status) const {
+    std::vector<StoredAtom> out;
+    for (std::size_t i = 0; i < atoms_.size(); ++i) {
+        if (atoms_[i].status == status) {
+            out.push_back(read(static_cast<std::int64_t>(i + 1)));
+        }
     }
     return out;
 }

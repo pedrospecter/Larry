@@ -68,11 +68,11 @@ enum class Stored : std::uint8_t {
                ///< punctuation. The first one stays. Nothing changed.
 };
 
-/// Memory: where Larry keeps its conceptions, the atoms it holds. It is a
-/// local file, one atom per line, the metadata and the bytes as hex. The word
-/// index (N1) is built from the atoms when the file is read and kept up to
-/// date as atoms are stored. The PostgreSQL database (Database, parked) can
-/// later be the place of record that this file is a copy of (N2).
+/// Memory: what the machine keeps. The sentences Larry has met, their words
+/// with category and context (the word index, N1), and a cache of recent
+/// conceptions. It is a local file, a log of atoms with their status and
+/// sources as hex. The cloud (Database) is the record of conceptions that
+/// this cache answers for first (N2).
 class Memory {
 public:
     /// Opens the memory file and reads it when it exists. Throws
@@ -89,8 +89,19 @@ public:
     void clear();
 
     /// Store an atom under its metadata, which is where the neural network
-    /// finds it, index its words, and append it to the file.
-    Stored store(const Sentence& atom, const MetadataElectron& metadata);
+    /// finds it, index its words, and append it to the file. When it is
+    /// already there, only a new source is added.
+    Stored store(const Sentence& atom, const MetadataElectron& metadata,
+                 Status status = Status::Proposed, std::string_view source = "");
+
+    /// Changes the status of the atom with this metadata. False when it is not there.
+    bool set_status(const MetadataElectron& metadata, Status status);
+
+    /// The last atoms stored, newest first.
+    [[nodiscard]] std::vector<StoredAtom> recent(std::int64_t count) const;
+
+    /// The atoms at a status, in the order they were stored.
+    [[nodiscard]] std::vector<StoredAtom> with_status(Status status) const;
 
     /// The atom stored under this metadata.
     [[nodiscard]] std::optional<StoredAtom> find(const MetadataElectron& metadata) const;
@@ -119,8 +130,11 @@ private:
     struct Record {
         MetadataElectron metadata;
         Bytes bytes;
+        Status status;
+        std::vector<std::string> sources;
     };
 
+    void append(const std::string& line);
     void index(std::int64_t id, const MetadataElectron& metadata);
     [[nodiscard]] StoredAtom read(std::int64_t id) const;
 

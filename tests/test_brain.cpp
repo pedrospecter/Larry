@@ -5,9 +5,15 @@
 #include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/database.hpp"
 #include "larry/memory.hpp"
 
 #include "check.hpp"
+
+#include <cstdlib>
+#include <exception>
+#include <memory>
+#include <print>
 
 #include <filesystem>
 #include <string>
@@ -278,6 +284,101 @@ TEST(hear_handles_orders_assumptions_and_expressions) {
     CHECK(say("Hello!").text == "Hello!");
     CHECK(say("Thank you.").text == "Thank you.");
     CHECK(!say("Hello!").because.empty());
+}
+
+namespace {
+
+// The cloud: a scratch schema of the local server, when one answers.
+std::unique_ptr<larry::Database> cloud_database() {
+    std::string connection;
+    for (const char* variable : {"LARRY_TEST_DB", "LARRY_DB"}) {
+        const char* value = std::getenv(variable);
+        if (value != nullptr && *value != '\0') {
+            connection = value;
+            break;
+        }
+    }
+    if (connection.empty()) {
+        connection = "dbname=larry";
+    }
+    connection += " options='-c search_path=larry_test_brain'";
+    try {
+        auto db = std::make_unique<larry::Database>(connection);
+        db->run("drop schema if exists larry_test_brain cascade; create schema larry_test_brain");
+        db->apply_schema();
+        return db;
+    } catch (const std::exception& e) {
+        std::println("cloud checks skipped: {}", e.what());
+        return nullptr;
+    }
+}
+
+}  // namespace
+
+TEST(the_cache_answers_first_and_the_cloud_second) {
+    std::unique_ptr<larry::Database> cloud = cloud_database();
+    if (!cloud) {
+        return;
+    }
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_cloud.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache, cloud.get()};
+    const larry::Assimilation assimilation{rules()};
+    const larry::AtomOperations ops;
+    const auto describe = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        return assimilation.describe(ops.from_text(text), &cache, taught);
+    };
+    // Taught through the brain: in the cache and in the cloud.
+    const larry::Description sky = describe("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.remember(sky, larry::Status::Proposed, "lesson:test") == larry::Stored::New);
+    CHECK(cache.count() == 1);
+    CHECK(cloud->count() == 1);
+    CHECK(cloud->find(sky.metadata)->sources == std::vector<std::string>{"lesson:test"});
+    // Only in the cloud: the cache does not know it, the cloud does, and then the cache does.
+    const larry::Description sea = describe("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    cloud->store(sea.atom, sea.metadata, larry::Status::Validated, "pi");
+    CHECK(cache.find(sea.metadata) == std::nullopt);
+    const larry::Verdict first = brain.truth(ops.from_text("the sea is wide"));
+    CHECK(first.truth == Truth::True);
+    CHECK(first.from_cloud);
+    CHECK(cache.find(sea.metadata).has_value());
+    CHECK(cache.find(sea.metadata)->status == larry::Status::Validated);
+    CHECK(cache.find(sea.metadata)->sources == std::vector<std::string>{"pi"});
+    const larry::Verdict second = brain.truth(ops.from_text("the sea is wide"));
+    CHECK(second.truth == Truth::True);
+    CHECK(!second.from_cloud);
+    // The same for an open question, and for hearing.
+    const larry::Description tom = describe("Tom is a teacher.", {"proper noun", "auxiliary verb", "determiner", "noun"});
+    cloud->store(tom.atom, tom.metadata, larry::Status::Proposed, "pi");
+    larry::Reply who = brain.hear(ops.from_text("Who is Tom?"));
+    CHECK(who.text == "Tom is a teacher.");
+    CHECK(cache.find(tom.metadata).has_value());
+    const larry::Reply heard = brain.hear(ops.from_text("The sky is wide."));
+    CHECK(heard.text == "Noted.");
+    CHECK(cloud->count() == 4);
+    CHECK(cloud->all().back().sources == std::vector<std::string>{"user"});
+    // A withdrawn conception in the cloud is no evidence.
+    const larry::Description moon = describe("The moon is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    cloud->store(moon.atom, moon.metadata, larry::Status::Withdrawn, "pi");
+    CHECK(brain.truth(ops.from_text("the moon is blue")).truth == Truth::Unknown);
+    // Sync: what the cache has and the cloud not, and the other way round.
+    const larry::Description grass = describe("The grass is tall.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
+    const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
+    const auto [pushed, pulled] = brain.sync(100);
+    CHECK(pushed == 1);
+    CHECK(pulled == 2);  // the cat and the withdrawn moon
+    CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
+    CHECK(cache.find(cat.metadata)->status == larry::Status::Validated);
+    CHECK(brain.sync(100) == std::make_pair(std::int64_t{0}, std::int64_t{0}));
+    cloud->run("drop schema if exists larry_test_brain cascade");
 }
 
 int main() {

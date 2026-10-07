@@ -81,7 +81,15 @@ const char* const select_conceptions =
 
 }  // namespace
 
+namespace {
+
+// The server's notices ("relation already exists, skipping") are not for the user.
+void quiet(void* /*arg*/, const char* /*message*/) {}
+
+}  // namespace
+
 Database::Database(const std::string& connection) : connection_(PQconnectdb(connection.c_str())) {
+    PQsetNoticeProcessor(connection_, quiet, nullptr);
     if (PQstatus(connection_) != CONNECTION_OK) {
         const std::string why = PQerrorMessage(connection_);
         PQfinish(connection_);

@@ -16,6 +16,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <print>
 #include <span>
 #include <stdexcept>
@@ -44,10 +45,15 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                an assumption noted, an expression returned
   chat                         hear a line at a time from standard input;
                                "why?" explains the last reply, "bye" ends
+  sync [n]                     push the cache's conceptions to the cloud and
+                               pull the cloud's n most recent (100) into it
   count                        how many conceptions and word uses memory holds
 
-Memory is the file LARRY_MEMORY names, or memory/<locale>.atoms. When the
-file does not exist yet, Larry rebuilds it from the lessons first.
+Memory, the cache on this machine, is the file LARRY_MEMORY names, or
+memory/<locale>.atoms. When the file does not exist yet, Larry rebuilds it
+from the lessons first. The cloud, the record of conceptions, is the
+PostgreSQL server LARRY_DB names ("host=... dbname=larry user=..."); without
+it, Larry has only the cache.
 )";
 
 std::string_view as_text(const larry::Bytes& b) {
@@ -115,8 +121,20 @@ struct Larry {
     larry::Cognition cognition;
     larry::AtomOperations ops;
     larry::Memory memory{larry::Memory::file_from_environment(constellation.language())};
+    std::unique_ptr<larry::Database> cloud;
+    larry::Brain brain{rules, memory, nullptr};
 
     Larry() {
+        const std::string connection = larry::Database::connection_from_environment();
+        if (!connection.empty()) {
+            try {
+                cloud = std::make_unique<larry::Database>(connection);
+                cloud->apply_schema();
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: no cloud: {}", e.what());
+            }
+        }
+        brain = larry::Brain{rules, memory, cloud.get()};
         if (!std::filesystem::exists(memory.file())) {
             std::println(stderr, "larry: no memory at {}; rebuilding it from the lessons",
                          memory.file().string());
@@ -135,7 +153,8 @@ struct Larry {
                 throw std::runtime_error(
                     std::format("{} line {}: {}", file.string(), lesson.line, e.what()));
             }
-            const larry::Stored stored = memory.store(d.atom, d.metadata);
+            const larry::Stored stored =
+                brain.remember(d, larry::Status::Proposed, "lesson:" + file.filename().string());
             tally.add(stored);
             if (verbose) {
                 std::println("{:<10} {}", stored_name(stored), lesson.sentence);
@@ -273,7 +292,7 @@ int run(std::span<const std::string_view> args) {
         const std::vector<larry::Bytes> taught = categories(rest.subspan(1));
         const larry::Description d =
             larry.assimilation.describe(larry.ops.from_text(rest[0]), &larry.memory, taught);
-        const larry::Stored stored = larry.memory.store(d.atom, d.metadata);
+        const larry::Stored stored = larry.brain.remember(d, larry::Status::Proposed, "user");
         print(larry, d);
         std::println("stored        : {}", stored_name(stored));
         return 0;
@@ -284,9 +303,10 @@ int run(std::span<const std::string_view> args) {
         }
         const std::string text = read_file(rest[0]);
         Tally tally;
+        const std::string source = "read:" + std::filesystem::path{rest[0]}.filename().string();
         for (const larry::Sentence& sentence : larry.assimilation.sentences(text)) {
             const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
-            const larry::Stored stored = larry.memory.store(d.atom, d.metadata);
+            const larry::Stored stored = larry.brain.remember(d, larry::Status::Proposed, source);
             tally.add(stored);
             std::println("{:<10} {}{}", stored_name(stored), larry.ops.text(sentence),
                          open_words(d));
@@ -364,8 +384,7 @@ int run(std::span<const std::string_view> args) {
         if (rest.empty()) {
             throw std::runtime_error("ask needs a sentence");
         }
-        const larry::Brain brain{larry.rules, larry.memory};
-        const larry::Verdict verdict = brain.truth(larry.ops.from_text(join(rest)));
+        const larry::Verdict verdict = larry.brain.truth(larry.ops.from_text(join(rest)));
         switch (verdict.truth) {
         case larry::Truth::True:
             std::println("true");
@@ -378,7 +397,9 @@ int run(std::span<const std::string_view> args) {
             break;
         }
         for (const larry::StoredAtom& atom : verdict.because) {
-            std::println("because: {}", larry.ops.text(atom.description.atom));
+            std::println("because: {}{}{}", larry.ops.text(atom.description.atom),
+                         verdict.from_cloud ? " (from the cloud)" : "",
+                         atom.status == larry::Status::Proposed ? " (proposed)" : "");
         }
         for (const larry::StoredAtom& atom : verdict.nearest) {
             std::println("I know: {}", larry.ops.text(atom.description.atom));
@@ -389,8 +410,7 @@ int run(std::span<const std::string_view> args) {
         if (rest.empty()) {
             throw std::runtime_error("say needs a sentence");
         }
-        larry::Brain brain{larry.rules, larry.memory};
-        const larry::Reply reply = brain.hear(larry.ops.from_text(join(rest)));
+        const larry::Reply reply = larry.brain.hear(larry.ops.from_text(join(rest)));
         std::println("{}", reply.text);
         for (const std::string& because : reply.because) {
             std::println("  because: {}", because);
@@ -398,10 +418,12 @@ int run(std::span<const std::string_view> args) {
         return 0;
     }
     if (command == "chat") {
-        larry::Brain brain{larry.rules, larry.memory};
+        larry::Brain& brain = larry.brain;
         larry::Reply last;
-        std::println("Larry: hello. I hold {} conceptions. Say \"bye\" to end, \"why?\" to ask why.",
-                     larry.memory.count());
+        std::println("Larry: hello. I hold {} conceptions{}. Say \"bye\" to end, \"why?\" to ask why.",
+                     larry.memory.count(),
+                     larry.cloud ? std::format(" here and {} in the cloud", larry.cloud->count())
+                                 : std::string{", and no cloud"});
         for (std::string line; std::print("> "), std::getline(std::cin, line);) {
             const std::vector<larry::Sentence> sentences = larry.assimilation.sentences(line);
             if (sentences.empty()) {
@@ -434,9 +456,29 @@ int run(std::span<const std::string_view> args) {
         std::println();
         return 0;
     }
+    if (command == "sync") {
+        if (!larry.cloud) {
+            throw std::runtime_error("sync needs a cloud: set LARRY_DB");
+        }
+        std::int64_t pull = 100;
+        if (!rest.empty()) {
+            pull = std::stoll(std::string{rest[0]});
+        }
+        const auto [pushed, pulled] = larry.brain.sync(pull);
+        std::println("{} conceptions pushed to the cloud, {} pulled into the cache", pushed, pulled);
+        std::println("{} conceptions here, {} in the cloud", larry.memory.count(),
+                     larry.cloud->count());
+        return 0;
+    }
     if (command == "count") {
         std::println("{} conceptions, {} word uses, in {}", larry.memory.count(),
                      larry.memory.count_words(), larry.memory.file().string());
+        if (larry.cloud) {
+            std::println("{} conceptions, {} word uses, in the cloud", larry.cloud->count(),
+                         larry.cloud->count_words());
+        } else {
+            std::println("no cloud: set LARRY_DB to reach one");
+        }
         return 0;
     }
     throw std::runtime_error(std::format("unknown command \"{}\"; try larry help", command));

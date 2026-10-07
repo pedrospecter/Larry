@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <format>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -47,8 +48,81 @@ const std::vector<Bytes> do_support = {bytes_of("do"), bytes_of("does"), bytes_o
 
 }  // namespace
 
-Brain::Brain(const BaseRules& rules, Memory& memory)
-    : rules_(&rules), assimilation_(rules), cognition_(), memory_(&memory) {}
+Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud)
+    : rules_(&rules), assimilation_(rules), cognition_(), memory_(&memory), cloud_(cloud) {}
+
+void Brain::cache(const StoredAtom& atom) const {
+    const Description& d = atom.description;
+    const bool fresh = memory_->find(d.metadata) == std::nullopt;
+    std::string_view first_source = atom.sources.empty() ? std::string_view{"cloud"} : atom.sources.front();
+    memory_->store(d.atom, d.metadata, atom.status, first_source);
+    for (std::size_t i = 1; i < atom.sources.size(); ++i) {
+        memory_->store(d.atom, d.metadata, atom.status, atom.sources[i]);
+    }
+    if (fresh) {
+        memory_->set_status(d.metadata, atom.status);
+    }
+}
+
+Stored Brain::remember(const Description& d, Status status, std::string_view source) {
+    const Stored stored = memory_->store(d.atom, d.metadata, status, source);
+    if (cloud_ != nullptr) {
+        cloud_->store(d.atom, d.metadata, status, source);
+    }
+    return stored;
+}
+
+std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
+    if (cloud_ == nullptr) {
+        throw std::runtime_error("Brain::sync: there is no cloud; set LARRY_DB");
+    }
+    std::int64_t pushed = 0;
+    for (const StoredAtom& atom : memory_->all()) {
+        const Description& d = atom.description;
+        if (cloud_->find(d.metadata)) {
+            continue;
+        }
+        if (atom.sources.empty()) {
+            cloud_->store(d.atom, d.metadata, atom.status, "");
+        }
+        for (const std::string& source : atom.sources) {
+            cloud_->store(d.atom, d.metadata, atom.status, source);
+        }
+        ++pushed;
+    }
+    std::int64_t pulled = 0;
+    for (const StoredAtom& atom : cloud_->recent(pull)) {
+        if (memory_->find(atom.description.metadata)) {
+            continue;
+        }
+        cache(atom);
+        ++pulled;
+    }
+    return {pushed, pulled};
+}
+
+std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
+    std::vector<StoredAtom> out;
+    if (form.words.empty() || (cloud && cloud_ == nullptr)) {
+        return out;
+    }
+    const Bytes* rarest = &form.words.front();
+    std::size_t fewest = memory_->uses(*rarest).size();
+    for (const Bytes& word : form.words) {
+        const std::size_t uses = memory_->uses(word).size();
+        if (uses < fewest) {
+            fewest = uses;
+            rarest = &word;
+        }
+    }
+    std::vector<StoredAtom> found = cloud ? cloud_->containing(*rarest) : memory_->containing(*rarest);
+    for (StoredAtom& atom : found) {
+        if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn) {
+            out.push_back(std::move(atom));
+        }
+    }
+    return out;
+}
 
 std::vector<Bytes> Brain::expanded_words(const Description& d) const {
     const AtomOperations ops;
@@ -156,52 +230,40 @@ Verdict Brain::truth(const Description& claim) const {
     if (forms.empty()) {
         forms.push_back(core(claim));
     }
-    // The conceptions worth reading: the affirmations that contain the
-    // rarest word of a form.
-    const auto candidates = [&](const Core& form) {
-        std::vector<StoredAtom> out;
-        if (form.words.empty()) {
-            return out;
-        }
-        const Bytes* rarest = &form.words.front();
-        std::size_t fewest = memory_->uses(*rarest).size();
-        for (const Bytes& word : form.words) {
-            const std::size_t uses = memory_->uses(word).size();
-            if (uses < fewest) {
-                fewest = uses;
-                rarest = &word;
+    // The cache answers first; the cloud only when the cache cannot.
+    for (const bool cloud : {false, true}) {
+        bool any_false = false;
+        StoredAtom false_because;
+        for (const Core& form : forms) {
+            for (StoredAtom& atom : candidates(form, cloud)) {
+                const Core stored = core(atom.description);
+                if (stored.words != form.words) {
+                    continue;
+                }
+                if (stored.negated == form.negated) {
+                    verdict.truth = Truth::True;
+                    verdict.from_cloud = cloud;
+                    if (cloud) {
+                        cache(atom);
+                    }
+                    verdict.because.push_back(std::move(atom));
+                    return verdict;
+                }
+                if (!any_false) {
+                    any_false = true;
+                    false_because = std::move(atom);
+                }
             }
         }
-        for (StoredAtom& atom : memory_->containing(*rarest)) {
-            if (atom.description.category.bytes == affirmation) {
-                out.push_back(std::move(atom));
+        if (any_false) {
+            verdict.truth = Truth::False;
+            verdict.from_cloud = cloud;
+            if (cloud) {
+                cache(false_because);
             }
+            verdict.because.push_back(std::move(false_because));
+            return verdict;
         }
-        return out;
-    };
-    bool any_false = false;
-    StoredAtom false_because;
-    for (const Core& form : forms) {
-        for (StoredAtom& atom : candidates(form)) {
-            const Core stored = core(atom.description);
-            if (stored.words != form.words) {
-                continue;
-            }
-            if (stored.negated == form.negated) {
-                verdict.truth = Truth::True;
-                verdict.because.push_back(std::move(atom));
-                return verdict;
-            }
-            if (!any_false) {
-                any_false = true;
-                false_because = std::move(atom);
-            }
-        }
-    }
-    if (any_false) {
-        verdict.truth = Truth::False;
-        verdict.because.push_back(std::move(false_because));
-        return verdict;
     }
     // Unknown: the affirmations that share the most content words with the
     // concept, most shared first, then the order they were stored in. A
@@ -277,41 +339,37 @@ std::vector<StoredAtom> Brain::answers(const Description& question) const {
     if (pattern.words.empty()) {
         return out;
     }
-    const Bytes* rarest = &pattern.words.front();
-    std::size_t fewest = memory_->uses(*rarest).size();
-    for (const Bytes& word : pattern.words) {
-        const std::size_t uses = memory_->uses(word).size();
-        if (uses < fewest) {
-            fewest = uses;
-            rarest = &word;
+    for (const bool cloud : {false, true}) {
+        for (StoredAtom& atom : candidates(pattern, cloud)) {
+            const Core stored = core(atom.description);
+            if (stored.negated || stored.words.size() <= pattern.words.size()) {
+                continue;
+            }
+            bool fits = gap_at_end
+                            ? std::equal(pattern.words.begin(), pattern.words.end(), stored.words.begin())
+                            : std::equal(pattern.words.rbegin(), pattern.words.rend(), stored.words.rbegin());
+            if (!fits && gap_at_end && pattern.words.size() >= 2) {
+                // "X is [?]" is also answered by "[?] is X": the auxiliary and the
+                // subject at the end of the conception.
+                std::vector<Bytes> reversed(pattern.words.end() - 1, pattern.words.end());
+                reversed.insert(reversed.end(), pattern.words.begin(), pattern.words.end() - 1);
+                fits = std::equal(reversed.rbegin(), reversed.rend(), stored.words.rbegin());
+            }
+            if (fits) {
+                if (cloud) {
+                    cache(atom);
+                }
+                out.push_back(std::move(atom));
+            }
         }
-    }
-    for (StoredAtom& atom : memory_->containing(*rarest)) {
-        if (atom.description.category.bytes != affirmation) {
-            continue;
-        }
-        const Core stored = core(atom.description);
-        if (stored.negated || stored.words.size() <= pattern.words.size()) {
-            continue;
-        }
-        bool fits = gap_at_end
-                        ? std::equal(pattern.words.begin(), pattern.words.end(), stored.words.begin())
-                        : std::equal(pattern.words.rbegin(), pattern.words.rend(), stored.words.rbegin());
-        if (!fits && gap_at_end && pattern.words.size() >= 2) {
-            // "X is [?]" is also answered by "[?] is X": the auxiliary and the
-            // subject at the end of the conception.
-            std::vector<Bytes> reversed(pattern.words.end() - 1, pattern.words.end());
-            reversed.insert(reversed.end(), pattern.words.begin(), pattern.words.end() - 1);
-            fits = std::equal(reversed.rbegin(), reversed.rend(), stored.words.rbegin());
-        }
-        if (fits) {
-            out.push_back(std::move(atom));
+        if (!out.empty()) {
+            break;
         }
     }
     return out;
 }
 
-Reply Brain::hear(const Sentence& sentence) {
+Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     const AtomOperations ops;
     const Description d = assimilation_.describe(sentence, memory_);
     const std::string_view qualification{reinterpret_cast<const char*>(d.category.bytes.data()),
@@ -331,7 +389,7 @@ Reply Brain::hear(const Sentence& sentence) {
         return reply;
     }
     if (qualification == "assumption") {
-        memory_->store(d.atom, d.metadata);
+        remember(d, Status::Proposed, source);
         reply.stored = true;
         reply.text = "Noted as an assumption, not as a truth.";
         reply.because.emplace_back("rule: an assumption is kept apart from the truths");
@@ -362,7 +420,7 @@ Reply Brain::hear(const Sentence& sentence) {
             break;
         }
         for (const StoredAtom& atom : verdict.because) {
-            reply.because.push_back(text_of(atom));
+            reply.because.push_back((verdict.from_cloud ? "cloud: " : "") + text_of(atom));
         }
         for (const StoredAtom& atom : verdict.nearest) {
             reply.because.push_back("nearest: " + text_of(atom));
@@ -374,7 +432,7 @@ Reply Brain::hear(const Sentence& sentence) {
     }
     // An affirmation: what does memory hold already? (C16, first step)
     const Verdict verdict = truth(d);
-    const Stored stored = memory_->store(d.atom, d.metadata);
+    const Stored stored = remember(d, Status::Proposed, source);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {
         reply.text = stored == Stored::New ? "I know. " + text_of(verdict.because.front())
