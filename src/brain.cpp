@@ -1,0 +1,250 @@
+#include "larry/brain.hpp"
+
+#include "larry/atom_operations.hpp"
+
+#include <algorithm>
+#include <map>
+#include <string_view>
+#include <utility>
+
+namespace larry {
+
+namespace {
+
+Bytes bytes_of(std::string_view text) {
+    return Bytes(text.begin(), text.end());
+}
+
+bool in(const std::vector<Bytes>& list, const Bytes& item) {
+    return std::ranges::contains(list, item);
+}
+
+// The words of an expansion ("is not"), split at spaces.
+std::vector<Bytes> split_words(const Bytes& text) {
+    std::vector<Bytes> out;
+    Bytes current;
+    for (const std::uint8_t b : text) {
+        if (b == ' ') {
+            if (!current.empty()) {
+                out.push_back(std::move(current));
+                current.clear();
+            }
+        } else {
+            current.push_back(b);
+        }
+    }
+    if (!current.empty()) {
+        out.push_back(std::move(current));
+    }
+    return out;
+}
+
+const Bytes affirmation = bytes_of("affirmation");
+const Bytes auxiliary_verb = bytes_of("auxiliary verb");
+const std::vector<Bytes> do_support = {bytes_of("do"), bytes_of("does"), bytes_of("did")};
+
+}  // namespace
+
+Brain::Brain(const BaseRules& rules, Memory& memory)
+    : rules_(&rules), assimilation_(rules), cognition_(), memory_(&memory) {}
+
+std::vector<Bytes> Brain::expanded_words(const Description& d) const {
+    const AtomOperations ops;
+    std::vector<Bytes> out;
+    for (const Entity& entity : d.entities.entities) {
+        const Bytes word = ops.fold(entity.word);
+        bool expanded = false;
+        for (const auto& [contraction, expansion] : rules_->contractions()) {
+            if (contraction == word) {
+                for (Bytes& part : split_words(expansion)) {
+                    out.push_back(std::move(part));
+                }
+                expanded = true;
+                break;
+            }
+        }
+        if (!expanded) {
+            out.push_back(std::move(word));
+        }
+    }
+    return out;
+}
+
+Core Brain::core_of(std::vector<Bytes> words) const {
+    Core out;
+    std::size_t negations = 0;
+    for (Bytes& word : words) {
+        if (in(rules_->negation_words(), word)) {
+            ++negations;
+            continue;
+        }
+        if (in(do_support, word)) {
+            continue;
+        }
+        out.words.push_back(std::move(word));
+    }
+    out.negated = negations % 2 == 1;
+    return out;
+}
+
+Core Brain::core(const Description& d) const {
+    return core_of(expanded_words(d));
+}
+
+bool Brain::is_auxiliary(const Bytes& folded_word, const Bytes& category) const {
+    if (category == auxiliary_verb) {
+        return true;
+    }
+    if (!category.empty()) {
+        return false;
+    }
+    // A contraction expands to words memory may know: "isn't" to "is".
+    const std::vector<CategoryCount> known = memory_->categories_of(folded_word);
+    return known.size() == 1 && known.front().category == auxiliary_verb;
+}
+
+std::vector<Core> Brain::statements(const Description& question) const {
+    std::vector<Core> out;
+    const std::vector<Bytes> words = expanded_words(question);
+    if (words.size() < 2 || question.entities.entities.empty()) {
+        return out;
+    }
+    const Entity& first = question.entities.entities.front();
+    const bool opens_with_auxiliary =
+        is_auxiliary(words.front(), first.category) ||
+        (first.category.empty() && in(do_support, words.front()));
+    if (!opens_with_auxiliary || in(rules_->question_words(), words.front())) {
+        return out;
+    }
+    const Bytes auxiliary = words.front();
+    std::vector<Bytes> rest(words.begin() + 1, words.end());
+    // A negative question ("Isn't the sky blue?", "Is not the sky blue?")
+    // asks about the positive: the negation right after the auxiliary goes.
+    if (!rest.empty() && in(rules_->negation_words(), rest.front())) {
+        rest.erase(rest.begin());
+    }
+    if (rest.empty()) {
+        return out;
+    }
+    for (std::size_t k = 1; k < rest.size(); ++k) {
+        std::vector<Bytes> statement(rest.begin(), rest.begin() + static_cast<std::ptrdiff_t>(k));
+        statement.push_back(auxiliary);
+        statement.insert(statement.end(), rest.begin() + static_cast<std::ptrdiff_t>(k), rest.end());
+        out.push_back(core_of(std::move(statement)));
+    }
+    if (rest.size() == 1) {
+        // "Is it?": the only reading has the subject alone.
+        std::vector<Bytes> statement = rest;
+        statement.push_back(auxiliary);
+        out.push_back(core_of(std::move(statement)));
+    }
+    return out;
+}
+
+Verdict Brain::truth(const Sentence& claim) const {
+    return truth(assimilation_.describe(claim, memory_));
+}
+
+Verdict Brain::truth(const Description& claim) const {
+    Verdict verdict;
+    std::vector<Core> forms;
+    if (claim.category.bytes == bytes_of("question")) {
+        forms = statements(claim);
+    }
+    if (forms.empty()) {
+        forms.push_back(core(claim));
+    }
+    // The conceptions worth reading: the affirmations that contain the
+    // rarest word of a form.
+    const auto candidates = [&](const Core& form) {
+        std::vector<StoredAtom> out;
+        if (form.words.empty()) {
+            return out;
+        }
+        const Bytes* rarest = &form.words.front();
+        std::size_t fewest = memory_->uses(*rarest).size();
+        for (const Bytes& word : form.words) {
+            const std::size_t uses = memory_->uses(word).size();
+            if (uses < fewest) {
+                fewest = uses;
+                rarest = &word;
+            }
+        }
+        for (StoredAtom& atom : memory_->containing(*rarest)) {
+            if (atom.description.category.bytes == affirmation) {
+                out.push_back(std::move(atom));
+            }
+        }
+        return out;
+    };
+    bool any_false = false;
+    StoredAtom false_because;
+    for (const Core& form : forms) {
+        for (StoredAtom& atom : candidates(form)) {
+            const Core stored = core(atom.description);
+            if (stored.words != form.words) {
+                continue;
+            }
+            if (stored.negated == form.negated) {
+                verdict.truth = Truth::True;
+                verdict.because.push_back(std::move(atom));
+                return verdict;
+            }
+            if (!any_false) {
+                any_false = true;
+                false_because = std::move(atom);
+            }
+        }
+    }
+    if (any_false) {
+        verdict.truth = Truth::False;
+        verdict.because.push_back(std::move(false_because));
+        return verdict;
+    }
+    // Unknown: the affirmations that share the most content words with the
+    // concept, most shared first, then the order they were stored in. A
+    // content word is one memory does not know as a determiner, auxiliary
+    // verb, preposition, conjunction or pronoun.
+    static const std::vector<Bytes> function_categories = {
+        bytes_of("determiner"), bytes_of("auxiliary verb"), bytes_of("preposition"),
+        bytes_of("conjunction"), bytes_of("pronoun")};
+    const auto is_content = [&](const Bytes& word) {
+        const std::vector<CategoryCount> known = memory_->categories_of(word);
+        return known.size() != 1 || !in(function_categories, known.front().category);
+    };
+    std::size_t content_words = 0;
+    std::map<std::int64_t, std::pair<std::size_t, StoredAtom>> shared;
+    for (const Core& form : forms) {
+        std::vector<Bytes> seen;
+        for (const Bytes& word : form.words) {
+            if (in(seen, word) || !is_content(word)) {
+                continue;
+            }
+            seen.push_back(word);
+            if (&form == &forms.front()) {
+                ++content_words;
+            }
+            for (StoredAtom& atom : memory_->containing(word)) {
+                if (atom.description.category.bytes != affirmation) {
+                    continue;
+                }
+                auto [it, inserted] = shared.try_emplace(atom.id, 0, std::move(atom));
+                ++it->second.first;
+            }
+        }
+    }
+    std::vector<std::pair<std::size_t, StoredAtom>> ranked;
+    for (auto& [id, entry] : shared) {
+        ranked.push_back(std::move(entry));
+    }
+    std::ranges::stable_sort(ranked, [](const auto& a, const auto& b) { return a.first > b.first; });
+    // Nearest means sharing at least one content word and at least half of them.
+    for (std::size_t i = 0; i < ranked.size() && verdict.nearest.size() < 3; ++i) {
+        if (ranked[i].first >= 1 && ranked[i].first * 2 >= content_words) {
+            verdict.nearest.push_back(std::move(ranked[i].second));
+        }
+    }
+    return verdict;
+}
+
+}  // namespace larry

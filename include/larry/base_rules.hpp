@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace larry {
@@ -68,9 +69,25 @@ public:
     /// case, from expressions.txt.
     [[nodiscard]] const std::vector<Bytes>& expressions() const noexcept { return expressions_; }
 
+    /// Words that negate a sentence ("not", "never"), from negation_words.txt.
+    [[nodiscard]] const std::vector<Bytes>& negation_words() const noexcept {
+        return negation_words_;
+    }
+
+    /// Contractions and the words they stand for ("isn't" and "is not"), in
+    /// lower case, from contractions.txt: each line the contraction, '=', the words.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& contractions() const noexcept {
+        return contractions_;
+    }
+
     /// Reads one rule file. Throws std::runtime_error when the file cannot be
     /// read or a line is not hex bytes.
     [[nodiscard]] static std::vector<Bytes> read(const std::filesystem::path& file);
+
+    /// Reads a rule file of pairs: each line two items as hex bytes with '='
+    /// between them.
+    [[nodiscard]] static std::vector<std::pair<Bytes, Bytes>>
+    read_pairs(const std::filesystem::path& file);
 
     /// The directory the rules of this language are read from.
     [[nodiscard]] std::filesystem::path directory() const;
@@ -88,6 +105,8 @@ private:
     std::vector<Bytes> question_words_;
     std::vector<Bytes> assumption_words_;
     std::vector<Bytes> expressions_;
+    std::vector<Bytes> negation_words_;
+    std::vector<std::pair<Bytes, Bytes>> contractions_;
 };
 
 }  // namespace larry

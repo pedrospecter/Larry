@@ -36,6 +36,37 @@ std::vector<Bytes> BaseRules::read(const std::filesystem::path& file) {
     return out;
 }
 
+std::vector<std::pair<Bytes, Bytes>> BaseRules::read_pairs(const std::filesystem::path& file) {
+    std::ifstream in{file};
+    if (!in) {
+        throw std::runtime_error(std::format("BaseRules: cannot read {}", file.string()));
+    }
+    std::vector<std::pair<Bytes, Bytes>> out;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        const std::size_t equals = line.find('=');
+        const std::optional<Bytes> first =
+            equals == std::string::npos ? std::nullopt
+                                        : hex::decode(std::string_view{line}.substr(0, equals));
+        const std::optional<Bytes> second =
+            equals == std::string::npos ? std::nullopt
+                                        : hex::decode(std::string_view{line}.substr(equals + 1));
+        if (!first || !second) {
+            throw std::runtime_error(std::format(
+                "BaseRules: {} line {} is not a pair of hex bytes", file.string(), number));
+        }
+        out.emplace_back(std::move(*first), std::move(*second));
+    }
+    return out;
+}
+
 std::filesystem::path BaseRules::directory() const {
     return std::filesystem::path{LARRY_BASE_RULES_DIR} / locale(language_);
 }
@@ -53,6 +84,8 @@ BaseRules::BaseRules(Language language) : language_(language) {
     question_words_ = read(dir / "question_words.txt");
     assumption_words_ = read(dir / "assumption_words.txt");
     expressions_ = read(dir / "expressions.txt");
+    negation_words_ = read(dir / "negation_words.txt");
+    contractions_ = read_pairs(dir / "contractions.txt");
 }
 
 }  // namespace larry

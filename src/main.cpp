@@ -1,6 +1,7 @@
 #include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/brain.hpp"
 #include "larry/cognition.hpp"
 #include "larry/constellation.hpp"
 #include "larry/description.hpp"
@@ -35,6 +36,8 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
   compare <text> <text>        compare two sentences: C1 to C5
+  ask <text>                   is a concept true, false or unknown, from the
+                               conceptions in memory; a yes/no question works
   count                        how many conceptions and word uses memory holds
 
 Memory is the file LARRY_MEMORY names, or memory/<locale>.atoms. When the
@@ -349,6 +352,31 @@ int run(std::span<const std::string_view> args) {
                          ? std::string{}
                          : std::format("  pattern: {}", as_text(difference.pattern)));
         std::println("C5 same structure: {}", yes(larry.cognition.same_structure(a, b).holds));
+        return 0;
+    }
+    if (command == "ask") {
+        if (rest.empty()) {
+            throw std::runtime_error("ask needs a sentence");
+        }
+        const larry::Brain brain{larry.rules, larry.memory};
+        const larry::Verdict verdict = brain.truth(larry.ops.from_text(join(rest)));
+        switch (verdict.truth) {
+        case larry::Truth::True:
+            std::println("true");
+            break;
+        case larry::Truth::False:
+            std::println("false");
+            break;
+        case larry::Truth::Unknown:
+            std::println("I don't know");
+            break;
+        }
+        for (const larry::StoredAtom& atom : verdict.because) {
+            std::println("because: {}", larry.ops.text(atom.description.atom));
+        }
+        for (const larry::StoredAtom& atom : verdict.nearest) {
+            std::println("I know: {}", larry.ops.text(atom.description.atom));
+        }
         return 0;
     }
     if (command == "count") {

@@ -54,6 +54,17 @@ TEST(rejects_characters_that_are_not_hex) {
     CHECK_THROWS(BaseRules::read(spaced), std::runtime_error);
 }
 
+TEST(reads_pairs) {
+    const std::filesystem::path file =
+        write("larry_rules_pairs.txt", "# a=b\n61=6220632064\n\n6e6f=\n");
+    const auto pairs = BaseRules::read_pairs(file);
+    CHECK(pairs.size() == 2);
+    CHECK(pairs.size() == 2 && pairs[0].first == b("a") && pairs[0].second == b("b c d"));
+    CHECK(pairs.size() == 2 && pairs[1].first == b("no") && pairs[1].second.empty());
+    CHECK_THROWS(BaseRules::read_pairs(write("larry_rules_pairs_bad.txt", "6162\n")), std::runtime_error);
+    CHECK_THROWS(BaseRules::read_pairs(write("larry_rules_pairs_bad2.txt", "6g=61\n")), std::runtime_error);
+}
+
 TEST(rejects_a_missing_file) {
     CHECK_THROWS(BaseRules::read(std::filesystem::temp_directory_path() / "larry_no_such_file.txt"),
                  std::runtime_error);
@@ -79,6 +90,15 @@ TEST(english_rules_load) {
     CHECK(has(rules.assumption_words(), "if"));
     CHECK(has(rules.expressions(), "hello"));
     CHECK(has(rules.expressions(), "thank you"));
+    CHECK(has(rules.negation_words(), "not"));
+    CHECK(has(rules.negation_words(), "never"));
+    CHECK(!rules.contractions().empty());
+    bool isnt = false;
+    for (const auto& [contraction, expansion] : rules.contractions()) {
+        CHECK(!contraction.empty() && !expansion.empty());
+        isnt = isnt || (contraction == b("isn't") && expansion == b("is not"));
+    }
+    CHECK(isnt);
     // Every abbreviation ends with its full stop and is in lower case.
     for (const Bytes& item : rules.abbreviations()) {
         CHECK(!item.empty() && item.back() == '.');

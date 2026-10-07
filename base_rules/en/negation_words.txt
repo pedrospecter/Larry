@@ -1,0 +1,10 @@
+# Words that negate a sentence. Removing them gives the sentence's core, and the
+# sentence is negated when an odd number were removed.
+6e6f74
+6e6f
+6e65766572
+6e6f626f6479
+6e6f7468696e67
+6e6f6e65
+6e656974686572
+6e6f7768657265
