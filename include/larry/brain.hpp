@@ -5,6 +5,7 @@
 #include "larry/cognition.hpp"
 #include "larry/database.hpp"
 #include "larry/description.hpp"
+#include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
 #include "larry/memory.hpp"
 #include "larry/sentence.hpp"
@@ -60,8 +61,10 @@ struct Core {
 /// brain searches in the cloud, and what it finds there goes into the cache.
 class Brain {
 public:
-    /// Without a cloud, the brain has only the cache.
-    Brain(const BaseRules& rules, Memory& memory, Database* cloud = nullptr);
+    /// Without a cloud, the brain has only the cache; without a dictionary,
+    /// only what the conceptions taught.
+    Brain(const BaseRules& rules, Memory& memory, Database* cloud = nullptr,
+          const Dictionary* dictionary = nullptr);
 
     /// R1 (first step): is this concept true? A concept is true when an
     /// affirmation in memory has the same core with the same polarity, false
@@ -82,10 +85,23 @@ public:
     [[nodiscard]] Reply hear(const Sentence& sentence, std::string_view source = "user");
 
     /// Stores a conception in the cache and, when there is a cloud, in the
-    /// cloud. What the cache says about it is the result. A proposed
-    /// conception that two different sources have given becomes validated
-    /// (R2, first step).
+    /// cloud. What the cache says about it is the result. It stays proposed:
+    /// only a validator decides (R2, first step, the user's safeguard).
     Stored remember(const Description& d, Status status, std::string_view source);
+
+    /// The validators: the names allowed to validate or withdraw, from the
+    /// cloud when there is one, else from the cache.
+    [[nodiscard]] std::vector<std::string> validators() const;
+    [[nodiscard]] bool is_validator(std::string_view name) const;
+
+    /// Adds a validator. The first one may be added by anyone; after that,
+    /// only a validator adds another. False when refused.
+    bool add_validator(std::string_view name, std::string_view by);
+
+    /// Validates or withdraws a conception, in the cache and the cloud, when
+    /// `by` is a validator. Throws std::runtime_error when it is not: Larry
+    /// rejects a decision from anyone but a validator.
+    bool decide(const MetadataElectron& metadata, Status status, std::string_view by);
 
     /// The conceptions waiting for validation: the cloud's when there is a
     /// cloud, else the cache's.
@@ -94,9 +110,9 @@ public:
     /// The conception with this id in the cloud, or in the cache without one.
     [[nodiscard]] std::optional<StoredAtom> conception(std::int64_t id) const;
 
-    /// Sets a conception's status in the cache and in the cloud. False when
-    /// neither has it.
-    bool set_status(const MetadataElectron& metadata, Status status);
+    /// Sets a conception's status in the cache and in the cloud, with who
+    /// decided. False when neither has it. decide() is the guarded way.
+    bool set_status(const MetadataElectron& metadata, Status status, std::string_view by = "");
 
     /// N2: pushes every conception of the cache that the cloud does not have,
     /// and pulls the cloud's most recent ones into the cache. Gives the two

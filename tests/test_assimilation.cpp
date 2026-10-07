@@ -5,6 +5,7 @@
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
 #include "larry/description.hpp"
+#include "larry/dictionary.hpp"
 #include "larry/memory.hpp"
 
 #include "check.hpp"
@@ -284,11 +285,15 @@ TEST(describe_from_memory) {
     // Capitals do not matter: "the" was taught as "The".
     CHECK(assimilation().describe(ops().from_text("the grass"), &memory).notes[0].source ==
           larry::Source::Memory);
-    // A word with two categories stays open, with both as candidates.
+    // A word with two categories: the context chooses one as a guess ("the _ is"
+    // holds nouns); without a context to choose, it stays open with both.
     const larry::Description open = assimilation().describe(ops().from_text("The run is tall."), &memory);
-    CHECK(open.notes[1].source == larry::Source::Open);
-    CHECK(open.notes[1].candidates.size() == 2);
-    CHECK(open.entities.entities[1].category.empty());
+    CHECK(open.notes[1].source == larry::Source::Guess);
+    CHECK(open.entities.entities[1].category == (Bytes{'n', 'o', 'u', 'n'}));
+    const larry::Description alone = assimilation().describe(ops().from_text("Run"), &memory);
+    CHECK(alone.notes[0].source == larry::Source::Open);
+    CHECK(alone.notes[0].candidates.size() == 2);
+    CHECK(alone.entities.entities[0].category.empty());
     // An unknown word is unknown.
     const larry::Description unknown = assimilation().describe(ops().from_text("The sky is azure."), &memory);
     CHECK(unknown.notes[3].source == larry::Source::Guess);  // from the context, see below
@@ -373,6 +378,54 @@ TEST(describe_guesses_an_unknown_word_from_its_context) {
     CHECK(again.notes[3].source == larry::Source::Guess);
     CHECK(std::ranges::contains(memory.words(), Bytes{'a', 'z', 'u', 'r', 'e'}));
     CHECK(memory.words().size() == 13);
+}
+
+TEST(describe_with_the_dictionary) {
+    const larry::Dictionary dictionary{larry::Dictionary::file_for(larry::Language::English)};
+    const larry::Assimilation with{rules(), &dictionary};
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_dictionary.atoms";
+    std::filesystem::remove(file);
+    larry::Memory memory{file};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> list;
+        for (const std::string_view c : categories) {
+            list.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = with.describe(ops().from_text(text), &memory, list);
+        memory.store(d.atom, d.metadata);
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    // Memory first: "sky" is a noun by the lesson, whatever the dictionary says.
+    CHECK(with.describe(ops().from_text("The sky."), &memory).notes[1].source == larry::Source::Memory);
+    // The dictionary gives one category: it is the word's.
+    const larry::Description oh = with.describe(ops().from_text("Oh, the sky."), &memory);
+    CHECK(oh.notes[0].source == larry::Source::Dictionary);
+    CHECK(oh.entities.entities[0].category == (Bytes{'i', 'n', 't', 'e', 'r', 'j', 'e', 'c', 't', 'i', 'o', 'n'}));
+    CHECK(oh.entities.entities[0].types.back() != (Bytes{'g', 'u', 'e', 's', 's', 'e', 'd'}));
+    // Several: the context chooses among them, as a guess.
+    const larry::Description azure = with.describe(ops().from_text("The sky is azure."), &memory);
+    CHECK(azure.notes[3].source == larry::Source::Guess);
+    CHECK(azure.entities.entities[3].category == (Bytes{'a', 'd', 'j', 'e', 'c', 't', 'i', 'v', 'e'}));
+    CHECK(azure.notes[3].candidates.front() == (Bytes{'a', 'd', 'j', 'e', 'c', 't', 'i', 'v', 'e'}));
+    // Several and no context to choose: open, with the dictionary's candidates.
+    const larry::Description alone = with.describe(ops().from_text("Azure"), &memory);
+    CHECK(alone.notes[0].source == larry::Source::Open);
+    CHECK(alone.notes[0].candidates.size() >= 2);
+    // Nobody knows the word: unknown, with the words one slip away.
+    const larry::Description slip = with.describe(ops().from_text("The skyy is blue."), &memory);
+    CHECK(slip.notes[1].source == larry::Source::Unknown);
+    CHECK(!slip.notes[1].near.empty() && slip.notes[1].near.front() == (Bytes{'s', 'k', 'y'}));  // known to memory: first
+    CHECK(slip.entities.entities[1].category.empty());
+    CHECK(with.describe(ops().from_text("Zqxjkv"), &memory).notes[0].near.empty());
+    // Without the dictionary nothing changes.
+    CHECK(assimilation().describe(ops().from_text("Oh, the sky."), &memory).notes[0].source == larry::Source::Unknown);
+    CHECK(assimilation().describe(ops().from_text("The skyy is blue."), &memory).notes[1].near.empty());
+    // The dictionary category is stored and counts as evidence; a guess does not.
+    const larry::Description stored = with.describe(ops().from_text("Oh, the sky is azure."), &memory);
+    memory.store(stored.atom, stored.metadata);
+    CHECK(memory.categories_of(Bytes{'o', 'h'}).size() == 1);
+    CHECK(memory.categories_of(Bytes{'a', 'z', 'u', 'r', 'e'}).empty());
 }
 
 TEST(types_features_and_roles) {

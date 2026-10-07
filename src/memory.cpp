@@ -21,9 +21,10 @@ namespace larry {
 namespace {
 
 // The memory file is a log. Each line is tagged:
-//   atom    <hex metadata> <hex bytes> <status> <hex source>,<hex source>
-//   source  <hex metadata> <hex source>
-//   status  <hex metadata> <status>
+//   atom       <hex metadata> <hex bytes> <status> <hex source>,<hex source>
+//   source     <hex metadata> <hex source>
+//   status     <hex metadata> <status> <hex name of who decided>
+//   validator  <hex name>
 // with tabs between the fields. The first form of the file had untagged
 // lines of two fields, metadata and bytes, which still read.
 constexpr char tab = '\t';
@@ -113,6 +114,17 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             tag = "atom";  // the first form of the file
             first = 0;
         }
+        if (tag == "validator") {
+            const std::optional<Bytes> name = hex::decode(f[1]);
+            if (!name || f.size() != 2) {
+                bad("has a validator that is not hex bytes");
+            }
+            std::string text(name->begin(), name->end());
+            if (!std::ranges::contains(validators_, text)) {
+                validators_.push_back(std::move(text));
+            }
+            continue;
+        }
         const std::optional<Bytes> metadata = hex::decode(f[first]);
         if (!metadata) {
             bad("is not an atom");
@@ -128,7 +140,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (by_metadata_.contains(*metadata)) {
                 bad("repeats an atom's metadata");
             }
-            Record record{MetadataElectron{*metadata}, *bytes, Status::Proposed, {}};
+            Record record{MetadataElectron{*metadata}, *bytes, Status::Proposed, {}, {}};
             if (f.size() > first + 2) {
                 const std::optional<Status> status = status_from(f[first + 2]);
                 if (!status) {
@@ -146,11 +158,11 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             continue;
         }
         const auto found = by_metadata_.find(*metadata);
-        if (found == by_metadata_.end() || f.size() != 3) {
+        if (found == by_metadata_.end() || f.size() < 3) {
             bad("changes an atom that is not there");
         }
         Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
-        if (tag == "source") {
+        if (tag == "source" && f.size() == 3) {
             const std::optional<Bytes> source = hex::decode(f[2]);
             if (!source) {
                 bad("has a source that is not hex bytes");
@@ -159,12 +171,20 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (!std::ranges::contains(record.sources, text)) {
                 record.sources.push_back(std::move(text));
             }
-        } else if (tag == "status") {
+        } else if (tag == "status" && f.size() <= 4) {
             const std::optional<Status> status = status_from(f[2]);
             if (!status) {
                 bad("has an unknown status");
             }
             record.status = *status;
+            record.decided_by.clear();
+            if (f.size() == 4) {
+                const std::optional<Bytes> by = hex::decode(f[3]);
+                if (!by) {
+                    bad("has a name that is not hex bytes");
+                }
+                record.decided_by.assign(by->begin(), by->end());
+            }
         } else {
             bad("has an unknown tag");
         }
@@ -194,6 +214,9 @@ void Memory::append(const std::string& line) {
 }
 
 void Memory::clear() {
+    // The validators stay: a rebuild forgets atoms, not who may validate.
+    const std::vector<std::string> validators = std::move(validators_);
+    validators_.clear();
     atoms_.clear();
     by_metadata_.clear();
     words_.clear();
@@ -202,6 +225,10 @@ void Memory::clear() {
     std::ofstream out{file_, std::ios::binary | std::ios::trunc};
     if (!out) {
         throw std::runtime_error(std::format("Memory: cannot write {}", file_.string()));
+    }
+    out.close();
+    for (const std::string& validator : validators) {
+        add_validator(validator);
     }
 }
 
@@ -245,7 +272,7 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
     append(std::format("atom{}{}{}{}{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
                        hex::encode(copy), tab, name(status), tab,
                        source.empty() ? std::string{} : hex_of(source)));
-    Record record{metadata, std::move(copy), status, {}};
+    Record record{metadata, std::move(copy), status, {}, {}};
     if (!source.empty()) {
         record.sources.emplace_back(source);
     }
@@ -256,17 +283,31 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
     return Stored::New;
 }
 
-bool Memory::set_status(const MetadataElectron& metadata, Status status) {
+bool Memory::set_status(const MetadataElectron& metadata, Status status, std::string_view by) {
     const auto found = by_metadata_.find(metadata.bytes);
     if (found == by_metadata_.end()) {
         return false;
     }
     Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
-    if (record.status != status) {
-        append(std::format("status{}{}{}{}", tab, hex::encode(metadata.bytes), tab, name(status)));
+    if (record.status != status || record.decided_by != by) {
+        append(std::format("status{}{}{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
+                           name(status), tab, hex_of(by)));
         record.status = status;
+        record.decided_by = std::string{by};
     }
     return true;
+}
+
+std::vector<std::string> Memory::validators() const {
+    return validators_;
+}
+
+void Memory::add_validator(std::string_view name) {
+    if (name.empty() || std::ranges::contains(validators_, std::string{name})) {
+        return;
+    }
+    append(std::format("validator{}{}", tab, hex_of(name)));
+    validators_.emplace_back(name);
 }
 
 StoredAtom Memory::read(std::int64_t id) const {
@@ -276,6 +317,7 @@ StoredAtom Memory::read(std::int64_t id) const {
     out.id = id;
     out.status = record.status;
     out.sources = record.sources;
+    out.decided_by = record.decided_by;
     Description& d = out.description;
     d.atom = ops.from_text(
         std::string_view{reinterpret_cast<const char*>(record.bytes.data()), record.bytes.size()});

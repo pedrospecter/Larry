@@ -6,6 +6,7 @@
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
 #include "larry/database.hpp"
+#include "larry/dictionary.hpp"
 #include "larry/memory.hpp"
 
 #include "check.hpp"
@@ -273,7 +274,7 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(unknown.stored);
 }
 
-TEST(two_sources_validate_a_conception) {
+TEST(only_a_validator_decides) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_validate.atoms";
     std::filesystem::remove(file);
@@ -290,32 +291,71 @@ TEST(two_sources_validate_a_conception) {
     };
     const larry::Description sky = describe("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
     CHECK(brain.remember(sky, larry::Status::Proposed, "lesson:1") == larry::Stored::New);
+    // A second source never validates by itself: the user does.
+    const larry::Reply heard = brain.hear(ops.from_text("The sky is blue."), "user:pedro");
+    CHECK(heard.text == "I already know that.");
     CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
-    // The same source again changes nothing.
-    CHECK(brain.remember(sky, larry::Status::Proposed, "lesson:1") == larry::Stored::Same);
-    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    CHECK(cache.find(sky.metadata)->sources == (std::vector<std::string>{"lesson:1", "user:pedro"}));
     CHECK(brain.proposed().size() == 1);
-    // A second source validates.
-    const larry::Reply heard = brain.hear(ops.from_text("The sky is blue."), "user");
-    CHECK(heard.text == "I already know that. Now validated: a second source says so.");
+    // Nobody may validate until a validator is added; anyone adds the first.
+    CHECK(brain.validators().empty());
+    CHECK(!brain.is_validator("pedro"));
+    CHECK_THROWS(brain.decide(sky.metadata, larry::Status::Validated, "pedro"), std::runtime_error);
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    CHECK(brain.add_validator("pedro", "pedro"));
+    CHECK(brain.validators() == std::vector<std::string>{"pedro"});
+    CHECK(brain.is_validator("pedro"));
+    // Then only a validator adds another, and only a validator decides.
+    CHECK(!brain.add_validator("claude", "claude"));
+    CHECK(!brain.add_validator("claude", ""));
+    CHECK(brain.validators().size() == 1);
+    CHECK_THROWS(brain.decide(sky.metadata, larry::Status::Validated, "claude"), std::runtime_error);
+    CHECK_THROWS(brain.decide(sky.metadata, larry::Status::Validated, ""), std::runtime_error);
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    CHECK(brain.decide(sky.metadata, larry::Status::Validated, "pedro"));
     CHECK(cache.find(sky.metadata)->status == larry::Status::Validated);
-    CHECK(cache.find(sky.metadata)->sources == (std::vector<std::string>{"lesson:1", "user"}));
+    CHECK(cache.find(sky.metadata)->decided_by == "pedro");
     CHECK(brain.proposed().empty());
+    CHECK(brain.add_validator("ana", "pedro"));
+    CHECK(brain.validators() == (std::vector<std::string>{"pedro", "ana"}));
     // Validated evidence stays evidence; withdrawn evidence does not.
     CHECK(brain.truth(ops.from_text("the sky is blue")).truth == Truth::True);
-    CHECK(brain.set_status(sky.metadata, larry::Status::Withdrawn));
+    CHECK(brain.decide(sky.metadata, larry::Status::Withdrawn, "ana"));
     CHECK(brain.truth(ops.from_text("the sky is blue")).truth == Truth::Unknown);
-    CHECK(!brain.set_status(describe("No.", {"interjection"}).metadata, larry::Status::Validated));
+    CHECK(cache.find(sky.metadata)->decided_by == "ana");
+    CHECK(!brain.decide(describe("No.", {"interjection"}).metadata, larry::Status::Validated, "pedro"));
     CHECK(brain.conception(1).has_value());
     CHECK(brain.conception(1)->status == larry::Status::Withdrawn);
     CHECK(!brain.conception(2).has_value());
-    // By hand: accept a proposed conception.
-    const larry::Description sea = describe("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
-    brain.remember(sea, larry::Status::Proposed, "user");
-    CHECK(brain.proposed().size() == 1);
-    CHECK(brain.set_status(brain.proposed().front().description.metadata, larry::Status::Validated));
-    CHECK(brain.proposed().empty());
-    CHECK(cache.find(sea.metadata)->status == larry::Status::Validated);
+    // The validators and the decision survive a restart of the cache.
+    larry::Memory again{file};
+    CHECK(again.validators() == (std::vector<std::string>{"pedro", "ana"}));
+    CHECK(again.find(sky.metadata)->decided_by == "ana");
+    CHECK(again.find(sky.metadata)->status == larry::Status::Withdrawn);
+}
+
+TEST(hear_with_the_dictionary_suggests_and_takes_categories) {
+    const larry::Dictionary dictionary{larry::Dictionary::file_for(larry::Language::English)};
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_dictionary.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache, nullptr, &dictionary};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules(), &dictionary};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata);
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.hear(ops.from_text("The skyy is blue.")).text == "Noted. What is \"skyy\"? Did you mean \"sky\"?");
+    CHECK(brain.hear(ops.from_text("Oh, the sky is blue.")).text == "I know. The sky is blue.");
+    CHECK(brain.hear(ops.from_text("The sky is azure.")).text == "Noted. I take \"azure\" as adjective.");
+    CHECK(brain.hear(ops.from_text("Zqxjkv.")).text == "Noted. What is \"Zqxjkv\"?");
 }
 
 TEST(hear_handles_orders_assumptions_and_expressions) {
@@ -411,12 +451,22 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     CHECK(heard.text == "Noted.");
     CHECK(cloud->count() == 4);
     CHECK(cloud->all().back().sources == std::vector<std::string>{"user"});
-    // A second source validates in both stores: Tom came from the Pi, now from the user.
+    // A second source does not validate: only a validator, in both stores.
     CHECK(cloud->find(tom.metadata)->status == larry::Status::Proposed);
-    (void)brain.hear(ops.from_text("Tom is a teacher."), "user");
+    (void)brain.hear(ops.from_text("Tom is a teacher."), "user:pedro");
+    CHECK(cloud->find(tom.metadata)->status == larry::Status::Proposed);
+    CHECK(cloud->find(tom.metadata)->sources == (std::vector<std::string>{"pi", "user:pedro"}));
+    CHECK(brain.validators().empty());
+    CHECK(brain.add_validator("pedro", "pedro"));
+    CHECK(cloud->validators() == std::vector<std::string>{"pedro"});
+    CHECK(cache.validators() == std::vector<std::string>{"pedro"});
+    CHECK_THROWS(brain.decide(tom.metadata, larry::Status::Validated, "claude"), std::runtime_error);
+    CHECK(brain.decide(tom.metadata, larry::Status::Validated, "pedro"));
     CHECK(cloud->find(tom.metadata)->status == larry::Status::Validated);
+    CHECK(cloud->find(tom.metadata)->decided_by == "pedro");
     CHECK(cache.find(tom.metadata)->status == larry::Status::Validated);
-    CHECK(brain.proposed().size() == 2);  // the sky and the sky is wide
+    CHECK(cache.find(tom.metadata)->decided_by == "pedro");
+    CHECK(brain.proposed().size() == 2);  // the sky, and the sky is wide
     CHECK(brain.conception(cloud->find(sky.metadata)->id)->sources == std::vector<std::string>{"lesson:test"});
     // A withdrawn conception in the cloud is no evidence.
     const larry::Description moon = describe("The moon is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});

@@ -5,11 +5,21 @@
 -- metadata, so the metadata is unique and indexed; bytes is the sentence.
 -- status is proposed, validated or withdrawn (R2, first step).
 create table if not exists conceptions (
-    id       bigint      generated always as identity primary key,
-    metadata bytea       not null unique,
-    bytes    bytea       not null,
-    status   bytea       not null,
-    created  timestamptz not null default now()
+    id         bigint      generated always as identity primary key,
+    metadata   bytea       not null unique,
+    bytes      bytea       not null,
+    status     bytea       not null,
+    decided_by bytea       not null default '',
+    created    timestamptz not null default now()
+);
+alter table conceptions add column if not exists decided_by bytea not null default '';
+
+-- The validators: the only people who validate or withdraw a conception. The
+-- user adds themself once; Larry refuses a decision from anyone else.
+create table if not exists validators (
+    id    bigint      generated always as identity primary key,
+    name  bytea       not null unique,
+    added timestamptz not null default now()
 );
 
 -- Where each conception came from: "lesson:<file>", "user", "read:<file>".

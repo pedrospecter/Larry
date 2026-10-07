@@ -275,8 +275,14 @@ TEST(sources_and_status_live_in_the_log) {
         CHECK(memory.find(c.metadata)->status == larry::Status::Proposed);
         CHECK(memory.find(d.metadata)->sources.empty());
         CHECK(memory.find(d.metadata)->status == larry::Status::Validated);
-        CHECK(memory.set_status(c.metadata, larry::Status::Validated));
+        CHECK(memory.set_status(c.metadata, larry::Status::Validated, "pedro"));
+        CHECK(memory.find(c.metadata)->decided_by == "pedro");
         CHECK(!memory.set_status(sky_clouds().metadata, larry::Status::Validated));
+        CHECK(memory.validators().empty());
+        memory.add_validator("pedro");
+        memory.add_validator("pedro");
+        memory.add_validator("");
+        CHECK(memory.validators() == std::vector<std::string>{"pedro"});
         CHECK(memory.with_status(larry::Status::Validated).size() == 2);
         CHECK(memory.with_status(larry::Status::Proposed).empty());
         const auto recent = memory.recent(5);
@@ -292,13 +298,29 @@ TEST(sources_and_status_live_in_the_log) {
     CHECK(again.count() == 2);
     CHECK(again.find(c.metadata)->sources == (std::vector<std::string>{"lesson:1", "user"}));
     CHECK(again.find(c.metadata)->status == larry::Status::Validated);
+    CHECK(again.find(c.metadata)->decided_by == "pedro");
     CHECK(again.find(d.metadata)->status == larry::Status::Validated);
+    CHECK(again.find(d.metadata)->decided_by.empty());
+    CHECK(again.validators() == std::vector<std::string>{"pedro"});
     CHECK(again.store(c.atom, c.metadata, larry::Status::Proposed, "user") == Stored::Same);
     CHECK(again.find(c.metadata)->sources.size() == 2);
     // A source with a comma or a tab is no problem: sources are hex.
     CHECK(again.store(d.atom, d.metadata, larry::Status::Proposed, "read:a,b\tc") == Stored::Same);
     Memory third{file};
     CHECK(third.find(d.metadata)->sources == std::vector<std::string>{"read:a,b\tc"});
+}
+
+TEST(clear_keeps_the_validators) {
+    const std::filesystem::path file = fresh("larry_test_clear_validators.atoms");
+    Memory memory{file};
+    memory.add_validator("pedro");
+    memory.store(sky_blue().atom, sky_blue().metadata);
+    memory.clear();
+    CHECK(memory.count() == 0);
+    CHECK(memory.validators() == std::vector<std::string>{"pedro"});
+    Memory again{file};
+    CHECK(again.count() == 0);
+    CHECK(again.validators() == std::vector<std::string>{"pedro"});
 }
 
 TEST(the_first_form_of_the_file_still_reads) {

@@ -82,7 +82,7 @@ Database::Param number(std::int64_t value) {
 const char* const select_conceptions =
     "select c.id, c.metadata, c.bytes, c.status, "
     "(select string_agg(encode(s.source, 'hex'), ',' order by s.id) "
-    " from sources s where s.conception = c.id) "
+    " from sources s where s.conception = c.id), c.decided_by "
     "from conceptions c";
 
 }  // namespace
@@ -159,6 +159,7 @@ void Database::apply_schema() {
 }
 
 void Database::clear() {
+    // The validators stay: a rebuild forgets atoms, not who may validate.
     run("truncate conceptions, sources, words restart identity cascade");
 }
 
@@ -241,6 +242,8 @@ std::vector<StoredAtom> Database::read_atoms(const Result& result) {
         atom.status = status_from(std::string_view{reinterpret_cast<const char*>(status.data()),
                                                    status.size()})
                           .value_or(Status::Proposed);
+        const Bytes by = result.bytes(row, 5);
+        atom.decided_by.assign(by.begin(), by.end());
         if (!result.null(row, 4)) {
             const Bytes list = result.bytes(row, 4);
             std::string_view rest{reinterpret_cast<const char*>(list.data()), list.size()};
@@ -315,8 +318,27 @@ std::vector<StoredAtom> Database::with_status(Status status) {
              {text(name(status))}));
 }
 
-void Database::set_status(std::int64_t id, Status status) {
-    (void)exec("update conceptions set status = $2 where id = $1", {number(id), text(name(status))});
+void Database::set_status(std::int64_t id, Status status, std::string_view by) {
+    (void)exec("update conceptions set status = $2, decided_by = $3 where id = $1",
+               {number(id), text(name(status)), text(by)});
+}
+
+std::vector<std::string> Database::validators() {
+    const Result rows = exec("select name from validators order by id");
+    std::vector<std::string> out;
+    for (int row = 0; row < rows.rows(); ++row) {
+        const Bytes name = rows.bytes(row, 0);
+        out.emplace_back(name.begin(), name.end());
+    }
+    return out;
+}
+
+void Database::add_validator(std::string_view name) {
+    if (name.empty()) {
+        return;
+    }
+    (void)exec("insert into validators (name) values ($1) on conflict (name) do nothing",
+               {text(name)});
 }
 
 std::vector<WordUse> Database::uses(const Bytes& word) {

@@ -18,9 +18,39 @@ die() { printf 'setup: %s\n' "$*" >&2; exit 1; }
 case "$(uname -s)" in
 Linux) ;;
 Darwin)
-    say "this script prepares Linux. On macOS use Homebrew:"
-    say "  brew install cmake libpq postgresql@16"
-    say "  brew services start postgresql@16 && createdb larry"
+    # macOS: Homebrew installs the tools; Apple clang has C++23 <print>.
+    command -v brew >/dev/null || die "Homebrew is needed: https://brew.sh"
+    say "installing with Homebrew: cmake, libpq, postgresql@16"
+    brew install cmake libpq postgresql@16 >/dev/null
+    say "cmake: $(cmake --version | head -1 | awk '{print $3}')"
+    say "libpq: $(brew --prefix libpq)"
+    if ! pg_isready -q 2>/dev/null; then
+        say "starting PostgreSQL"
+        brew services start postgresql@16 >/dev/null || true
+        for _ in $(seq 1 30); do
+            pg_isready -q 2>/dev/null && break
+            sleep 1
+        done
+    fi
+    if pg_isready -q 2>/dev/null; then
+        psql="$(brew --prefix postgresql@16)/bin/psql"
+        createdb="$(brew --prefix postgresql@16)/bin/createdb"
+        if ! "$psql" -d postgres -tAc "select 1 from pg_database where datname = 'larry'" | grep -q 1; then
+            say "creating database larry"
+            "$createdb" larry
+        fi
+        "$psql" -q -d larry -v ON_ERROR_STOP=1 -f "$ROOT/sql/schema.sql"
+        say "database: larry (set LARRY_DB=\"dbname=larry\" to use it; for the Pi or Azure, its host and user)"
+    else
+        say "PostgreSQL did not start; set LARRY_DB to reach a server, or run without a cloud"
+    fi
+    if [ ! -f "$ROOT/dictionary/en/words.txt" ]; then
+        say "building the dictionary"
+        "$ROOT/scripts/dictionary.sh"
+    fi
+    say "ready. Next:"
+    say "  cmake -S $ROOT -B $ROOT/build && cmake --build $ROOT/build"
+    say "  $ROOT/build/larry chat"
     exit 0
     ;;
 *) die "unsupported system: $(uname -s)" ;;
@@ -105,6 +135,12 @@ if pg_isready -q 2>/dev/null; then
     say "database: larry (set LARRY_DB=\"dbname=larry\" to use it; for the Pi, its host and user)"
 else
     say "PostgreSQL did not start; set LARRY_DB to reach a server, or run without a cloud"
+fi
+
+# 5. Dictionary -------------------------------------------------------------
+if [ ! -f "$ROOT/dictionary/en/words.txt" ]; then
+    say "building the dictionary"
+    "$ROOT/scripts/dictionary.sh"
 fi
 
 # 6. Done -------------------------------------------------------------------

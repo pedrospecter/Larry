@@ -2,6 +2,7 @@
 
 #include "larry/atom_operations.hpp"
 #include "larry/cognition.hpp"
+#include "larry/dictionary.hpp"
 #include "larry/memory.hpp"
 #include "larry/utf8.hpp"
 
@@ -77,8 +78,8 @@ bool is_initialism(std::string_view folded) {
 
 }  // namespace
 
-Assimilation::Assimilation(const BaseRules& rules)
-    : rules_(&rules), punctuation_(sorted(rules.punctuation())),
+Assimilation::Assimilation(const BaseRules& rules, const Dictionary* dictionary)
+    : rules_(&rules), dictionary_(dictionary), punctuation_(sorted(rules.punctuation())),
       sentence_ends_(sorted(rules.sentence_ends())), closers_(sorted(rules.closers())),
       joiners_(sorted(rules.joiners())), number_joiners_(sorted(rules.number_joiners())),
       abbreviations_(sorted(rules.abbreviations())), titles_(sorted(rules.titles())) {}
@@ -373,13 +374,49 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
                 }
             }
         }
-        // A6 (first step): an unknown word takes the category that known words
-        // have in the same context, the words before and after it, when the
-        // votes have one winner. It is a guess, marked as one.
+        // A2b: the dictionary is the fallback for a word memory does not
+        // know. One category is the word's; several are candidates.
+        if (dictionary_ != nullptr) {
+            for (std::size_t i = 0; i < n; ++i) {
+                if (d.notes[i].source != Source::Unknown) {
+                    continue;
+                }
+                Entity& entity = d.entities.entities[i];
+                const std::vector<Bytes> found = dictionary_->categories(ops.fold(entity.word));
+                if (found.size() == 1) {
+                    entity.category = found.front();
+                    d.notes[i].source = Source::Dictionary;
+                } else if (found.size() > 1) {
+                    d.notes[i].source = Source::Open;
+                    d.notes[i].candidates = found;
+                }
+            }
+        }
+        // A2b: a word nobody knows may be a slip: the dictionary words one
+        // slip away, the ones memory knows first. Such a word is asked about,
+        // not guessed.
+        if (dictionary_ != nullptr) {
+            for (std::size_t i = 0; i < n; ++i) {
+                if (d.notes[i].source != Source::Unknown) {
+                    continue;
+                }
+                std::vector<Bytes> near = dictionary_->near(ops.fold(d.entities.entities[i].word));
+                std::ranges::stable_partition(near, [&](const Bytes& w) {
+                    return !memory->uses(w).empty();
+                });
+                d.notes[i].near = std::move(near);
+            }
+        }
+        // A6 (first step): an unknown or open word takes the category that
+        // known words have in the same context, the words before and after
+        // it, when the votes have one winner. It is a guess, marked as one.
+        // For an open word only its candidates may win.
         for (std::size_t i = 0; i < n; ++i) {
-            if (d.notes[i].source != Source::Unknown) {
+            const bool open = d.notes[i].source == Source::Open;
+            if ((d.notes[i].source != Source::Unknown && !open) || !d.notes[i].near.empty()) {
                 continue;
             }
+            const std::vector<Bytes> allowed = d.notes[i].candidates;
             std::map<Bytes, std::int64_t> votes;
             if (i > 0) {
                 for (const WordUse& use : memory->uses(ops.fold(d.entities.entities[i - 1].word))) {
@@ -397,7 +434,9 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
             }
             std::vector<std::pair<std::int64_t, Bytes>> ranked;
             for (const auto& [category, count] : votes) {
-                ranked.emplace_back(count, category);
+                if (allowed.empty() || std::ranges::contains(allowed, category)) {
+                    ranked.emplace_back(count, category);
+                }
             }
             std::ranges::sort(ranked, [](const auto& a, const auto& b) { return a.first > b.first; });
             if (ranked.empty() || (ranked.size() > 1 && ranked[0].first == ranked[1].first)) {
@@ -405,6 +444,7 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
             }
             d.entities.entities[i].category = ranked.front().second;
             d.notes[i].source = Source::Guess;
+            d.notes[i].candidates.clear();
             for (const auto& [count, category] : ranked) {
                 d.notes[i].candidates.push_back(category);
             }

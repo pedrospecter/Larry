@@ -179,11 +179,24 @@ TEST(status_changes) {
     db().set_status(1, Status::Validated);
     CHECK(db().with_status(Status::Validated).size() == 2);
     CHECK(db().find(c.metadata)->status == Status::Validated);
-    db().set_status(1, Status::Withdrawn);
+    db().set_status(1, Status::Withdrawn, "pedro");
     CHECK(db().find(c.metadata)->status == Status::Withdrawn);
+    CHECK(db().find(c.metadata)->decided_by == "pedro");
+    CHECK(db().find_id(2)->decided_by.empty());
     CHECK(db().find_id(2)->status == Status::Validated);
     CHECK(db().find_id(2)->sources == std::vector<std::string>{"lesson:1"});
     CHECK(!db().find_id(3).has_value());
+    // The validators stay through a clear; nothing else does.
+    CHECK(db().validators().empty());
+    db().add_validator("pedro");
+    db().add_validator("pedro");
+    db().add_validator("");
+    db().add_validator("ana");
+    CHECK(db().validators() == (std::vector<std::string>{"pedro", "ana"}));
+    db().clear();
+    CHECK(db().validators() == (std::vector<std::string>{"pedro", "ana"}));
+    CHECK(!db().find_id(2).has_value());
+    db().run("truncate validators restart identity");
 }
 
 TEST(bytes_that_are_not_metadata_are_rejected) {

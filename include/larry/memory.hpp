@@ -36,8 +36,10 @@ struct StoredAtom {
     std::int64_t id = 0;
     Description description;
     Status status = Status::Proposed;
-    /// Where it came from: "lesson:<file>", "user", "read:<file>", "cloud".
+    /// Where it came from: "lesson:<file>", "user:<name>", "read:<file>", "cloud".
     std::vector<std::string> sources;
+    /// Who validated or withdrew it: a validator's name, or empty.
+    std::string decided_by;
 };
 
 /// One use of a word: the atom, the position of the entity in it, the
@@ -94,8 +96,14 @@ public:
     Stored store(const Sentence& atom, const MetadataElectron& metadata,
                  Status status = Status::Proposed, std::string_view source = "");
 
-    /// Changes the status of the atom with this metadata. False when it is not there.
-    bool set_status(const MetadataElectron& metadata, Status status);
+    /// Changes the status of the atom with this metadata and records who
+    /// decided. False when it is not there.
+    bool set_status(const MetadataElectron& metadata, Status status, std::string_view by = "");
+
+    /// The validators: the only people who validate or withdraw a conception
+    /// (the user's safeguard). Kept in the memory file.
+    [[nodiscard]] std::vector<std::string> validators() const;
+    void add_validator(std::string_view name);
 
     /// The last atoms stored, newest first.
     [[nodiscard]] std::vector<StoredAtom> recent(std::int64_t count) const;
@@ -138,6 +146,7 @@ private:
         Bytes bytes;
         Status status;
         std::vector<std::string> sources;
+        std::string decided_by;
     };
 
     void append(const std::string& line);
@@ -149,6 +158,7 @@ private:
     std::map<Bytes, std::int64_t> by_metadata_;
     std::map<Bytes, std::vector<WordUse>> words_;
     std::int64_t word_uses_ = 0;
+    std::vector<std::string> validators_;
 };
 
 }  // namespace larry

@@ -63,7 +63,11 @@ public:
     /// The conceptions at a status, in the order they were stored.
     [[nodiscard]] std::vector<StoredAtom> with_status(Status status);
 
-    void set_status(std::int64_t id, Status status);
+    void set_status(std::int64_t id, Status status, std::string_view by = "");
+
+    /// The validators: the only people who validate or withdraw a conception.
+    [[nodiscard]] std::vector<std::string> validators();
+    void add_validator(std::string_view name);
 
     /// Where a word (as the index keys it) is used, in conception and position order.
     [[nodiscard]] std::vector<WordUse> uses(const Bytes& word);

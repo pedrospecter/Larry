@@ -5,11 +5,13 @@
 #include "larry/cognition.hpp"
 #include "larry/constellation.hpp"
 #include "larry/description.hpp"
+#include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -53,6 +55,8 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                y validates, n withdraws, s skips, q stops
   validate list                list the proposed conceptions with their ids
   validate accept <id>         validate one; validate reject <id> withdraws it
+  validators                   who may validate; validators add <name> adds one
+                               (anyone adds the first, then only a validator)
   words [word]                 the vocabulary: every word with its categories
                                and uses, or one word with its types and contexts
   count                        how many conceptions and word uses memory holds
@@ -61,7 +65,8 @@ Memory, the cache on this machine, is the file LARRY_MEMORY names, or
 memory/<locale>.atoms. When the file does not exist yet, Larry rebuilds it
 from the lessons first. The cloud, the record of conceptions, is the
 PostgreSQL server LARRY_DB names ("host=... dbname=larry user=..."); without
-it, Larry has only the cache.
+it, Larry has only the cache. LARRY_USER names who is talking (default: the
+login name); only a validator decides what is true.
 )";
 
 std::string_view as_text(const larry::Bytes& b) {
@@ -122,15 +127,38 @@ struct Tally {
     }
 };
 
+/// Who is talking: LARRY_USER, or the login name.
+std::string user_name() {
+    for (const char* variable : {"LARRY_USER", "USER", "LOGNAME"}) {
+        const char* value = std::getenv(variable);
+        if (value != nullptr && *value != '\0') {
+            return value;
+        }
+    }
+    return "user";
+}
+
+/// The dictionary of a language, when its file is there.
+std::unique_ptr<larry::Dictionary> open_dictionary(larry::Language language) {
+    const std::filesystem::path file = larry::Dictionary::file_for(language);
+    if (!std::filesystem::exists(file)) {
+        std::println(stderr, "larry: no dictionary at {}; run scripts/dictionary.sh", file.string());
+        return nullptr;
+    }
+    return std::make_unique<larry::Dictionary>(file);
+}
+
 struct Larry {
+    std::string user{user_name()};
     larry::Constellation constellation{larry::Language::English};
     larry::BaseRules rules{constellation.language()};
-    larry::Assimilation assimilation{rules};
+    std::unique_ptr<larry::Dictionary> dictionary{open_dictionary(constellation.language())};
+    larry::Assimilation assimilation{rules, dictionary.get()};
     larry::Cognition cognition;
     larry::AtomOperations ops;
     larry::Memory memory{larry::Memory::file_from_environment(constellation.language())};
     std::unique_ptr<larry::Database> cloud;
-    larry::Brain brain{rules, memory, nullptr};
+    larry::Brain brain{rules, memory, nullptr, dictionary.get()};
 
     Larry() {
         const std::string connection = larry::Database::connection_from_environment();
@@ -142,7 +170,7 @@ struct Larry {
                 std::println(stderr, "larry: no cloud: {}", e.what());
             }
         }
-        brain = larry::Brain{rules, memory, cloud.get()};
+        brain = larry::Brain{rules, memory, cloud.get(), dictionary.get()};
         if (!std::filesystem::exists(memory.file())) {
             std::println(stderr, "larry: no memory at {}; rebuilding it from the lessons",
                          memory.file().string());
@@ -200,8 +228,14 @@ std::string source(const larry::EntityNote& note) {
         return "taught";
     case larry::Source::Memory:
         return "memory";
-    case larry::Source::Unknown:
-        return "unknown";
+    case larry::Source::Unknown: {
+        std::string out = "unknown";
+        for (const larry::Bytes& near : note.near) {
+            out += out == "unknown" ? "; near: " : ", ";
+            out += as_text(near);
+        }
+        return out;
+    }
     case larry::Source::Open: {
         std::string out = "open:";
         for (const larry::Bytes& candidate : note.candidates) {
@@ -218,6 +252,8 @@ std::string source(const larry::EntityNote& note) {
         }
         return out;
     }
+    case larry::Source::Dictionary:
+        return "dictionary";
     }
     return "";
 }
@@ -225,6 +261,7 @@ std::string source(const larry::EntityNote& note) {
 void print(const Larry& larry, const larry::Description& d) {
     std::println("constellation : {}", name(larry.constellation.language()));
     std::println("base rules    : {} categories", larry.rules.categories().size());
+    std::println("dictionary    : {} words", larry.dictionary ? larry.dictionary->size() : 0);
     std::println("memory        : {} conceptions", larry.memory.count());
     std::println("atom          : {} bits", d.atom.size());
     std::println("                {}", larry.ops.to_bits(d.atom));
@@ -313,7 +350,8 @@ int run(std::span<const std::string_view> args) {
         const std::vector<larry::Bytes> taught = categories(rest.subspan(1));
         const larry::Description d =
             larry.assimilation.describe(larry.ops.from_text(rest[0]), &larry.memory, taught);
-        const larry::Stored stored = larry.brain.remember(d, larry::Status::Proposed, "user");
+        const larry::Stored stored =
+            larry.brain.remember(d, larry::Status::Proposed, "user:" + larry.user);
         print(larry, d);
         std::println("stored        : {}", stored_name(stored));
         return 0;
@@ -420,7 +458,11 @@ int run(std::span<const std::string_view> args) {
         for (const larry::StoredAtom& atom : verdict.because) {
             std::println("because: {}{}{}", larry.ops.text(atom.description.atom),
                          verdict.from_cloud ? " (from the cloud)" : "",
-                         atom.status == larry::Status::Proposed ? " (proposed)" : "");
+                         atom.status == larry::Status::Proposed
+                             ? " (proposed)"
+                             : atom.decided_by.empty()
+                                   ? ""
+                                   : std::format(" (validated by {})", atom.decided_by));
         }
         for (const larry::StoredAtom& atom : verdict.nearest) {
             std::println("I know: {}", larry.ops.text(atom.description.atom));
@@ -431,7 +473,8 @@ int run(std::span<const std::string_view> args) {
         if (rest.empty()) {
             throw std::runtime_error("say needs a sentence");
         }
-        const larry::Reply reply = larry.brain.hear(larry.ops.from_text(join(rest)));
+        const larry::Reply reply =
+            larry.brain.hear(larry.ops.from_text(join(rest)), "user:" + larry.user);
         std::println("{}", reply.text);
         for (const std::string& because : reply.because) {
             std::println("  because: {}", because);
@@ -470,7 +513,7 @@ int run(std::span<const std::string_view> args) {
                     std::println("Larry: bye.");
                     return 0;
                 }
-                last = brain.hear(sentence);
+                last = brain.hear(sentence, "user:" + larry.user);
                 std::println("Larry: {}", last.text);
             }
         }
@@ -487,10 +530,16 @@ int run(std::span<const std::string_view> args) {
             return std::format("{:>6}  {}  [{}]", atom.id, larry.ops.text(atom.description.atom),
                                sources.empty() ? "no source" : sources);
         };
+        if (!larry.brain.is_validator(larry.user)) {
+            throw std::runtime_error(std::format(
+                "only a validator decides what is true, and \"{}\" is not one; "
+                "see larry validators",
+                larry.user));
+        }
         if (rest.empty()) {
             const std::vector<larry::StoredAtom> waiting = larry.brain.proposed();
-            std::println("{} proposed conceptions{}", waiting.size(),
-                         larry.cloud ? " in the cloud" : " in the cache");
+            std::println("{} proposed conceptions{}, deciding as {}", waiting.size(),
+                         larry.cloud ? " in the cloud" : " in the cache", larry.user);
             for (const larry::StoredAtom& atom : waiting) {
                 std::print("{}\n  validate? [y/n/s/q] ", line(atom));
                 std::string answer;
@@ -499,10 +548,10 @@ int run(std::span<const std::string_view> args) {
                     break;
                 }
                 if (answer == "y") {
-                    larry.brain.set_status(atom.description.metadata, larry::Status::Validated);
+                    larry.brain.decide(atom.description.metadata, larry::Status::Validated, larry.user);
                     std::println("  validated");
                 } else if (answer == "n") {
-                    larry.brain.set_status(atom.description.metadata, larry::Status::Withdrawn);
+                    larry.brain.decide(atom.description.metadata, larry::Status::Withdrawn, larry.user);
                     std::println("  withdrawn");
                 } else if (answer == "q") {
                     break;
@@ -524,11 +573,34 @@ int run(std::span<const std::string_view> args) {
             }
             const larry::Status status =
                 rest[0] == "accept" ? larry::Status::Validated : larry::Status::Withdrawn;
-            larry.brain.set_status(atom->description.metadata, status);
-            std::println("{}: {}", larry::name(status), larry.ops.text(atom->description.atom));
+            larry.brain.decide(atom->description.metadata, status, larry.user);
+            std::println("{} by {}: {}", larry::name(status), larry.user,
+                         larry.ops.text(atom->description.atom));
             return 0;
         }
         throw std::runtime_error("validate takes nothing, list, accept <id> or reject <id>");
+    }
+    if (command == "validators") {
+        if (rest.size() == 2 && rest[0] == "add") {
+            if (!larry.brain.add_validator(rest[1], larry.user)) {
+                throw std::runtime_error(std::format(
+                    "only a validator adds another, and \"{}\" is not one", larry.user));
+            }
+            std::println("{} may validate", rest[1]);
+            return 0;
+        }
+        if (!rest.empty()) {
+            throw std::runtime_error("validators takes nothing or add <name>");
+        }
+        const std::vector<std::string> names = larry.brain.validators();
+        if (names.empty()) {
+            std::println("nobody may validate yet: larry validators add <your name>");
+        }
+        for (const std::string& name : names) {
+            std::println("{}{}", name, name == larry.user ? "  (you)" : "");
+        }
+        std::println("you are {} (LARRY_USER)", larry.user);
+        return 0;
     }
     if (command == "sync") {
         if (!larry.cloud) {

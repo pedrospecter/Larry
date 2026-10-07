@@ -13,6 +13,7 @@
 
 namespace larry {
 
+class Dictionary;
 class Memory;
 
 /// Assimilation: how Larry takes in language (PLAN.md, track A). It splits
@@ -20,7 +21,9 @@ class Memory;
 /// describes a sentence from what was taught and from the atoms in memory.
 class Assimilation {
 public:
-    explicit Assimilation(const BaseRules& rules);
+    /// With a dictionary, a word no conception has taught takes its
+    /// categories from it (A2b); without one, it is unknown.
+    explicit Assimilation(const BaseRules& rules, const Dictionary* dictionary = nullptr);
 
     /// A1: the sentences in a text, each an atom: its bytes, without the white
     /// space around them. A sentence ends at a sentence-end mark that is
@@ -68,6 +71,7 @@ private:
                                                const std::vector<Span>& tokens) const;
 
     const BaseRules* rules_;
+    const Dictionary* dictionary_;
     std::vector<std::string> punctuation_;
     std::vector<std::string> sentence_ends_;
     std::vector<std::string> closers_;

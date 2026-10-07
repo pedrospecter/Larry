@@ -50,8 +50,8 @@ const std::vector<Bytes> do_support = {bytes_of("do"), bytes_of("does"), bytes_o
 
 }  // namespace
 
-Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud)
-    : rules_(&rules), assimilation_(rules), cognition_(), memory_(&memory), cloud_(cloud) {}
+Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dictionary* dictionary)
+    : rules_(&rules), assimilation_(rules, dictionary), cognition_(), memory_(&memory), cloud_(cloud) {}
 
 void Brain::cache(const StoredAtom& atom) const {
     const Description& d = atom.description;
@@ -62,7 +62,7 @@ void Brain::cache(const StoredAtom& atom) const {
         memory_->store(d.atom, d.metadata, atom.status, atom.sources[i]);
     }
     if (fresh) {
-        memory_->set_status(d.metadata, atom.status);
+        memory_->set_status(d.metadata, atom.status, atom.decided_by);
     }
 }
 
@@ -71,23 +71,34 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
     if (cloud_ != nullptr) {
         cloud_->store(d.atom, d.metadata, status, source);
     }
-    // Two different sources validate a proposed conception.
-    const std::optional<StoredAtom> held =
-        cloud_ != nullptr ? cloud_->find(d.metadata) : memory_->find(d.metadata);
-    if (held && held->status == Status::Proposed) {
-        std::vector<std::string> sources = held->sources;
-        if (const std::optional<StoredAtom> cached = memory_->find(d.metadata)) {
-            for (const std::string& s : cached->sources) {
-                if (!std::ranges::contains(sources, s)) {
-                    sources.push_back(s);
-                }
-            }
-        }
-        if (sources.size() >= 2) {
-            set_status(d.metadata, Status::Validated);
-        }
-    }
     return stored;
+}
+
+std::vector<std::string> Brain::validators() const {
+    return cloud_ != nullptr ? cloud_->validators() : memory_->validators();
+}
+
+bool Brain::is_validator(std::string_view name) const {
+    return !name.empty() && std::ranges::contains(validators(), std::string{name});
+}
+
+bool Brain::add_validator(std::string_view name, std::string_view by) {
+    if (name.empty() || (!validators().empty() && !is_validator(by))) {
+        return false;
+    }
+    memory_->add_validator(name);
+    if (cloud_ != nullptr) {
+        cloud_->add_validator(name);
+    }
+    return true;
+}
+
+bool Brain::decide(const MetadataElectron& metadata, Status status, std::string_view by) {
+    if (!is_validator(by)) {
+        throw std::runtime_error(std::format(
+            "only a validator decides what is true, and \"{}\" is not one", by));
+    }
+    return set_status(metadata, status, by);
 }
 
 std::vector<StoredAtom> Brain::proposed() const {
@@ -99,11 +110,11 @@ std::optional<StoredAtom> Brain::conception(std::int64_t id) const {
     return cloud_ != nullptr ? cloud_->find_id(id) : memory_->find_id(id);
 }
 
-bool Brain::set_status(const MetadataElectron& metadata, Status status) {
-    bool any = memory_->set_status(metadata, status);
+bool Brain::set_status(const MetadataElectron& metadata, Status status, std::string_view by) {
+    bool any = memory_->set_status(metadata, status, by);
     if (cloud_ != nullptr) {
         if (const std::optional<StoredAtom> held = cloud_->find(metadata)) {
-            cloud_->set_status(held->id, status);
+            cloud_->set_status(held->id, status, by);
             any = true;
         }
     }
@@ -125,6 +136,11 @@ std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
         }
         for (const std::string& source : atom.sources) {
             cloud_->store(d.atom, d.metadata, atom.status, source);
+        }
+        if (!atom.decided_by.empty()) {
+            if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
+                cloud_->set_status(held->id, atom.status, atom.decided_by);
+            }
         }
         ++pushed;
     }
@@ -163,9 +179,13 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
 }
 
 std::vector<Bytes> Brain::expanded_words(const Description& d) const {
+    static const Bytes interjection = bytes_of("interjection");
     const AtomOperations ops;
     std::vector<Bytes> out;
     for (const Entity& entity : d.entities.entities) {
+        if (entity.category == interjection) {
+            continue;  // "Oh, the sky is blue" claims what "the sky is blue" claims
+        }
         const Bytes word = ops.fold(entity.word);
         bool expanded = false;
         for (const auto& [contraction, expansion] : rules_->contractions()) {
@@ -471,20 +491,11 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     // An affirmation: what does memory hold already? (C16, first step)
     const Verdict verdict = truth(d);
-    const Status before = memory_->find(d.metadata).transform([](const StoredAtom& a) { return a.status; }).value_or(Status::Proposed);
     const Stored stored = remember(d, Status::Proposed, source);
     reply.stored = stored == Stored::New;
-    const bool validated_now =
-        before == Status::Proposed &&
-        memory_->find(d.metadata).transform([](const StoredAtom& a) { return a.status; }).value_or(Status::Proposed) ==
-            Status::Validated;
     if (verdict.truth == Truth::True) {
         reply.text = stored == Stored::New ? "I know. " + text_of(verdict.because.front())
                                           : "I already know that.";
-        if (validated_now) {
-            reply.text += " Now validated: a second source says so.";
-            reply.because.emplace_back("rule: two different sources validate a conception (R2)");
-        }
         reply.because.push_back(text_of(verdict.because.front()));
         return reply;
     }
@@ -510,6 +521,13 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         } else if (d.notes[i].source == Source::Unknown && !asked) {
             reply.text += std::format(" What is \"{}\"?", word);
             reply.because.emplace_back("rule: Larry asks about a word it does not know (A5)");
+            if (!d.notes[i].near.empty()) {
+                const Bytes& near = d.notes[i].near.front();
+                reply.text += std::format(" Did you mean \"{}\"?",
+                                          std::string_view{reinterpret_cast<const char*>(near.data()),
+                                                           near.size()});
+                reply.because.emplace_back("rule: the dictionary knows a word one slip away (A2b)");
+            }
             asked = true;
         }
     }

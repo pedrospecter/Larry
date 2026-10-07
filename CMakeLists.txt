@@ -38,30 +38,50 @@ endif()
 
 # The database: PostgreSQL through libpq, which every distribution and
 # Homebrew package (libpq-dev, libpq). pg_config gives the paths when it is
-# there.
-execute_process(COMMAND pg_config --includedir OUTPUT_VARIABLE LARRY_PG_INCLUDE
-                OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-execute_process(COMMAND pg_config --libdir OUTPUT_VARIABLE LARRY_PG_LIB
-                OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-find_path(PQ_INCLUDE_DIR libpq-fe.h
-          HINTS ${LARRY_PG_INCLUDE} /opt/homebrew/opt/libpq/include /usr/include/postgresql
-                /usr/local/include REQUIRED)
-find_library(PQ_LIBRARY pq HINTS ${LARRY_PG_LIB} /opt/homebrew/opt/libpq/lib /usr/local/lib REQUIRED)
+# there. Without libpq, or with -DLARRY_CLOUD=OFF, Larry builds with the
+# cache alone and says so.
+option(LARRY_CLOUD "Build the cloud (needs libpq)" ON)
+if(LARRY_CLOUD)
+    execute_process(COMMAND pg_config --includedir OUTPUT_VARIABLE LARRY_PG_INCLUDE
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    execute_process(COMMAND pg_config --libdir OUTPUT_VARIABLE LARRY_PG_LIB
+                    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    find_path(PQ_INCLUDE_DIR libpq-fe.h
+              HINTS ${LARRY_PG_INCLUDE} /opt/homebrew/opt/libpq/include /usr/local/opt/libpq/include
+                    /usr/include/postgresql /usr/local/include)
+    find_library(PQ_LIBRARY pq
+                 HINTS ${LARRY_PG_LIB} /opt/homebrew/opt/libpq/lib /usr/local/opt/libpq/lib /usr/local/lib)
+endif()
+if(LARRY_CLOUD AND PQ_INCLUDE_DIR AND PQ_LIBRARY)
+    set(LARRY_HAS_CLOUD ON)
+    message(STATUS "libpq: ${PQ_LIBRARY}")
+else()
+    set(LARRY_HAS_CLOUD OFF)
+    message(WARNING "libpq not found: Larry builds without the cloud (cache only). "
+                    "Install it (apt: libpq-dev, brew: libpq) and configure again.")
+endif()
 
 set(LARRY_WARNINGS -Wall -Wextra -Wpedantic -Wconversion)
 
 add_library(larry_core)
 target_sources(larry_core PRIVATE src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp
-                                  src/brain.cpp src/cognition.cpp src/database.cpp src/lesson.cpp
+                                  src/brain.cpp src/cognition.cpp src/dictionary.cpp src/lesson.cpp
                                   src/memory.cpp)
 target_compile_definitions(larry_core
                            PUBLIC LARRY_BASE_RULES_DIR="${CMAKE_SOURCE_DIR}/base_rules"
+                                  LARRY_DICTIONARY_DIR="${CMAKE_SOURCE_DIR}/dictionary"
                                   LARRY_LESSONS_DIR="${CMAKE_SOURCE_DIR}/lessons"
                                   LARRY_MEMORY_DIR="${CMAKE_SOURCE_DIR}/memory"
                                   LARRY_SQL_DIR="${CMAKE_SOURCE_DIR}/sql")
 target_include_directories(larry_core PUBLIC include)
-target_include_directories(larry_core SYSTEM PUBLIC ${PQ_INCLUDE_DIR})
-target_link_libraries(larry_core PUBLIC ${PQ_LIBRARY})
+if(LARRY_HAS_CLOUD)
+    target_sources(larry_core PRIVATE src/database.cpp)
+    target_compile_definitions(larry_core PUBLIC LARRY_HAS_CLOUD=1)
+    target_include_directories(larry_core SYSTEM PUBLIC ${PQ_INCLUDE_DIR})
+    target_link_libraries(larry_core PUBLIC ${PQ_LIBRARY})
+else()
+    target_sources(larry_core PRIVATE src/no_database.cpp)
+endif()
 target_compile_options(larry_core PRIVATE ${LARRY_WARNINGS})
 
 add_executable(larry src/main.cpp)
@@ -72,7 +92,7 @@ target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 # database test needs a PostgreSQL server (scripts/setup.sh starts one) and
 # reports "skipped" (exit 77) when it cannot connect.
 enable_testing()
-set(LARRY_TESTS assimilation atom_operations base_rules brain cognition database lesson memory)
+set(LARRY_TESTS assimilation atom_operations base_rules brain cognition database dictionary lesson memory)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)

@@ -45,6 +45,8 @@ These names are the user's. Use them as they are and do not rename them.
 | Source | Where a conception came from: `lesson:<file>`, `user`, `read:<file>`, or the cloud. | `StoredAtom::sources` |
 | Emotion | Part of the atom's type: neutral, joy, sadness, anger, fear, surprise, disgust, or sarcasm. The user asked for it to tell sarcasm apart. | `Assimilation::types` |
 | Guess | A category an unknown word takes from the known words seen in the same context. Marked, and never evidence. | `Source::Guess` |
+| Dictionary | The words of a language with their categories, always on the machine: the English one is the public-domain Moby Part-of-Speech list, 192,960 words. A fallback for a word no conception has taught, and the spell checker's list. | `Dictionary`, `dictionary/en/words.txt` |
+| Validator | One of the people allowed to validate or withdraw a conception. The user's safeguard: Larry rejects a decision from anyone else, and records who decided. | `validators`, `Brain::decide` |
 | Neural network | What finds an atom by its metadata. Today: the metadata order and the word index in memory. The spreading lookup is N5 (Q4). | `Memory::find`, `find_prefix`, `uses` |
 | Brain | The loop that takes input, uses memory and cognition, and replies (Q4, proposed answer in use). | `Brain` |
 | Conception | An atom Larry holds: what it has been told, stored in memory with its electrons. The user's term. | `StoredAtom`, `Memory::store` |
@@ -78,6 +80,7 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 |---|---|
 | Atom from text, atom as bits | Works (`AtomOperations`). |
 | Metadata | Works, reads back into electrons, and gives prefixes for neighbours. It now holds the types, so caches and clouds filled before the types change need a rebuild. |
+| Dictionary (A2b) | `dictionary/en/words.txt`, built by `scripts/dictionary.sh` from Moby, loads in 0.3 s. A word memory does not know takes its one dictionary category (`Source::Dictionary`, evidence when stored), or its several as candidates for the context to choose from (then a guess). A word nobody knows gets the dictionary words one slip away, the ones memory knows first, and Larry asks "Did you mean" instead of guessing. |
 | Base rules | 19 files in `base_rules/en/`: the 13 categories, and the lists the splitter, qualification, brain and types need (punctuation, sentence ends, closers, joiners, number joiners, abbreviations, titles, question words, assumption words, expressions, negation words, contractions, endings, forms, pronouns, auxiliaries, emotions, sarcasm markers). Hex, with `#` comments and `key=value` pairs; `scripts/hex.sh` converts. |
 | Sentences and entities (A1) | Works. Suites: 240 sentences, 55 texts, random bytes under the sanitizers. Known gaps: a name of several words at the start of a sentence is not joined, initials and web addresses split, an emoji is a word. |
 | Qualification (A3) | Works with the proposed rules (Q5). Suite: 407 sentences. Guessed categories do not drive it. |
@@ -85,8 +88,8 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Types (A7a) | Filled, with Q1 and Q2 as proposed plus emotion: features from the word's form (number, tense, person, degree), the role by position (subject, predicate, object, attribute, complement, modifier, link), and the atom's roles in order with its emotion (sarcasm by marker phrases for now). |
 | Image | Still a copy of the text (Q3). |
 | Cache (F3, F5, N1, N2) | `Memory`: a log of atoms with status and sources; find by metadata, by prefix, by id; the word index with each use's category and context, the neighbours' categories too. |
-| Cloud (N2) | `Database` through libpq: conceptions with status and created time, sources, the word index with context. The brain answers from the cache first, then searches the cloud and caches what it finds; what Larry hears goes to both; `larry sync` pushes what the cloud lacks and pulls its most recent. Measured with the local server: an answer from the cloud 0.09 s, from the cache 0.01 s. |
-| Validation (R2a) | A conception is proposed until a second different source gives it or the user accepts it (`larry validate`, interactive or by id); a withdrawn one is no evidence. |
+| Cloud (N2) | `Database` through libpq (optional: without it Larry builds with the cache alone, `-DLARRY_CLOUD=OFF` does the same): conceptions with status and created time, sources, the word index with context. The brain answers from the cache first, then searches the cloud and caches what it finds; what Larry hears goes to both; `larry sync` pushes what the cloud lacks and pulls its most recent. Measured with the local server: an answer from the cloud 0.09 s, from the cache 0.01 s. |
+| Validation (R2a, R2b) | A conception is proposed until a validator accepts it (`larry validate`, interactive or by id); a withdrawn one is no evidence. Only validators decide: `larry validators add <name>` (anyone adds the first, then only a validator), `LARRY_USER` names who is talking, and the decision records who made it, in the cache and the cloud. A second source never validates by itself: the user asked for this safeguard. |
 | Lessons and rebuild (F7) | 96 sentences in lesson 1. Two rebuilds give the same cache file byte for byte. |
 | Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types now. Not yet stored as bonds (N3). Suites: 104 pairs. |
 | Truth of a concept (R1a) | `larry ask`: true, false or unknown, with the conception and whether it came from the cloud and is still proposed. |
@@ -152,6 +155,8 @@ Milestone 1: after one lesson, `larry show "the grass is green"` fills in every 
 - [x] R2a Proposed, validated, withdrawn; `larry validate` (first step of R2)
 - [x] A7a Types with emotion (first step of A7, Q1 and Q2 as proposed, emotion added by the user)
 - [x] A6a Vocabulary: guesses from context, `larry words` (first step of A6)
+- [x] A2b The dictionary on the machine: fallback categories and spelling (new item, see section 7)
+- [x] R2b Validation by the user only: validators, `LARRY_USER`, who decided (the user's safeguard)
 
 **Stage 3 — Memory**
 - [ ] F8 Benchmarks
@@ -261,6 +266,9 @@ Done when: a suite of at least 200 sentences with their expected entities passes
 **A2 · Taught categories (level 0).** A lesson gives a sentence and the category of each word. `larry tell` stores the atom with those categories. Larry's knowledge of a word is then the set of stored atoms that contain it, so no separate dictionary is needed.
 Done when: after a lesson, `larry show` on a new sentence made only of taught words with one category each fills in every category. Needs A1, N1. Done. Each entity is marked taught, memory, open (with its candidates) or unknown.
 
+**A2b · The dictionary.** The words of the language with their categories, always on the machine, as the user asked: the public-domain Moby Part-of-Speech list, converted by `scripts/dictionary.sh` into `dictionary/en/words.txt` (one word, a tab, Larry's categories; a capitalized noun in Moby is a proper noun; the auxiliary verbs come from the base rules; phrases are left out). Memory comes first; the dictionary speaks only for a word no conception has taught: one category is the word's and counts as evidence once stored, several are candidates for the context to choose from (A6a). For a word in neither, the dictionary gives the words one typing slip away (swap, drop, change, add), the ones memory knows first, and Larry asks "Did you mean" rather than guess. Q8 allows a public resource made by people as a source of knowledge; this is one.
+Done when: the dictionary loads in under a second and the tests for categories and near words pass. Done: 192,960 words, 3.6 MB, 0.3 s. Not yet: numerals as words ("three" is a noun in Moby), particles, a second language.
+
 **A3 · Qualification.** Fill in `Cognition::qualify` from rules in `base_rules/en/`. Proposed starting rules: a sentence that ends with "?" or opens with a question word or an auxiliary verb before its subject is a question; one that opens with a verb in its base form and has no subject is an order; one that opens with or hangs on a word such as "if", "suppose", "maybe" or "perhaps" is an assumption; one made only of interjections or a greeting is an expression; anything else is an affirmation.
 Done when: a suite of at least 300 sentences labelled by hand passes. Needs A2, Q5. Done with the proposed rules (407 sentences) and two refinements the suite asked for: an auxiliary verb followed by a verb opens an order ("Do not stop"), and a question word used as a noun does not make a question. Known gaps: "I wonder if it rains" is an assumption by the rule; "What a day!" is a question by the rule.
 
@@ -359,7 +367,7 @@ First step done (R1a, `Brain::truth`, `Brain::answers`, `larry ask`): a sentence
 
 **R2 · Truth keeping.** Atoms are assumed truths, so some will turn out false. Each atom gets a status (assumed, concluded, in conflict, withdrawn) and its support: its source, or the atoms it was concluded from. When C9 finds a conflict, Larry records it and does not choose silently. When an atom is withdrawn, so is everything concluded only from it.
 Done when: a suite passes, and bAbI tasks 9 and 10 are measured. Needs C9, N3, Q14.
-First step done (R2a): the status is proposed, validated or withdrawn, with the sources that gave the conception. A second different source validates (a lesson and the user, two files); the user validates or withdraws by hand with `larry validate`; a withdrawn conception is no evidence. A conflict (R1a's negation) is reported and both atoms are kept. Not yet: concluded atoms and their support, withdrawal of what was concluded.
+First step done (R2a, R2b): the status is proposed, validated or withdrawn, with the sources that gave the conception and who decided. Only a validator validates or withdraws, with `larry validate`; `larry validators add` names them, anyone the first, then only a validator; `LARRY_USER` says who is talking. A second source never validates by itself, as the user asked: it only adds to the conception's sources. A withdrawn conception is no evidence. A conflict (R1a's negation) is reported and both atoms are kept. Not yet: concluded atoms and their support, withdrawal of what was concluded.
 
 **R3 · State and time.** The world changes. "Mary went to the kitchen. Mary went to the garden." is a change, and the two sentences do not conflict. A later atom about the same thing replaces the earlier one as the present state, and both stay in memory in order.
 Done when: bAbI tasks 1, 6, 12 and 14 are measured. Needs N4, R2.
@@ -486,6 +494,8 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q20 | Which emotions does the atom's type hold? Today: neutral, joy, sadness, anger, fear, surprise, disgust, sarcasm, from word lists and marker phrases. | This list, until meaning (A9) gives a better way to find them. | A7 |
 | Q21 | When Larry guesses a word's category, should it also ask the user, or only say what it took the word as? Today it says so and goes on. | Say so; the user corrects by teaching the sentence with its categories. | A5, A6 |
 | Q22 | How many recent conceptions does the cache keep, and when does it forget? Today it keeps everything it has met; `larry sync` pulls the 100 most recent. | Keep everything until the benchmarks (F8) say otherwise. | N2 |
+| Q23 | Should a dictionary category count as evidence when the sentence is stored (it does now), or only a validator's word? | Evidence: the list was made by people, like a lesson (Q8). | A2b |
+| Q24 | Should the sessions that build Larry ever be validators? Today they are not, unless the user adds them. | No. | R2b |
 
 ## 11. Earlier work worth reading
 
@@ -505,4 +515,5 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 |---|---|---|---|
 | 2026-10-07 | Plan written | `./build/larry` builds and runs on macOS. No tests exist. | Q1 to Q15 are open. |
 | 2026-10-07 | F1 to F7, A1, A2, A3, N1, C1 to C5, R1a, G3a | Linux, GCC 14: build and 7 test executables pass, also with `LARRY_SANITIZE=ON`. Suites: 240 sentences with entities, 55 texts with sentences, 407 qualified sentences, 103 comparison pairs. Lesson 1: 96 sentences, 379 word uses, memory file 20,344 bytes (212 bytes per atom). `larry rebuild` 0.017 s; `larry ask "Is the sky blue?"` 0.005 s (wall time, one run each, 4 CPUs). Milestone 1 reached. | The user parked the PostgreSQL database and asked for a prototype: memory is a local file. Q4, Q5, Q9 used their proposed answers. Q16 to Q19 added. macOS build not verified this session. |
+| 2026-10-07 | R2b, A2b | Linux, GCC 14 and clang 18 with libc++: 9 test executables pass, also with the sanitizers and without libpq. Dictionary: 192,960 words, 3,612,564 bytes, loads in 278 ms (GCC) and 1,182 ms under the sanitizers; `scripts/dictionary.sh` builds it in 2.6 s. | The user: conceptions on Azure next, the dictionary always on the machine, validation by the user alone. The two-source rule is gone. Q23, Q24 added. |
 | 2026-10-07 | N2a, N2b, R2a, A7a, A6a | Linux, GCC 14, libpq: build and 8 test executables pass, also with `LARRY_SANITIZE=ON`. With the local server as the cloud: an answer from the cloud into an empty cache 0.088 s, from the cache 0.013 s, rebuild of 96 lessons into cache and cloud 0.174 s (wall time, one run each). Cache file 51,950 bytes for 96 atoms with types (541 bytes per atom). Vocabulary from lesson 1: 159 words. 19 rule files. | The user's direction: language on the machine, conceptions in the cloud, cache first. Q1, Q2, Q16, Q17 answered; emotion added to the type; Q20 to Q22 added. libpqxx replaced by libpq. The Pi itself was not reached from the cloud session. |
