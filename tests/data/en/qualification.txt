@@ -1,0 +1,420 @@
+# A3: sentences labelled by hand with their qualification. Fields are separated by " | ":
+# the qualification, the sentence, and, when a rule needs them, the categories of its
+# entities separated by commas. The rules are the proposed answer to Q5 (PLAN.md, A3).
+#
+# Questions: ends with "?", opens with a question word, or opens with an auxiliary verb.
+question | Is the sky blue?
+question | Is the sky blue | auxiliary verb, determiner, noun, adjective
+question | Are birds animals?
+question | Are birds animals | auxiliary verb, noun, noun
+question | Was the door open?
+question | Were they late | auxiliary verb, pronoun, adjective
+question | Do you like apples?
+question | Does the sky look blue?
+question | Did Tom leave?
+question | Can birds fly?
+question | Can birds fly | auxiliary verb, noun, verb
+question | Could you help me?
+question | Will it rain tomorrow?
+question | Would you like tea?
+question | Should we go now?
+question | Have you seen Tom?
+question | Has the train left | auxiliary verb, determiner, noun, verb
+question | Had she already eaten?
+question | May I come in?
+question | Might it work?
+question | Must we leave?
+question | Shall we dance?
+question | Isn't the sky blue?
+question | Don't you like apples?
+question | What is the sky?
+question | What colour is the sky?
+question | What is the capital of France?
+question | What did you say?
+question | What time is it
+question | What a day it was
+question | Who is Tom?
+question | Who are you?
+question | Who wrote this book
+question | Whom did you see?
+question | Whose car is this?
+question | Which one is yours?
+question | Which way is the station
+question | When is the meeting?
+question | When did Mary go to the kitchen?
+question | When does the shop open
+question | Where is Tom?
+question | Where is the milk?
+question | Where did Mary go?
+question | Where are my keys
+question | Why is the sky blue?
+question | Why did he leave?
+question | Why not
+question | How are you?
+question | How does it work?
+question | How many apples does Tom have?
+question | How old is she
+question | How far is the sea
+question | The sky is blue?
+question | Tom has a car?
+question | You are leaving?
+question | Really?
+question | Blue?
+question | Hello?
+question | Thank you?
+question | Close the door?
+question | If it rains?
+question | What if it rains?
+question | Maybe?
+question | Is it true that the sky is blue?
+question | Is the sky blue or green?
+question | Are there seven days in a week?
+question | Is water wet?
+question | Do fish swim?
+question | Are penguins birds?
+question | Can penguins fly?
+question | Did the cat sit on the mat?
+question | Is the door open or closed?
+question | Does Mary have an apple?
+question | Where is the kitchen?
+question | What is in the box?
+question | How many is three plus five?
+question | Is the grass green?
+question | "Is the sky blue?"
+question | Is the sky blue?!
+question | Is the sky blue? Yes or no?
+question | Which is bigger, a cat or a dog?
+question | Where is Mount Everest?
+question | Who was Tom Hanks?
+question | How do you do?
+question | Are you sure?
+#
+# Orders: open with a verb, after any interjection.
+order | Close the door. | verb, determiner, noun
+order | Open the window. | verb, determiner, noun
+order | Please close the door. | interjection, verb, determiner, noun
+order | Sit down. | verb, adverb
+order | Sit down! | verb, adverb
+order | Stop! | verb
+order | Go away. | verb, adverb
+order | Come here. | verb, adverb
+order | Look at the sky. | verb, preposition, determiner, noun
+order | Tell me a story. | verb, pronoun, determiner, noun
+order | Give me the book. | verb, pronoun, determiner, noun
+order | Read this file. | verb, determiner, noun
+order | Remember that the sky is blue. | verb, conjunction, determiner, noun, auxiliary verb, adjective
+order | Forget it. | verb, pronoun
+order | Take three apples. | verb, numeral, noun
+order | Put the cup on the table. | verb, determiner, noun, preposition, determiner, noun
+order | Bring me water. | verb, pronoun, noun
+order | Wait for me. | verb, preposition, pronoun
+order | Listen carefully. | verb, adverb
+order | Run! | verb
+order | Run fast. | verb, adverb
+order | Eat your vegetables. | verb, determiner, noun
+order | Say hello to Tom. | verb, interjection, preposition, proper noun
+order | Compare the sky and the sea. | verb, determiner, noun, conjunction, determiner, noun
+order | Describe the sentence. | verb, determiner, noun
+order | Store this atom. | verb, determiner, noun
+order | Answer the question. | verb, determiner, noun
+order | Count the apples. | verb, determiner, noun
+order | Turn left at the corner. | verb, adverb, preposition, determiner, noun
+order | Be quiet. | verb, adjective
+order | Be careful! | verb, adjective
+order | Let me see. | verb, pronoun, verb
+order | Let us go. | verb, pronoun, verb
+order | Help! | verb
+order | Help me. | verb, pronoun
+order | Write it down. | verb, pronoun, adverb
+order | Show me the sky. | verb, pronoun, determiner, noun
+order | Find the nearest atom. | verb, determiner, adjective, noun
+order | Please wait. | interjection, verb
+order | Please sit down, Tom. | interjection, verb, adverb, proper noun
+order | Oh, close the door. | interjection, verb, determiner, noun
+order | Hey, stop that. | interjection, verb, pronoun
+order | Well, come in. | interjection, verb, adverb
+order | Do it now. | verb, pronoun, adverb
+order | Keep calm. | verb, adjective
+order | Hold the line. | verb, determiner, noun
+order | Learn this lesson. | verb, determiner, noun
+order | Rebuild the memory. | verb, determiner, noun
+order | Add two and two. | verb, numeral, conjunction, numeral
+order | Never give up. | adverb, verb, particle
+order | Don't stop. | auxiliary verb, verb
+order | Do not stop. | auxiliary verb, adverb, verb
+order | Tell me about the sky and the sea. | verb, pronoun, preposition, determiner, noun, conjunction, determiner, noun
+order | Repeat after me. | verb, preposition, pronoun
+order | Speak slowly. | verb, adverb
+order | Walk the dog. | verb, determiner, noun
+order | Feed the cat. | verb, determiner, noun
+order | Water the plants. | verb, determiner, noun
+order | Lock the door and leave. | verb, determiner, noun, conjunction, verb
+order | Ask Tom. | verb, proper noun
+#
+# Assumptions: hang on an assumption word.
+assumption | If it rains, the street is wet.
+assumption | If the sky is green, I am wrong.
+assumption | If Tom has a car, he can drive.
+assumption | The street is wet if it rains.
+assumption | I will go if you go.
+assumption | Unless it rains, we go out.
+assumption | We go out unless it rains.
+assumption | Suppose the sky is green.
+assumption | Suppose Tom has three apples.
+assumption | Supposing it rains, we stay.
+assumption | Assume all birds fly.
+assumption | Assume that penguins fly.
+assumption | Assuming the door is open, the cat can leave.
+assumption | Imagine a world without cars.
+assumption | Imagine the sea is red.
+assumption | Maybe it rains.
+assumption | Maybe Tom is late.
+assumption | It is maybe true.
+assumption | Perhaps she left.
+assumption | Perhaps the sky is green.
+assumption | She perhaps left early.
+assumption | Possibly the train is late.
+assumption | The train is possibly late.
+assumption | Presumably the shop is closed.
+assumption | The shop is presumably closed.
+assumption | Hypothetically, the sea could be red.
+assumption | If so, we leave.
+assumption | If not, we stay.
+assumption | Maybe.
+assumption | Perhaps.
+assumption | Maybe not.
+assumption | If the grass is green then the sky is blue.
+assumption | If birds fly, sparrows fly.
+assumption | Suppose that the cat sat on the mat.
+assumption | Let's say the sky is green, hypothetically.
+assumption | Tom, if he comes, brings apples.
+assumption | Unless I am wrong, the sky is blue.
+assumption | Maybe the capital of France is Paris.
+assumption | Perhaps Mary went to the garden.
+assumption | Suppose Mary went to the kitchen.
+assumption | If Mary is in the kitchen, she is not in the garden.
+assumption | Imagine that water is dry.
+assumption | Assume the door is closed.
+assumption | Possibly.
+assumption | It possibly rains tomorrow.
+assumption | If it rains, close the window. | conjunction, pronoun, verb, verb, determiner, noun
+assumption | Close the window if it rains. | verb, determiner, noun, conjunction, pronoun, verb
+assumption | Maybe close the window. | adverb, verb, determiner, noun
+assumption | Perhaps the door is open. | adverb, determiner, noun, auxiliary verb, adjective
+#
+# Expressions: whole sentences in the expressions list, or made of interjections.
+expression | Hello!
+expression | Hello.
+expression | hello
+expression | Hi!
+expression | Hi there!
+expression | Hello there.
+expression | Hey!
+expression | Thanks!
+expression | Thank you.
+expression | Thank you very much!
+expression | Thanks a lot.
+expression | Goodbye!
+expression | Bye!
+expression | Bye bye.
+expression | See you!
+expression | Good morning!
+expression | Good morning.
+expression | Good afternoon.
+expression | Good evening!
+expression | Good night.
+expression | Yes.
+expression | Yes!
+expression | No.
+expression | No!
+expression | OK.
+expression | Okay!
+expression | Yeah.
+expression | Yep.
+expression | Nope.
+expression | Wow!
+expression | Oh!
+expression | Ouch!
+expression | Oops.
+expression | Yay!
+expression | Hooray!
+expression | Hurray!
+expression | Alas.
+expression | Ugh.
+expression | Hmm.
+expression | Cheers!
+expression | Congratulations!
+expression | Welcome!
+expression | You're welcome.
+expression | Sorry.
+expression | Please.
+expression | Excuse me.
+expression | Well done!
+expression | Good luck!
+expression | Happy birthday!
+expression | Merry Christmas!
+expression | Happy new year!
+expression | HELLO!
+expression | Thank You.
+expression | Oh no. | interjection, interjection
+expression | Oh dear! | interjection, interjection
+expression | Wow, wow! | interjection, interjection
+expression | Oh. Oh. Oh. | interjection, interjection, interjection
+expression | Hello, hello! | interjection, interjection
+expression | Ah well. | interjection, interjection
+expression | Hey hey. | interjection, interjection
+expression | ...
+expression | !!!
+expression | "Hello!"
+expression | (Thanks.)
+#
+# Affirmations: anything else.
+affirmation | The sky is blue.
+affirmation | The sea is blue.
+affirmation | The grass is green.
+affirmation | Birds fly.
+affirmation | Sparrows fly.
+affirmation | Penguins do not fly.
+affirmation | Penguins don't fly.
+affirmation | A sparrow is a bird.
+affirmation | Blue is the colour of the sky.
+affirmation | Clouds cross the sky.
+affirmation | Tom has a red car.
+affirmation | Tom has a car.
+affirmation | Tom has three apples.
+affirmation | Ana has five apples.
+affirmation | The door is open.
+affirmation | The door is closed.
+affirmation | Mary went to the kitchen.
+affirmation | Mary went to the garden.
+affirmation | The capital of France is Paris.
+affirmation | Paris is the capital of France.
+affirmation | Water boils at 100 degrees.
+affirmation | I have two cats and three dogs.
+affirmation | It is not true.
+affirmation | It isn't true.
+affirmation | Nobody knows.
+affirmation | There is no milk.
+affirmation | I never said that.
+affirmation | Larry is an AI model.
+affirmation | Larry runs on a CPU.
+affirmation | Larry has no weights.
+affirmation | An atom is an assumed truth.
+affirmation | Every atom has five electrons.
+affirmation | The metadata is the key.
+affirmation | A constellation is a language.
+affirmation | English is a constellation.
+affirmation | I am here.
+affirmation | I am fine, thanks.
+affirmation | We will see.
+affirmation | They have gone.
+affirmation | She is Tom's sister.
+affirmation | It is five o'clock.
+affirmation | The meeting is at 10:30.
+affirmation | Today is 2026-10-07.
+affirmation | Pi is 3.14.
+affirmation | Mr. Smith is here.
+affirmation | I went to New York.
+affirmation | I saw Tom Hanks yesterday.
+affirmation | The cat sat on the mat.
+affirmation | The quick brown fox jumps over the lazy dog.
+affirmation | I think Larry is smart.
+affirmation | This is a test.
+affirmation | That was easy.
+affirmation | Tom said hello.
+affirmation | Tom asked where the milk is.
+affirmation | Tom asked why.
+affirmation | Nobody asked how.
+affirmation | The question is what to do.
+affirmation | I know who you are.
+affirmation | This is the house that Jack built.
+affirmation | The man who came is my uncle.
+affirmation | I like apples, pears, etc.
+affirmation | Fruit, e.g. apples, is good.
+affirmation | We live in the U.S.A.
+affirmation | It left at 10 a.m.
+affirmation | Snow is white; coal is black.
+affirmation | The sky is blue and the grass is green.
+affirmation | The sky is blue, the grass is green and the sea is wide.
+affirmation | The sky is blue!
+affirmation | The sky is blue...
+affirmation | The sky is so blue!
+affirmation | "The sky is blue."
+affirmation | He said "the sky is blue".
+affirmation | I wonder.
+affirmation | I am not sure.
+affirmation | I do not know.
+affirmation | I don't know.
+affirmation | I know nothing.
+affirmation | Yesterday it rained.
+affirmation | It will rain tomorrow.
+affirmation | It rained, so the street is wet.
+affirmation | The street is wet because it rained.
+affirmation | Running is fun. | noun, auxiliary verb, adjective
+affirmation | Dogs run. | noun, verb
+affirmation | Birds fly south in winter. | noun, verb, adverb, preposition, noun
+affirmation | Close friends are rare. | adjective, noun, auxiliary verb, adjective
+affirmation | Open doors let the cold in. | adjective, noun, verb, determiner, noun, adverb
+affirmation | Tom runs. | proper noun, verb
+affirmation | The sky is blue | determiner, noun, auxiliary verb, adjective
+affirmation | Hello is a greeting. | noun, auxiliary verb, determiner, noun
+affirmation | Thanks are due to Tom. | noun, auxiliary verb, adjective, preposition, proper noun
+affirmation | Wow is an interjection. | noun, auxiliary verb, determiner, noun
+affirmation | Hello, the sky is blue. | interjection, determiner, noun, auxiliary verb, adjective
+affirmation | Oh, the door is open. | interjection, determiner, noun, auxiliary verb, adjective
+affirmation | Well, the sky is blue. | interjection, determiner, noun, auxiliary verb, adjective
+affirmation | Yes, the sky is blue. | interjection, determiner, noun, auxiliary verb, adjective
+affirmation | No, the sky is not green. | interjection, determiner, noun, auxiliary verb, adverb, adjective
+affirmation | The sky is blue, yes. | determiner, noun, auxiliary verb, adjective, interjection
+affirmation | Ten birds fly. | numeral, noun, verb
+affirmation | 10 birds fly. | numeral, noun, verb
+affirmation | Three is a number.
+affirmation | Blue is a colour.
+affirmation | Is is a verb. | noun, auxiliary verb, determiner, noun
+affirmation | Can is a word. | noun, auxiliary verb, determiner, noun
+affirmation | What is a question word. | noun, auxiliary verb, determiner, noun, noun
+affirmation | Tom is here.
+affirmation | Tom and Ann are here.
+affirmation | Tom, Ann and Bob are here.
+affirmation | The Queen of England is old.
+affirmation | Mount Everest is high.
+affirmation | São Paulo is big.
+affirmation | Olá is Portuguese.
+affirmation | 東京 is a city.
+affirmation | I like 👍 a lot.
+affirmation | The set {a, b} is small.
+affirmation | Version 1.5.2 is out.
+affirmation | Call 555-1234 now. | noun, numeral, adverb
+affirmation | 2+2=4
+affirmation | the
+affirmation | Tom
+affirmation | Larry
+affirmation | Sky blue.
+affirmation | Blue sky.
+affirmation | Sky.
+affirmation | An apple a day keeps the doctor away.
+affirmation | All that glitters is not gold.
+affirmation | Actions speak louder than words.
+affirmation | Time flies.
+affirmation | Knowledge is power.
+affirmation | Practice makes perfect.
+affirmation | Larry remembers what it is told.
+affirmation | Larry answers from memory.
+affirmation | Larry says "I don't know" when it has nothing.
+affirmation | Larry reports a conflict when two atoms cannot both be true.
+affirmation | Larry explains every reply.
+affirmation | Larry runs without weights.
+affirmation | Larry compares atoms.
+affirmation | Larry qualifies sentences.
+affirmation | Larry splits text into sentences and entities.
+affirmation | Larry stores atoms under their metadata.
+affirmation | Larry keeps a word index.
+affirmation | Larry learns from lessons.
+affirmation | Larry rebuilds its memory from the lessons.
+affirmation | Larry is a prototype.
+affirmation | The user directs the sessions.
+affirmation | A session builds one item.
+affirmation | Every item lands with tests.
+affirmation | The build passes before a commit.
+affirmation | The plan has twelve sections.
+affirmation | Section ten holds the open questions.

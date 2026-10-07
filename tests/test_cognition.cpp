@@ -2,12 +2,17 @@
 
 #include "larry/cognition.hpp"
 
+#include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
 
 #include "check.hpp"
 
+#include <filesystem>
+#include <fstream>
+#include <print>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -85,12 +90,122 @@ TEST(qualification_names) {
     CHECK(larry::name(larry::Qualification::Expression) == "expression");
 }
 
-TEST(qualify_has_no_rules_yet) {
-    const Cognition cognition;
+namespace {
+
+std::string_view trim(std::string_view s) {
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r')) {
+        s.remove_prefix(1);
+    }
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
+std::vector<std::string> fields(std::string_view line) {
+    std::vector<std::string> out;
+    while (true) {
+        const std::size_t next = line.find(" | ");
+        out.emplace_back(trim(line.substr(0, next)));
+        if (next == std::string_view::npos) {
+            break;
+        }
+        line.remove_prefix(next + 3);
+    }
+    if (out.size() > 1 && out.back().empty()) {
+        out.pop_back();
+    }
+    return out;
+}
+
+std::vector<Bytes> split_categories(std::string_view text) {
+    std::vector<Bytes> out;
+    while (true) {
+        const std::size_t comma = text.find(',');
+        const std::string_view item = trim(text.substr(0, comma));
+        out.emplace_back(item.begin(), item.end());
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        text.remove_prefix(comma + 1);
+    }
+    return out;
+}
+
+larry::Qualification qualify(std::string_view sentence, std::string_view categories = "") {
+    static const larry::Assimilation assimilation{rules()};
     const larry::AtomOperations ops;
-    CHECK_THROWS(cognition.qualify(ops.from_text("the sky is blue"), words({"the", "sky", "is", "blue"}),
-                                   rules()),
-                 std::logic_error);
+    const Cognition cognition;
+    const larry::Sentence atom = ops.from_text(sentence);
+    EntitiesElectron entities = assimilation.entities(atom);
+    if (!categories.empty()) {
+        cognition.categorize(entities, split_categories(categories), rules());
+    }
+    return cognition.qualify(atom, entities, rules());
+}
+
+}  // namespace
+
+TEST(qualify_by_the_proposed_rules) {
+    using larry::Qualification;
+    CHECK(qualify("The sky is blue.") == Qualification::Affirmation);
+    CHECK(qualify("Is the sky blue?") == Qualification::Question);
+    CHECK(qualify("Is the sky blue", "auxiliary verb, determiner, noun, adjective") ==
+          Qualification::Question);
+    CHECK(qualify("What is the sky?") == Qualification::Question);
+    CHECK(qualify("The sky is blue?") == Qualification::Question);
+    CHECK(qualify("Close the door.", "verb, determiner, noun") == Qualification::Order);
+    CHECK(qualify("Please close the door.", "interjection, verb, determiner, noun") ==
+          Qualification::Order);
+    CHECK(qualify("Close the door.") == Qualification::Affirmation);  // no category: no order
+    CHECK(qualify("If it rains, the street is wet.") == Qualification::Assumption);
+    CHECK(qualify("Maybe.") == Qualification::Assumption);
+    CHECK(qualify("What if it rains?") == Qualification::Question);  // "?" comes first
+    CHECK(qualify("Hello!") == Qualification::Expression);
+    CHECK(qualify("Thank you very much.") == Qualification::Expression);
+    CHECK(qualify("Oh no.", "interjection, interjection") == Qualification::Expression);
+    CHECK(qualify("...") == Qualification::Expression);  // no entity at all
+    CHECK(qualify("Hello?") == Qualification::Question);
+    CHECK(qualify("Hello is a greeting.", "noun, auxiliary verb, determiner, noun") ==
+          Qualification::Affirmation);
+}
+
+TEST(qualification_suite) {
+    const std::filesystem::path file =
+        std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "qualification.txt";
+    std::ifstream in{file, std::ios::binary};
+    CHECK(static_cast<bool>(in));
+    std::size_t cases = 0;
+    std::size_t failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line.front() == '#') {
+            continue;
+        }
+        const std::vector<std::string> f = fields(line);
+        CHECK(f.size() == 2 || f.size() == 3);
+        if (f.size() < 2) {
+            continue;
+        }
+        ++cases;
+        std::string got;
+        try {
+            got = larry::name(qualify(f[1], f.size() == 3 ? f[2] : ""));
+        } catch (const std::exception& e) {
+            got = e.what();
+        }
+        if (got != f[0]) {
+            ++failed;
+            std::println(stderr, "qualification.txt line {}: \"{}\" expected {}, got {}", number,
+                         f[1], f[0], got);
+        }
+    }
+    CHECK(cases >= 300);
+    CHECK(failed == 0);
 }
 
 int main() {
