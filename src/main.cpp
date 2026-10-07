@@ -11,13 +11,14 @@
 
 #include <cstdio>
 #include <exception>
-#include <iostream>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <map>
 #include <memory>
+#include <optional>
 #include <print>
 #include <span>
 #include <stdexcept>
@@ -473,7 +474,7 @@ int run(std::span<const std::string_view> args) {
                 std::println("Larry: {}", last.text);
             }
         }
-        std::println();
+        std::println("");
         return 0;
     }
     if (command == "validate") {
@@ -494,7 +495,7 @@ int run(std::span<const std::string_view> args) {
                 std::print("{}\n  validate? [y/n/s/q] ", line(atom));
                 std::string answer;
                 if (!std::getline(std::cin, answer)) {
-                    std::println();
+                    std::println("");
                     break;
                 }
                 if (answer == "y") {

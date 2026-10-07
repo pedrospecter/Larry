@@ -13,7 +13,9 @@
 #include <cstdlib>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <print>
+#include <utility>
 
 #include <filesystem>
 #include <string>

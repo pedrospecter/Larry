@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <exception>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>

@@ -8,8 +8,11 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace larry {
 
