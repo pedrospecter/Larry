@@ -1,0 +1,8 @@
+# A1 em português: textos e as frases que contêm. Campos separados por " | ": o texto, depois
+# cada frase. "\n" num campo é uma nova linha.
+O céu é azul. O mar é verde. | O céu é azul. | O mar é verde.
+Está azul? Sim! | Está azul? | Sim!
+Olá mundo | Olá mundo
+O Dr. Silva está aqui. | O Dr. Silva está aqui.
+Vi o Dr. Silva. Ele acenou. | Vi o Dr. Silva. | Ele acenou.
+Uma frase.\n\nOutra frase. | Uma frase. | Outra frase.

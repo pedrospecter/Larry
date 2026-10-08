@@ -1,0 +1,5 @@
+# Marks that end a sentence: . ? ! and the ellipsis.
+2e
+3f
+21
+e280a6

@@ -121,7 +121,17 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry molecules                   # each text read and each conversation, in order (N4)
     ./build/larry near sky                    # the neighbours in memory, nearest first (N5)
     ./build/larry forms skies                 # skies is a form of sky: noun plural, by the ending (A4)
+    ./build/larry know sky                    # what Larry knows about a subject, and what it cannot answer (S4)
+    ./build/larry say "She went to the kitchen."   # after "Mary went to the garden.": I read it as "Mary went to the kitchen." (A11)
+    ./build/larry say "A sparrow is a bird."  # bonds sparrow to bird, "is a kind of" (A10); with "A bird is an animal.":
+    ./build/larry ask "Is a sparrow an animal?"    # Yes, chained (R4)
+    ./build/larry ask "Do robins fly?"        # Probably yes: robins and sparrows are both kinds of bird, and sparrows fly (R8)
+    ./build/larry think 2                     # S7: conflicts found, general atoms proposed (R5), what waits (S3)
+    ./build/larry attention                   # the words to ask about, the conflicts to settle, the proposals
+    ./build/larry plan "open the door"        # S2: the steps, from "To open the door, turn the key." and the like
+    LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"   # 5: the second constellation, Portuguese (A12)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
     ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
     scripts/ud.sh && ./build/larry measure    # A6: accuracy on the Universal Dependencies English test set
+    scripts/babi.sh && ./build/larry babi 1   # the bAbI tasks: task 1 is 100% (R3)

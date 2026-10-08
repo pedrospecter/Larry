@@ -1,0 +1,15 @@
+# A11: reference across sentences. Fields are separated by " | ": the sentences
+# heard before (a space between them), the sentence with a pronoun, and how Larry
+# reads it; "same" when nothing refers.
+Mary went to the garden. | She went to the kitchen. | Mary went to the kitchen.
+John went to the hallway. | He picked up the milk. | John picked up the milk.
+Mary and John went to the office. | They went back to the hallway. | Mary and John went back to the hallway.
+The cat sat on the mat. | It is black. | The cat is black.
+John saw the dog. | He fed it. | John fed the dog.
+Daniel went to the hallway. Sandra went to the office. | She is tired. | Sandra is tired.
+Mary went to the garden. The milk is cold. | She took it. | Mary took the milk.
+The children are sleeping. | They are quiet. | The children are quiet.
+Mary moved to the bathroom. | Afterwards she journeyed to the office. | Afterwards Mary journeyed to the office.
+Mary went to the garden. | Mary saw her. | same
+Mary went to the garden. | The sky is blue. | same
+| She went to the kitchen. | same

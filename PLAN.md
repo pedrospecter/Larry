@@ -36,7 +36,7 @@ These names are the user's. Use them as they are and do not rename them.
 | Image electron | The atom's representation. Today it is just the sentence text (Q3). | `ImageElectron` |
 | Metadata electron | The other electrons written out as bytes. It is the key under which the atom is stored and found. Different electrons always give different metadata, and atoms that share leading parts sort next to each other. | `MetadataElectron`, `AtomOperations::metadata` |
 | Constellation | A language. | `Constellation`, `Language` |
-| Base rules | The rules of a language, read from files in `base_rules/<locale>/`. Today they hold the 13 word categories. | `BaseRules` |
+| Base rules | 33 files in `base_rules/en/` and 33 in `base_rules/pt/` (A12): the 13 categories, and the lists the splitter, qualification, types, emotion, arithmetic, units, dates, algebra, states, relations, forms, conjunctions, commands and content read. Rules are data: a line in a file, never a number trained. |
 | Cognition | The process that compares atoms. | `Cognition` |
 | Database | What the brain uses to get information: the cloud, the record of conceptions, PostgreSQL on the user's Raspberry Pi, reached through libpq. `LARRY_DB` names it. | `Database` |
 | Cloud | The user's word for the database: where the conceptions live for good. The machine searches it when the cache has no answer. | `Database`, `Brain::truth`, `Brain::answers` |
@@ -77,7 +77,7 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 7. **Every item lands with tests.** The build and all tests pass before a commit.
 8. **Claim only what was measured.** Write measured numbers in the log. A capability exists when its test passes.
 
-## 4. Where the code stands (2026-10-08, end of the third session: cognition and content, Stages 2d and 2e)
+## 4. Where the code stands (2026-10-08, end of the fourth session: numbers, memory, learning words, the first steps of every track, and Portuguese)
 
 `./build/larry` builds and runs on Linux (GCC 14) with libpq as its only dependency. The machine keeps the cache (`memory/<locale>.atoms`, or `LARRY_MEMORY`); the cloud is the PostgreSQL server `LARRY_DB` names, with `scripts/setup.sh` starting a local one as the stand-in for the user's Raspberry Pi. On first use Larry rebuilds its cache from the lessons and pushes them to the cloud.
 
@@ -96,7 +96,7 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Cloud (N2) | `Database` through libpq (optional: without it Larry builds with the cache alone, `-DLARRY_CLOUD=OFF` does the same): conceptions with status and created time, sources, the word index with context. The brain answers from the cache first, then searches the cloud and caches what it finds; what Larry hears goes to both; `larry sync` pushes what the cloud lacks and pulls its most recent. Measured with the local server: an answer from the cloud 0.09 s, from the cache 0.01 s. |
 | Validation (R2a, R2b) | A conception is proposed until a validator accepts it (`larry validate`, interactive or by id); a withdrawn one is no evidence. Only validators decide: `larry validators add <name>` (anyone adds the first, then only a validator), `LARRY_USER` names who is talking, and the decision records who made it, in the cache and the cloud. A second source never validates by itself: the user asked for this safeguard. |
 | Lessons and rebuild (F7) | 96 sentences in lesson 1. Two rebuilds give the same cache file byte for byte. |
-| Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types now. Not yet stored as bonds (N3). Suites: 104 pairs. |
+| Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types. The results are not stored as bonds yet, though bonds exist (N3): the conflicts (K1), the forms (A4) and the kinds (A10) are. Suites: 104 pairs. |
 | Truth of a concept (R1a, K1) | `larry ask`: true, false or unknown, with the conception and whether it came from the cloud and is still proposed. False too when a conception gives the thing another exclusive attribute ("the sky is green" against "the sky is blue"), naming the rule; number words read as digits. Suite: 53 claims. |
 | Grammar (K2) | `Grammar`: patterns of categories with roles in `grammar.txt` (10 patterns, 6 groups); the roles come from the pattern that fits, else by position; `larry grammar` names the pattern or where the sentence breaks. Validated conceptions add their own patterns. Every lesson fits. Suite: 69 sentences. |
 | Tolerance (K3) | `Tolerance`: a sentence off the grammar is read by the nearest pattern within the allowance in `tolerance.txt` (one deviation per four words, at most two), each deviation named; a noun known only with a determiner gets it back; the predicate is made to agree with its subject. Stored as said, thought with as read. Suite: 33 sentences. |
@@ -106,7 +106,24 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Content (W2) | `Content`: every sentence of content gets a class with a reason (fact, context, question, instruction, speech, heading, reference, fragment), from `content.txt`, the qualification, the grammar and the tolerance; `larry classify`; `larry read` stores the facts alone. Suite: 34 sentences and a fixture article. |
 | Commands (W3) | `commands.txt` maps orders to what Larry can do; `Brain::command`; `larry say` and `larry chat` do them. Suite: 26 orders. |
 | Study (W4) | `Study`: content to proposed facts with their readings, words to learn with where their category came from, and a lesson draft in `lessons/<locale>/drafts/` for the user to correct and teach; `larry study`. |
-| Tests | 16 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`, with clang and libc++, and without libpq. The database and brain tests use a scratch schema of the local server and skip their cloud checks without one. |
+| Tests | 24 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`, with clang and libc++, and without libpq; suites in `tests/data/en/` (arithmetic, dates, algebra, forms, types, reference, analogy and the earlier ones), `tests/data/pt/`, `tests/data/ud/` and `tests/data/babi/`. |
+| Numbers (M1, M2, M3) | `Arithmetic`, `Calendar`, `Algebra`: operator words, fractions, units, dates and equations in one unknown, all from rule files; `larry ask "Solve 2x + 3 = 11"` gives x = 4 and the rule. Suites: 53, 21 and 31 texts. |
+| Benchmarks (F8) | `larry bench [n]`: sentences stored and described per second, lookups, answers, the spread, start-up and bytes per atom; the numbers at ten thousand and a million atoms are in the log. |
+| Bonds and molecules (N3, N4) | `Bond` (kind, two ends, origins) and `Molecule` (a text or a conversation, members in order with who and when), in the cache's log and in the cloud, exchanged by `larry sync`; `larry bonds`, `larry molecules`, `larry molecule`. |
+| Spreading lookup and working memory (N5, N6a) | `Memory::spread`, nearest first through the index and the bonds, bounded (0.62 ms for three steps among a million atoms); the brain's atoms in play answer first, re-read from the cache. `larry near`. |
+| Word forms (A4) | `Forms`: regular endings undone to a known base, irregular pairs in `irregular.txt`, "form of" bonds; an unknown word with a known form takes its category as a guess. Held-out list of 31 words. `larry forms`. |
+| Questions and answers (A5, G5) | `larry read` leaves one question per word Larry could not describe; `larry answer "<sentence>" <word> <category>` teaches it; a conflict Larry cannot settle ends with "Which is true?". |
+| Accuracy on record (A6, Milestone 2) | `larry measure` on the Universal Dependencies English test set: 78.4% of the words right from memory alone after 3,000 taught sentences, 81.8% with the dictionary (`scripts/ud.sh`). |
+| Types suite (A7) | `tests/data/en/types.txt`, 26 sentences labelled by hand, pass with the grammar. |
+| States and the bAbI runner (R3a, F9) | `states.txt` and `Brain::state_of`: "Where is Mary?" from the latest conception that moved her; `larry babi` runs the stories (task 1: 100% of 1,000 questions; tasks 2 to 20 need the files, Q36). |
+| Conflicts by Q14 (R2c) | From the same source the later stands and the earlier is withdrawn by the rule; from different sources both stay, bonded, and Larry asks. A validated conception is never withdrawn by a rule. |
+| Knowing what it knows (S4) | `larry know <word>`: the conceptions by status, the categories, the guessed uses, the conflicts, the bonds, and what Larry cannot answer. |
+| Reference (A11a) | Third-person pronouns stand for the latest thing of their kind said before, as a reading Larry thinks with; suite of 12 cases. Pronouns, number words and conjunctions are categories by the base rules. |
+| Kinds and chains (A10a, R4a, C7a) | `relations.txt`: defining sentences become "is a kind of", "is part of", "is the opposite of" and "means the same as" bonds; `Brain::chain` answers "Is a sparrow an animal?" through two bonds, traced. |
+| Rules from examples, thinking, attention (R5a, S7, S3) | `larry think [seconds]`: conflicts among the conceptions bonded, "Birds fly." proposed as an assumption from two kinds of bird that fly and withdrawn by a counter-example; `larry attention` lists what waits. |
+| Analogy (R8a) | "Do robins fly?" is "Probably yes." from "Sparrows fly." when both are kinds of bird; a guess, never a truth; 9 of 9 on the suite. |
+| Plans (S2a) | `larry plan "<goal>"`: the chain of actions told as "To open the door, turn the key.", six steps at most. |
+| Portuguese (A12a) | `LARRY_LANGUAGE=pt`: the suites of A1 to A7, R1, K1, A10, R4 and M1 pass with the Portuguese files alone; `larry ask "Quanto é dois mais três?"` answers 5. What `src/` still holds of English is listed in Q39. |
 
 ## 5. The design
 
@@ -221,8 +238,8 @@ Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, a
 
 **Stage 5 — Meaning**
 - [ ] A9 Image (Q3)
-- [ ] A10 Word meanings and relations
-- [ ] A11 Reference across sentences
+- [ ] A10 Word meanings and relations: first step done (A10a), defining sentences become bonds ("is a kind of", "is part of", "is the opposite of", "means the same as"), and sparrow reaches animal in two steps; done with A9 (meanings apart).
+- [ ] A11 Reference across sentences: first step done (A11a), third-person pronouns refer to the latest thing of their kind said before; done when bAbI tasks 11 and 13 are measured (Q36) and A8 gives the groups.
 - [ ] C6, C7, C12, C17 Comparisons of meaning
 - [ ] C16 Novelty
 
@@ -230,17 +247,18 @@ Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, a
 - [ ] C8, C9, C14, C15 Comparisons of truth
 - [ ] C10, C11 Comparisons of use
 - [ ] R1 Answering from memory (Q13)
-- [ ] R2 Truth keeping (Q14)
-- [ ] R3 State and time
+- [ ] R2 Truth keeping (Q14): R2c done, a conflict from the same source withdraws the earlier (Q14); from different sources both stay, bonded, and Larry asks; done when concluded atoms and their withdrawal exist (R4).
+- [ ] R3 State and time: first step done (R3a), the latest state answers "where is" and "is X in Y"; bAbI task 1: 100%.
+- [x] F9 The bAbI runner: `larry babi [task]` hears each story, answers its questions and judges them; `scripts/babi.sh` fetches what is reachable (task 1); the original files are read too (Q36).
 
 Milestone 3: Larry answers questions about what it was told, says "I don't know" when it has nothing, and reports a conflict when it is told two things that cannot both be true.
 
 **Stage 7 — Reasoning**
-- [ ] R4 Chaining
-- [ ] R5 Rules from examples (Q7)
+- [ ] R4 Chaining: first step done (R4a), "is a kind of" bonds chain to answer what no conception says; done when concluded atoms are stored with their support (R2) and bAbI tasks 2, 3 and 15 are measured (Q36).
+- [ ] R5 Rules from examples (Q7): first step done (R5a), "Birds fly." proposed as an assumption from two kinds of bird that fly, withdrawn by a counter-example; done when the held-out suite and bAbI task 16 are measured (Q36).
 - [ ] R6 Best explanation
 - [ ] R7 Numbers, sets and space
-- [ ] R8 Analogy as a step, with C13
+- [ ] R8 Analogy as a step, with C13: first step done (R8a), a guess carried from the nearest conception that differs in one word of the same kind; the share on the suite is in the log.
 - [ ] R9 Rules as atoms
 
 Milestone 4: the bAbI scores for tasks 1 to 18 are on record. Tasks 19 and 20 come with planning (S2).
@@ -250,20 +268,20 @@ Milestone 4: the bAbI scores for tasks 1 to 18 are on record. Tasks 19 and 20 co
 - [ ] G2 Answers as sentences
 - [ ] G3 Conversation (Q13)
 - [ ] G4 Explaining
-- [ ] G5 Asking
+- [x] G5 Asking: Larry asks about a word it cannot describe (A5) and about a conflict it cannot settle (R2c).
 - [ ] G6 Longer output
 
 Milestone 5: `larry chat` holds a conversation and answers "why?" after any reply.
 
 **Stage 9 — Self-direction and breadth**
 - [ ] S1 Goals from orders
-- [ ] S2 Planning
-- [ ] S3 Attention
-- [ ] S4 Knowing what it knows
-- [ ] S5 Reading on its own
+- [ ] S2 Planning: first step done (S2a), a plan is the chain of actions told as "To <goal>, <action>."; done when a suite of small planning problems passes and bAbI tasks 19 and 20 are measured (Q36).
+- [x] S3 Attention: first step, `larry attention` lists what Larry would think about; the CPU budget is `think`'s.
+- [x] S4 Knowing what it knows: `larry know <word>`, `Brain::knowledge`.
+- [ ] S5 Reading on its own: the first step exists (`larry read`, `larry study`: level 2, novelty, the questions left); done when MCTest is measured.
 - [ ] S6 New categories
-- [ ] S7 Idle thinking
-- [ ] A12 Second constellation (Q15)
+- [x] S7 Idle thinking: `larry think [seconds]` finds conflicts, proposes general atoms and reports what waits.
+- [ ] A12 Second constellation (Q15): first step done (A12a), Portuguese in `base_rules/pt/` and `lessons/pt/`, `LARRY_LANGUAGE=pt`; the suites of A1 to A6 pass for it; done when `src/` holds nothing of either language (Q39).
 - [ ] G7 Translation
 
 ## 7. The items
@@ -294,6 +312,9 @@ Done when: two rebuilds give the same `atoms` contents, byte for byte. Done: the
 **F8 · Benchmarks.** `larry bench` measures sentences assimilated per second, lookups per second, memory per atom, and time to answer, with ten thousand and with one million atoms. Generated atoms are fine for this. A session that changes storage or lookup writes the new numbers in the log.
 Done when: the benchmark finishes in a few minutes and prints one line per measure.
 Done (F8): `bench()` generates "The <noun> is <adjective>." with made-up words of two syllables, teaches and stores them in a scratch memory file, and prints one line per measure: stored per second, memory per atom, described from the word index per second, lookups by metadata and by prefix per second, the time to answer "Is the <noun> <adjective>?", the start-up time with the file, and the file bytes per atom. After the storing each phase runs its count or ten seconds, whichever ends first, so a run with a million atoms ends in minutes. Without a cloud, a dictionary or a grammar: the cache alone.
+
+**F9 · The bAbI runner.** `larry babi [task]` runs the bAbI tasks (Weston and others, 2015), the public test of tracks R and A: each story in a fresh scratch memory as one molecule, its statements heard, its questions answered with nothing stored, and the reply judged against the answer (the reply's last word, yes or no, or every item of a list). `scripts/babi.sh` fetches the test stories that the rows API of Hugging Face serves (task 1 alone, 200 stories); the original files of tasks_1-20_v1-2 are read too, from `content/babi/en/`, when the user puts them there (Q36).
+Done (F9): `read_babi` (the JSON pages), `read_babi_text` (the original form), `babi_right`, `run_babi`; tests on a tiny task in both forms.
 
 ### Track A — Language assimilation (goal 1)
 
@@ -344,12 +365,15 @@ Done when: in a suite of sentence pairs, every pair that means the same has equa
 
 **A10 · Word meanings and relations.** Separate the meanings of one word (the bank of a river, the bank that holds money) and learn relations between words: is a kind of, is part of, is the opposite of, means the same as. Larry learns them from defining sentences, which are ordinary atoms ("a sparrow is a bird"), and stores them as bonds between entities.
 Done when: after reading a set of defining sentences, the bonds from sparrow reach animal in two steps. Needs N3, A9.
+First step done (A10a): `relations.txt` names the verb phrases of defining sentences and the bond they leave ("is a", "is an", "are", "is a kind of" leave "is a kind of"; "is part of"; "is the opposite of"; "means", "is the same as" leave "means the same as"). When a conception is stored, `Brain::relation_of` finds the phrase in its core, takes the heads of the two sides without their articles, in the singular by A4 ("Robins are birds" bonds robin to bird), and bonds them with the sentence as origin; "are" alone needs a noun on the right ("Sparrows are small" bonds nothing). After "A sparrow is a bird." and "A bird is an animal.", the spreading lookup (N5) reaches animal from sparrow in two steps. Not yet: the meanings of one word apart (the bank of a river), which needs the image (A9).
 
 **A11 · Reference across sentences.** Link "it", "she" or "the animal" to the earlier entity it refers to within a molecule.
 Done when: a suite passes, and bAbI tasks 11 and 13 are measured. Needs N4, A8.
+First step done (A11a): `Brain::refer` replaces "he", "she" and "him" by the latest name (a proper noun, or a capitalized word nobody taught) said before, "it" by the latest common noun phrase, "they" and "them" by the latest plural or joined phrase ("Mary and John"), and "her" when nothing it could own follows; subjects before objects, in the conceptions newest first (the molecule being heard, the atoms in play, the cache). The result is a reading (Q29): what was said is stored, Larry says "I read it as ..." and thinks with the reading (`thinking_core`), so "She went to the kitchen." after "Mary went to the garden." answers "Where is Mary?" with the kitchen, and a joined subject answers for each of its names. The pronouns, the number words and the conjunctions (`conjunctions.txt`, new) are categories by the base rules now (`Source::Rule`), so a fresh memory reads them. Suite: `tests/data/en/reference.txt`, 12 cases. Not yet: gender (he and she both take the latest name), "the animal" for "the dog" (A10), and the groups of A8.
 
 **A12 · Second constellation.** Add a second language using only new files in `base_rules/<locale>/` and `lessons/<locale>/`. This shows that the technique does not depend on English.
 Done when: the suites for A1 to A6 pass for the new locale and the change to `src/` contains nothing specific to either language. Needs Q15.
+First step done (A12a): Portuguese (European, by the 1990 agreement), as 33 files in `base_rules/pt/` (the same names and forms as the English ones: categories and grammar copied, since both are Larry's own vocabulary; abbreviations, titles, question, assumption, negation and expression words, contractions "do" and "na", endings "s", "ou", "ando", forms, auxiliaries "é" and "está", pronouns, emotions, sarcasm, exclusives, number words, arithmetic, units, dates, algebra, tolerance, content, commands, states, relations, irregular forms, conjunctions) and a first lesson of 21 sentences in `lessons/pt/`. `LARRY_LANGUAGE=pt` picks it (`Language::Portuguese`, locale `pt`). `tests/test_portuguese.cpp` passes the suites: entities and sentences (A1), describing from memory (A2), the qualification (A3), a guess from context (A6a), a plural by the ending and an irregular form (A4), the features (A7), true, false and unknown (R1), an exclusive attribute (K1), the kinds and the chain (A10, R4) and arithmetic in Portuguese words (M1), all from the files alone. The change to `src/` is the language name and its locale. Not yet: the English words still inside `src/` (the articles "a", "an", "the" of the relations, "where", "is" and "in" of the states, "and" of the joined subjects, the replies "Yes." and "I don't know."), which Q39 lists for the next step; a dictionary for Portuguese; G7.
 
 ### Track N — The network (goal 3)
 
@@ -482,15 +506,19 @@ First step done (R1a, `Brain::truth`, `Brain::answers`, `larry ask`): a sentence
 **R2 · Truth keeping.** Atoms are assumed truths, so some will turn out false. Each atom gets a status (assumed, concluded, in conflict, withdrawn) and its support: its source, or the atoms it was concluded from. When C9 finds a conflict, Larry records it and does not choose silently. When an atom is withdrawn, so is everything concluded only from it.
 Done when: a suite passes, and bAbI tasks 9 and 10 are measured. Needs C9, N3, Q14.
 First step done (R2a, R2b): the status is proposed, validated or withdrawn, with the sources that gave the conception and who decided. Only a validator validates or withdraws, with `larry validate`; `larry validators add` names them, anyone the first, then only a validator; `LARRY_USER` says who is talking. A second source never validates by itself, as the user asked: it only adds to the conception's sources. A withdrawn conception is no evidence. A conflict (R1a's negation) is reported and both atoms are kept. Not yet: concluded atoms and their support, withdrawal of what was concluded.
+R2c done (Q14): when what Larry hears conflicts with a conception from the same source alone, the later stands and the earlier is withdrawn by the rule ("That contradicts what you told me before: ... The later stands; I withdrew the earlier."), with `decided_by` naming the rule; a conception a validator decided is not withdrawn by a rule, and from different sources both are kept and bonded "conflicts with" (N3), and Larry asks which is true (G5). The "in conflict" status of the plan is the bond: `larry know` and `larry bonds` show it.
 
 **R3 · State and time.** The world changes. "Mary went to the kitchen. Mary went to the garden." is a change, and the two sentences do not conflict. A later atom about the same thing replaces the earlier one as the present state, and both stay in memory in order.
 Done when: bAbI tasks 1, 6, 12 and 14 are measured. Needs N4, R2.
+First step done (R3a): `states.txt` names the verb phrases that change a state and the state they leave ("moved to", "went to", "travelled to", "journeyed to" and others leave "is in"; "picked up" leaves "has"; "put down" leaves "has not"). `Brain::state_of` answers "Where is X?" from the latest conception that set a state of X (the molecule being heard newest first, then the atoms in play, then the cache) as "X is in Y.", and "Is X in Y?" with yes or no against that state; the earlier conceptions stay in memory in order (N4). bAbI task 1 (single supporting fact): 100% of 1,000 questions. Not yet: tasks 6, 12 and 14 (their stories are not reachable from this machine, Q36), time words ("yesterday", "this morning"), and "has" questions.
 
 **R4 · Chaining.** Combine several atoms through bonds and conditions to reach a new atom, forwards when an atom is stored and backwards from a question. Every concluded atom records the atoms it came from. Depth and time are bounded.
 Done when: a suite passes, and bAbI tasks 2, 3 and 15 are measured. Needs C8, C15, R3.
+First step done (R4a): `Brain::chain` walks the "is a kind of" bonds from one word to another, four steps at most, and `truth` uses it when no conception answers a claim of that shape: "Is a sparrow an animal?" is Yes, because "sparrow is a kind of bird, bird is a kind of animal (chained, R4)", with the two defining conceptions as what it came from; the negation of such a claim is false. This is the first step of C7 (follows from) too. Not yet: forward chaining when an atom is stored, conditions ("if ... then"), concluded atoms stored with their support, and the bound on time.
 
 **R5 · Rules from examples.** From several atoms that fit one pattern, propose a general atom and store it as an assumption: sparrows fly, robins fly, both are birds, so "birds fly". A counter-example ("penguins do not fly") narrows or withdraws it.
 Done when: a suite with held-out cases passes, and bAbI task 16 is measured. Needs C4, C7, R2, Q7.
+First step done (R5a): `Brain::propose` takes each thing with two or more kinds (the "is a kind of" bonds, A10), gathers what the kinds are said to do or be (the affirmations whose subject is the kind, singular or plural, with the defining sentences left out) and, when two or more kinds share a saying, proposes it of the whole kind in the plural ("Sparrows fly." and "Robins fly." give "Birds fly."), stored as an assumption with the examples as its source, never as a truth: "Do birds fly?" stays unknown until the user decides. A counter-example among the kinds ("Penguins do not fly.") stops the proposal, and withdraws it when it was made before. Not yet: a held-out suite, narrowing instead of withdrawing ("birds fly, but penguins"), bAbI task 16.
 
 **R6 · Best explanation.** Given an observation and stored conditions, propose the assumption that would explain it: "the street is wet" and "if it rains the street is wet" give the assumption "it rained".
 Done when: a suite passes, and each proposal is stored as an assumption, never as a truth.
@@ -500,6 +528,7 @@ Done when: bAbI tasks 7, 8, 17 and 18 are measured. Needs C14.
 
 **R8 · Analogy as a step.** When no rule applies, find the nearest stored atom with the same structure (C5, C13), carry over what it concluded, and mark the result as a guess. This is what keeps Larry useful on input it has no rule for.
 Done when: on a suite of cases that no stored rule covers, the measured share of correct guesses is recorded.
+First step done (R8a): when neither a conception nor a chain answers a question or a claim, `Brain::analogy` looks for the conceptions with the same words but one, where the two words are kinds of the same thing by the bonds of A10 ("a robin" and "a sparrow", both birds) or forms of one word (A4), and carries the answer over: "Probably yes." or "Probably no.", with the analogy as the reason and the rule that a guess is no truth. Suite: `tests/data/en/analogy.txt`, the share in the log. Not yet: C13 (the four-atom comparison), several differing words, and a guess stored as a guess.
 
 **R9 · Rules as atoms.** Reasoning rules are stored as atoms (assumptions and conditions), so Larry can be taught how to reason in plain sentences and can inspect and revise its own rules.
 Done when: a rule taught in one sentence changes Larry's answers with no change to the code.
@@ -518,10 +547,12 @@ First step done (G3a, `Brain::hear`, `larry say`, `larry chat`): an affirmation 
 **G4 · Explaining.** After any reply, "why?" lists the atoms and rules used, as sentences.
 
 **G5 · Asking.** Larry asks when it finds a gap or a conflict (A5, R2).
+Done (G5): a gap is a word Larry cannot describe from memory: "What is "Zorp"?" when it hears one, and one question per such word when it reads a text (A5, `larry read`, `larry answer`); a conflict it cannot settle by Q14 ends with "Which is true: "..." or "..."?" (R2c), and `larry validate` is where the user answers.
 
 **G6 · Longer output.** Summarize a molecule, describe a thing from everything known about it, and give steps in order.
 
 **G7 · Translation.** Generate in one constellation from an image assimilated in another. Needs A12.
+Note (2026-10-08): with two constellations the image (A9) is the missing piece; the kinds bonds are shared by name across languages only when the words are the same, so translation needs "means the same as" bonds between the two vocabularies, taught or read.
 
 **G4a · The stream.** While Larry works, `larry chat` says what it is doing in a short line ("(searching the cloud...)", "(fetching Sky...)"), and its reply comes word by word as it is written, with a short pause between words, so that a wait is never empty. `LARRY_STREAM=0` prints the reply at once. The reply itself does not change: it is complete before the first word shows.
 Done when: a cloud question in `larry chat` shows the notice, and the reply streams.
@@ -539,17 +570,22 @@ This track is research. The methods are proposals, and several will need to chan
 
 **S2 · Planning.** Actions are atoms that say what must hold before and what holds after. Larry searches, within a bound, for a sequence of actions that reaches the goal.
 Done when: bAbI tasks 19 and 20 are measured and a suite of small planning problems passes.
+First step done (S2a): an action is a conception of the form "To open the door, turn the key.": what holds after (the goal) and what must be done before (the action). `Brain::plan(goal)` searches backwards from the goal through the actions told, newest first, six steps at most and no step twice, and gives the steps in order, the goal last; `larry plan "<goal>"` prints them with the conceptions used. Not yet: what must hold before as a state (R3) rather than an action, several actions for one goal, and the search over a bound of time.
 
 **S3 · Attention.** A queue of what to think about, with a CPU budget for each turn. Open questions, conflicts, atoms waiting for novelty and unfinished goals compete for it.
+Done (S3, first step): `Brain::attention` is the queue, in order: the words Larry could not describe in its recent conceptions (A5's questions), the conflicts nobody settled (both conceptions still proposed), and the proposals of R5 waiting for the user; `larry attention` lists it. The budget is the seconds given to `think`. Not yet: goals (S1) and the atoms waiting for novelty as a queue of their own.
 
 **S4 · Knowing what it knows.** For any subject Larry reports what it knows, what was taught and what it guessed, where it holds conflicts, and what it cannot answer.
+Done (S4): `Brain::knowledge(word)` and `larry know <word>`: the conceptions that hold the word by status (validated, proposed, withdrawn), the categories it was taught or seen with and how often, how many of its uses have a category and how many are guessed or unknown, the conflicts among its conceptions (the "conflicts with" bonds), its other bonds ("form of"), and the plain questions Larry cannot answer about it ("what sky is", "where sky is").
 
 **S5 · Reading on its own.** Given a text, Larry reads at level 2, keeps what passes novelty, and lists its questions. Teaching sentence by sentence cannot reach the amount of knowledge Larry needs, so the project depends on this item more than any other.
 Done when: after reading a set of texts unaided, Larry answers questions about them, measured on MCTest (short children's stories with multiple-choice questions).
+First step (S5a): `larry read` reads a text at level 2 (the categories from memory, the dictionary, the forms and the context, as guesses), keeps what passes novelty (a conflict is kept and bonded, the same conception is counted), and lists the questions it leaves (A5); `larry study` adds the lesson draft. MCTest is not on the machine; Q38 asks for it.
 
 **S6 · New categories.** Larry notices words that behave alike and fit no category well, and proposes a new category to the user.
 
 **S7 · Idle thinking.** With no input, Larry spends CPU time running novelty, chaining and rules from examples over its memory. It finds conflicts, draws conclusions and proposes general atoms, and reports them.
+Done (S7, first step): `Brain::think(seconds)` goes through the affirmations it holds, newest first, judges each against the rest (K1, the same device as hearing) and bonds the conflicts it finds, within the budget; then proposes general atoms (R5) and reports what waits (S3). `larry think [seconds]` prints the conflicts found, the proposals made, stopped or withdrawn, and the queue. Chaining forward is not run idle yet (R4 answers on demand).
 
 ## 8. How we know it is working
 
@@ -629,6 +665,10 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q33 | An answer to a question (A5) is stored as a taught conception from the user. A rebuild (`larry rebuild`) empties memory and teaches the lessons again, so the answer is lost unless it is in a lesson file. Should `larry answer` also append the sentence and its categories to a lesson file (`lessons/en/answers.txt`), so that answers are lessons? | Proposed: yes, when the user says so once (a setting), because the lessons are the user's and Larry should not write them unasked. | A5 |
 | Q34 | A6 is measured: 78.4% of the words right from memory alone, 81.8% with the dictionary, after 3,000 taught sentences (log of 2026-10-08). What target does the user set? Memory-based taggers reach about 96%; the most specific context (A6) and the roles (A8) are the known next steps. | Proposed: 90% with the dictionary after the most specific context, measured by `larry measure` each time assimilation changes. | A6, A8 |
 | Q35 | The emotion of an atom comes from its first emotion word (A7a), so "She loves him." is joy and "I hate waiting." is anger, though both are plain facts about someone else's feeling. Should the emotion mark the speaker's feeling only (first person, interjections, markers) and leave a reported feeling to the words? | Proposed: yes; a reported feeling stays in the words and the harness, and the atom's emotion is the speaker's. | A7, A3b |
+| Q36 | The bAbI tasks 2 to 20 are not reachable from this machine: the original tarball (tasks_1-20_v1-2.tar.gz) is gone from its hosts, and Hugging Face serves the rows of task 1 alone. Can the user put the original files under `content/babi/en/` (the `en/` folder of the tarball)? `larry babi` reads them as they are. | Proposed: yes; then R1, R2, R3 and A11 are measured as the plan asks. | R1, R2, R3, A11 |
+| Q37 | "he" and "she" both take the latest name (A11a), since Larry knows no gender of names. Should a base rule file list common first names with a gender (`names.txt`), or should gender come from the lessons ("Mary is a woman")? | Proposed: the lessons, through A10's "is a kind of" bonds (woman, man), with a names file only for the bAbI measurement. | A11 |
+| Q38 | S5 is measured on MCTest (160 and 500 children's stories with questions), which is not on this machine. Can the user put the MCTest files under `content/mctest/`? The runner would read them as `larry babi` reads the bAbI stories. | Proposed: yes, when S5 is next. | S5 |
+| Q39 | A12 asks that `src/` hold nothing of either language. After A12a it still holds: the articles "a", "an", "the" that the relations strip (A10), "where", "is", "are", "was", "were" and "in" of the state questions (R3), "and" of the joined subjects and "he", "she", "it", "they", "them", "him", "her" of the references (A11), the do-support "do", "does", "did" (R1), the copulas of the roles (A7), and the replies ("Yes.", "No.", "I don't know.", "Probably yes."). Should these move to rule files (articles.txt, copulas.txt, replies.txt) one by one, or should the English words stay as Larry's own vocabulary like the categories? | Proposed: move them; the categories and the roles are Larry's, the words of a sentence are the language's. | A12, G7 |
 
 ## 11. Earlier work worth reading
 
@@ -677,3 +717,11 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | A5 | 21 test executables pass in the four builds; brain: 21 tests. Thirty words with three unknown: three questions, zero after the answers. | The questions carry Larry's guess, so the user corrects rather than starts from nothing; an answer is a taught conception, so it survives a rebuild only if it is also a lesson: the user should put the answers in a lesson file (W4 drafts one). Q33 asks whether answers should be lessons themselves. |
 | 2026-10-08 | A6 | 22 test executables pass in the four builds; measure: 3 tests on a tiny treebank. `larry measure 100 300 1000 3000 all` on the Universal Dependencies English EWT test set (18,253 words in 1,819 aligned sentences), one minute in all. From memory alone, taught 100 / 300 / 1,000 / 3,000 / 11,109 sentences: 66.0 / 70.6 / 75.7 / 78.4 / 77.3% right, 11.2 / 8.5 / 4.9 / 2.6 / 1.4% unknown. With the dictionary: 77.4 / 79.5 / 81.3 / 81.8 / 78.8% right, 4.0 / 3.5 / 2.9 / 2.3 / 1.7% unknown. Milestone 2 reached. | The curve rises to 3,000 sentences and falls after: with more atoms, more words have several categories and "the most used" picks wrong where the context would pick right (A6's most specific context is the next step). Memory-based taggers reach about 96% (section 7, A6): Larry is 15 points short with its categories from memory and the dictionary alone, before any context rule. Q34 asks the user for the target. |
 | 2026-10-08 | A7 | 22 test executables pass in the four builds; assimilation: 12 tests, the hand-labelled suite of 26 sentences. | The suite found no error in the roles with the grammar: the known gaps (questions, two verbs) are covered by patterns now (K2). The emotion of a verb ("loves") colours the whole atom, which is what Q1 asked for and may be too much: "She loves him." is a fact, not a joy. Q35 asks. |
+| 2026-10-08 | R3a, F9 | 23 test executables pass in the four builds; babi: 5 tests; brain: 22. `larry babi 1`: 100% of 1,000 questions right in 200 stories, in 4.8 s. | The first bAbI number. Task 1 needs the latest state alone; the runner is ready for the other tasks once their stories are on the machine. The JSON reader of W1 is its own module now (`json.hpp`). |
+| 2026-10-08 | R2c, G5, S4 | 23 test executables pass in the four builds; brain: 24 tests. The user contradicting the user: the earlier is withdrawn and "Is the door open?" answers No; a lesson contradicted by the user: both stay and Larry asks. | Q14 applied as the user answered it; a validated conception is the one exception, because only a validator undoes a validation (R2b). "Knowing what it knows" is a report from what exists (statuses, the index, the bonds), with no new store: S4 cost one function. |
+| 2026-10-08 | A11a | 23 test executables pass in the four builds; brain: 25 tests, the reference suite of 12 cases. | Reference is a reading, like tolerance (K3): the conception keeps what was said and carries what was meant. Without gender data "he" after "Daniel ... Sandra ..." takes Sandra; a names file with gender would fix most of it (Q37). |
+| 2026-10-08 | A10a, R4a | 23 test executables pass in the four builds; brain: 26 tests. Five defining sentences give four bonds of two kinds; "Is a sparrow an animal?" is answered Yes through two bonds, and "Is an animal a sparrow?" is not. | A relation is read from the core by a phrase list, as the states (R3) and the arithmetic (M1) are: the same device, rules as data. The chain is the first conclusion Larry draws that no conception states; it is traced to the bonds and the conceptions behind them, as rule 6 asks. |
+| 2026-10-08 | R5a, S3, S7 | 23 test executables pass in the four builds; brain: 27 tests. Three kinds of bird, two of them fly: "Birds fly." proposed as an assumption; "Penguins do not fly." withdraws it; two conflicting lessons stored straight into the cache are found and bonded by thinking in milliseconds. | The general atom is an assumption by its category electron, so nothing that answers truths sees it: rule 2 of section 3 kept by construction. Two temporaries in one expression cost an hour: a plural computed twice. |
+| 2026-10-08 | R8a | 23 test executables pass in the four builds; brain: 28 tests. Analogy suite: 9 of 9 guesses as expected (6 guesses carried over, 3 cases rightly left without a guess), 100%. | A guess is carried from a conception that differs in one word of the same kind, with forms of one word counted the same by the bases their endings allow ("like" and "likes"); the share is on a suite built by hand, so it says the device works, not how often it is right in the wild. One commit went up with a red test and was fixed in the next: the chain of checks must gate the commit. |
+| 2026-10-08 | S2a | 23 test executables pass in the four builds; brain: 29 tests. Three actions told give a plan of four steps; a circle of two actions stops. | The plan is read from the sentences by their shape ("To ..., ..."), the comma kept from the atom's bytes (Q6: punctuation stays in the bits), with no new store. |
+| 2026-10-08 | A12a | 24 test executables pass in the four builds; portuguese: 4 tests over the A1 to A7 suites, R1, K1, A10, R4 and M1 with the Portuguese files alone. `LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"` answers 5. | Milestone: the technique does not depend on English for what the files carry; what `src/` still carries of English is listed in Q39 and is the next step of A12. The replies are English in both constellations until G1 and G2 generate sentences. |

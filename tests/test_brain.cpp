@@ -309,8 +309,9 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(say("The sea is blue.").text == "Noted. I take \"sea\" as noun.");
     CHECK(say("Zorp.").text == "Noted. What is \"Zorp\"?");
     const larry::Reply conflict = say("The sky is not blue.");
-    // N6: the paraphrase "the sky is blue", said last, is in play and answers first.
-    CHECK(conflict.text.starts_with("That conflicts with what I know: the sky is blue"));
+    // N6: the paraphrase "the sky is blue", said last, is in play and answers
+    // first; Q14: it came from the same source, so the later stands and it is withdrawn.
+    CHECK(conflict.text.starts_with("That contradicts what you told me before: the sky is blue The later stands; I withdrew the earlier."));
     CHECK(conflict.stored);
     const larry::Reply unknown = say("The sky is azure.");
     CHECK(unknown.text.starts_with("Noted. \"azure\" was never attribute of sky; of sky I know as attribute of: blue (proposed)"));
@@ -952,6 +953,394 @@ TEST(questions_are_asked_once_per_unknown_word_and_answers_teach) {
     CHECK(!brain.teach(ops.from_text("The sky is blue."), "sky", "colour", "user:pedro").has_value());
     // The taught conception is stored: the same sentence again is the same.
     CHECK(brain.teach(ops.from_text("The zorp is blue."), "zorp", "noun", "user:pedro") == larry::Stored::Same);
+}
+
+TEST(the_latest_state_answers_where_and_is_in) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_states.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    CHECK(brain.answer(ops.from_text("Where is Mary?")).text == "I don't know.");
+    (void)brain.hear(ops.from_text("Mary moved to the bathroom."), "user:pedro");
+    (void)brain.hear(ops.from_text("John went to the hallway."), "user:pedro");
+    const larry::Reply where = brain.answer(ops.from_text("Where is Mary?"));
+    CHECK(where.text == "Mary is in the bathroom.");
+    CHECK(std::ranges::any_of(where.because, [](const std::string& b) { return b.starts_with("rule: \"moved to\" leaves the state \"is in\""); }));
+    CHECK(brain.answer(ops.from_text("Where is John?")).text == "John is in the hallway.");
+    // A change: the latest stands, the earlier stays in memory.
+    (void)brain.hear(ops.from_text("Mary went to the kitchen."), "user:pedro");
+    CHECK(brain.answer(ops.from_text("Where is Mary?")).text == "Mary is in the kitchen.");
+    CHECK(brain.answer(ops.from_text("Is Mary in the kitchen?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Is Mary in the bathroom?")).text == "No.");
+    CHECK(brain.answer(ops.from_text("Is John in the hallway?")).text == "Yes.");
+    CHECK(cache.count() == 3);
+    // Not a state: the usual way.
+    CHECK(brain.answer(ops.from_text("Where is the sky?")).text == "I don't know.");
+}
+
+TEST(a_conflict_from_the_same_source_withdraws_the_earlier_and_others_are_asked) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_q14.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories, std::string_view source) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, source);
+        return d;
+    };
+    // From a lesson, then the user says the opposite: different sources, both kept, Larry asks.
+    const larry::Description sky = teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"}, "lesson:test");
+    const larry::Reply asked = brain.hear(ops.from_text("The sky is not blue."), "user:pedro");
+    CHECK(asked.text.starts_with("That conflicts with what I know: The sky is blue. I keep both and note the conflict. Which is true: \"The sky is not blue.\" or \"The sky is blue.\"?"));
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    CHECK(std::ranges::any_of(asked.because, [](const std::string& b) { return b.starts_with("rule: from different sources"); }));
+    // The user contradicts the user: the later stands, the earlier is withdrawn by the rule.
+    (void)brain.hear(ops.from_text("The door is open."), "user:pedro");
+    const larry::Reply later = brain.hear(ops.from_text("The door is not open."), "user:pedro");
+    CHECK(later.text.starts_with("That contradicts what you told me before: The door is open. The later stands; I withdrew the earlier."));
+    const larry::Description door = assimilation.describe(ops.from_text("The door is open."), &cache);
+    CHECK(cache.find(door.metadata)->status == larry::Status::Withdrawn);
+    CHECK(cache.find(door.metadata)->decided_by.starts_with("rule: the later from the same source stands"));
+    CHECK(brain.answer(ops.from_text("Is the door open?")).text == "No.");
+    // A validated conception is not withdrawn by a rule: Larry asks.
+    (void)brain.hear(ops.from_text("The grass is green."), "user:pedro");
+    const larry::Description grass = assimilation.describe(ops.from_text("The grass is green."), &cache);
+    cache.set_status(grass.metadata, larry::Status::Validated, "pedro");
+    const larry::Reply kept = brain.hear(ops.from_text("The grass is not green."), "user:pedro");
+    CHECK(kept.text.starts_with("That conflicts with what I know: The grass is green."));
+    CHECK(kept.text.find("Which is true") != std::string::npos);
+    CHECK(cache.find(grass.metadata)->status == larry::Status::Validated);
+    CHECK(std::ranges::any_of(kept.because, [](const std::string& b) { return b.starts_with("rule: a validator decided the earlier"); }));
+}
+
+TEST(knowing_what_it_knows_about_a_subject) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_know.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories, std::string_view source) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, source);
+        return d;
+    };
+    const larry::Description sky = teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"}, "lesson:test");
+    teach("Clouds cross the sky.", {"noun", "verb", "determiner", "noun"}, "lesson:test");
+    cache.set_status(sky.metadata, larry::Status::Validated, "pedro");
+    larry::Brain::Knowledge k = brain.knowledge("Sky");
+    CHECK(k.word == b("sky"));
+    CHECK(k.validated.size() == 1);
+    CHECK(k.proposed.size() == 1);
+    CHECK(k.withdrawn.empty());
+    CHECK(k.categories.size() == 1 && k.categories.front().category == b("noun") && k.categories.front().count == 2);
+    CHECK(k.sure_uses == 2);
+    CHECK(k.unsure_uses == 0);
+    CHECK(k.conflicts.empty());
+    CHECK(k.cannot == std::vector<std::string>{"where Sky is"});
+    CHECK(k.text().starts_with("\"sky\": 2 conceptions (1 validated, 1 proposed, 0 withdrawn); known as noun (2); 2 uses with a category, 0 guessed or unknown; 0 conflicts, 0 other bonds; I cannot say where Sky is"));
+    // A conflict shows, and a guessed use counts as unsure.
+    (void)brain.hear(ops.from_text("The sky is not blue."), "user:pedro");
+    (void)brain.hear(ops.from_text("Zorp likes the sky."), "user:pedro");
+    k = brain.knowledge("sky");
+    CHECK(k.conflicts.size() == 1);
+    CHECK(k.proposed.size() == 3);
+    CHECK(k.sure_uses == 4);
+    larry::Brain::Knowledge z = brain.knowledge("zorp");
+    CHECK(z.proposed.size() == 1);
+    CHECK(z.unsure_uses + z.sure_uses == 1);
+    CHECK(z.cannot.size() == 2);
+    CHECK(brain.knowledge("nobody").text().starts_with("\"nobody\": 0 conceptions"));
+}
+
+TEST(pronouns_refer_to_what_was_said_before) {
+    const larry::AtomOperations ops;
+    std::ifstream in{std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "reference.txt"};
+    CHECK(in.good());
+    int cases = 0;
+    int failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (line.empty() || line.starts_with('#')) {
+            continue;
+        }
+        std::vector<std::string> fields;
+        std::string_view rest = line;
+        while (true) {
+            const std::size_t at = rest.find(" | ");
+            fields.emplace_back(rest.substr(0, at));
+            if (at == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(at + 3);
+        }
+        if (fields.size() != 3) {
+            continue;
+        }
+        ++cases;
+        const std::filesystem::path file =
+            std::filesystem::temp_directory_path() / std::format("larry_test_brain_refer_{}.atoms", number);
+        std::filesystem::remove(file);
+        larry::Memory cache{file};
+        larry::Brain brain{rules(), cache};
+        brain.molecule(b("chat:test"));
+        const larry::Assimilation assimilation{rules()};
+        for (const larry::Sentence& before : assimilation.sentences(fields[0])) {
+            (void)brain.hear(before, "user:pedro");
+        }
+        const larry::Reply reply = brain.hear(ops.from_text(fields[1]), "user:pedro");
+        const std::string want = fields[2] == "same" ? "" : fields[2];
+        std::string got;
+        for (const std::string& because : reply.because) {
+            if (because.starts_with("read as: ")) {
+                got = because.substr(9);
+            }
+        }
+        if (got != want) {
+            ++failed;
+            std::println("reference.txt line {}: \"{}\" expected \"{}\", got \"{}\" ({})", number, fields[1], want, got,
+                         reply.text);
+        }
+    }
+    CHECK(cases >= 10);
+    CHECK(failed == 0);
+    // The reading is what Larry thinks with: the state follows the referent.
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_refer.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    brain.molecule(b("chat:test"));
+    (void)brain.hear(ops.from_text("Mary went to the garden."), "user:pedro");
+    const larry::Reply she = brain.hear(ops.from_text("She went to the kitchen."), "user:pedro");
+    CHECK(she.text.starts_with("I read it as \"Mary went to the kitchen.\"."));
+    CHECK(brain.answer(ops.from_text("Where is Mary?")).text == "Mary is in the kitchen.");
+    const larry::Assimilation assimilation{rules()};
+    const larry::Description said = assimilation.describe(ops.from_text("She went to the kitchen."), &cache);
+    CHECK(cache.find(said.metadata).has_value());
+    CHECK(cache.find(said.metadata)->reading == "Mary went to the kitchen.");
+    (void)brain.hear(ops.from_text("Mary and John went to the office."), "user:pedro");
+    (void)brain.hear(ops.from_text("They went back to the hallway."), "user:pedro");
+    CHECK(brain.answer(ops.from_text("Where is John?")).text == "John is in the hallway.");
+    CHECK(brain.answer(ops.from_text("Is Mary in the hallway?")).text == "Yes.");
+}
+
+TEST(defining_sentences_bond_the_kinds_and_the_chain_answers) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_kinds.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const auto kinds = [&](std::string_view word) {
+        std::vector<std::string> out;
+        for (const larry::Bond& bond : cache.bonds_from(larry::BondEnd::entity(word))) {
+            if (bond.kind == b("is a kind of")) {
+                out.emplace_back(bond.to.bytes.begin(), bond.to.bytes.end());
+            }
+        }
+        return out;
+    };
+    (void)brain.hear(ops.from_text("A sparrow is a bird."), "user:pedro");
+    (void)brain.hear(ops.from_text("A bird is an animal."), "user:pedro");
+    (void)brain.hear(ops.from_text("Sparrows are small."), "user:pedro");  // no kind: small is no noun
+    (void)brain.hear(ops.from_text("Robins are birds."), "user:pedro");   // the singular forms
+    (void)brain.hear(ops.from_text("A wing is part of a bird."), "user:pedro");
+    CHECK(kinds("sparrow") == std::vector<std::string>{"bird"});
+    CHECK(kinds("bird") == std::vector<std::string>{"animal"});
+    CHECK(kinds("robin") == std::vector<std::string>{"bird"});
+    CHECK(kinds("sparrows").empty());
+    CHECK(cache.bonds_from(larry::BondEnd::entity("wing")).size() == 1);
+    CHECK(cache.bonds_from(larry::BondEnd::entity("wing")).front().kind == b("is part of"));
+    CHECK(cache.bonds_from(larry::BondEnd::entity("sparrow")).front().origins == std::vector<std::string>{"conception: A sparrow is a bird."});
+    // A10: the bonds from sparrow reach animal in two steps.
+    const std::vector<larry::Neighbour> near = cache.spread({larry::BondEnd::entity("sparrow")}, 2, 50);
+    const auto animal = std::ranges::find(near, larry::BondEnd::entity("animal"), &larry::Neighbour::end);
+    CHECK(animal != near.end());
+    CHECK(animal != near.end() && animal->steps == 2);
+    CHECK(brain.chain(b("sparrow"), b("animal")) == (std::vector<Bytes>{b("sparrow"), b("bird"), b("animal")}));
+    CHECK(brain.chain(b("animal"), b("sparrow")).empty());
+    CHECK(brain.chain(b("robin"), b("animal")).size() == 3);
+    // R4: the chain answers what no conception says directly.
+    const larry::Reply yes = brain.answer(ops.from_text("Is a sparrow an animal?"));
+    CHECK(yes.text == "Yes.");
+    CHECK(std::ranges::any_of(yes.because, [](const std::string& x) { return x == "rule: sparrow is a kind of bird, bird is a kind of animal (chained, R4)"; }));
+    CHECK(std::ranges::any_of(yes.because, [](const std::string& x) { return x == "A sparrow is a bird."; }));
+    CHECK(brain.answer(ops.from_text("Is a sparrow a bird?")).text == "Yes.");  // direct
+    CHECK(brain.answer(ops.from_text("Is an animal a sparrow?")).text.starts_with("I don't know"));
+    CHECK(brain.answer(ops.from_text("a robin is an animal")).text == "true");
+    CHECK(brain.answer(ops.from_text("A sparrow is not an animal.")).text == "false");
+    CHECK(brain.answer(ops.from_text("Is a wing an animal?")).text.starts_with("I don't know"));  // part of is no kind of
+}
+
+TEST(rules_from_examples_and_idle_thinking) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_think.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const auto say = [&](std::string_view text) { return brain.hear(ops.from_text(text), "user:pedro"); };
+    (void)say("A sparrow is a bird.");
+    (void)say("A robin is a bird.");
+    (void)say("A penguin is a bird.");
+    (void)say("Sparrows fly.");
+    (void)say("Robins fly.");
+    (void)say("Sparrows sing.");
+    // R5: two kinds of bird fly: "Birds fly." is proposed as an assumption.
+    std::vector<larry::Brain::Proposal> proposals = brain.propose();
+    CHECK(proposals.size() == 1);
+    if (!proposals.empty()) {
+        CHECK(proposals[0].sentence == "Birds fly.");
+        CHECK(proposals[0].stored);
+        CHECK(proposals[0].counter.empty());
+        CHECK(proposals[0].examples == (std::vector<std::string>{"Sparrows fly.", "Robins fly."}));
+    }
+    const larry::Assimilation assimilation{rules()};
+    larry::Description birds = assimilation.describe(ops.from_text("Birds fly."), &cache);
+    birds.category.bytes = b("assumption");
+    birds.metadata = ops.metadata(birds.category, birds.type, birds.entities);
+    CHECK(cache.find(birds.metadata).has_value());
+    CHECK(cache.find(birds.metadata)->sources.front().starts_with("rule: R5 from"));
+    // An assumption is no truth: "Do birds fly?" stays unknown.
+    CHECK(brain.answer(ops.from_text("Do birds fly?")).text.starts_with("I don't know"));
+    // Again: already proposed, nothing new.
+    proposals = brain.propose();
+    CHECK(proposals.size() == 1 && !proposals[0].stored);
+    // A counter-example withdraws it.
+    (void)say("Penguins do not fly.");
+    proposals = brain.propose();
+    CHECK(proposals.size() == 1);
+    if (!proposals.empty()) {
+        CHECK(proposals[0].counter == "Penguins do not fly.");
+        CHECK(proposals[0].withdrawn);
+    }
+    CHECK(cache.find(birds.metadata)->status == larry::Status::Withdrawn);
+    // S3: what waits: the proposal is withdrawn, so nothing of it; no conflicts yet.
+    larry::Brain::Attention waiting = brain.attention();
+    CHECK(waiting.proposals.empty());
+    CHECK(waiting.conflicts.empty());
+    // S7: thinking finds a conflict stored straight into the cache, and bonds it.
+    const larry::Description open = assimilation.describe(ops.from_text("The door is open."), &cache,
+        std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")});
+    cache.store(open.atom, open.metadata, larry::Status::Proposed, "lesson:a");
+    const larry::Description closed = assimilation.describe(ops.from_text("The door is closed."), &cache,
+        std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")});
+    cache.store(closed.atom, closed.metadata, larry::Status::Proposed, "lesson:b");
+    const larry::Brain::Thought thought = brain.think(5.0);
+    CHECK(thought.conflicts_found.size() == 1);
+    CHECK(!thought.out_of_time);
+    CHECK(thought.waiting.conflicts.size() == 1);
+    CHECK(thought.text().starts_with("thought for"));
+    CHECK(thought.text().find("1 conflicts found") != std::string::npos);
+    // Thinking again finds nothing new.
+    CHECK(brain.think(5.0).conflicts_found.empty());
+    // Out of time: a budget of nothing.
+    CHECK(brain.think(0.0).out_of_time);
+}
+
+TEST(a_guess_by_analogy_when_nothing_answers) {
+    const larry::AtomOperations ops;
+    std::ifstream in{std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "analogy.txt"};
+    CHECK(in.good());
+    int cases = 0;
+    int right = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (line.empty() || line.starts_with('#')) {
+            continue;
+        }
+        std::vector<std::string> fields;
+        std::string_view rest = line;
+        while (true) {
+            const std::size_t at = rest.find(" | ");
+            fields.emplace_back(rest.substr(0, at));
+            if (at == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(at + 3);
+        }
+        if (fields.size() != 3) {
+            continue;
+        }
+        ++cases;
+        const std::filesystem::path file =
+            std::filesystem::temp_directory_path() / std::format("larry_test_brain_analogy_{}.atoms", number);
+        std::filesystem::remove(file);
+        larry::Memory cache{file};
+        larry::Brain brain{rules(), cache};
+        const larry::Assimilation assimilation{rules()};
+        for (const larry::Sentence& before : assimilation.sentences(fields[0])) {
+            (void)brain.hear(before, "user:pedro");
+        }
+        const larry::Reply reply = brain.answer(ops.from_text(fields[1]));
+        const std::string got = reply.text.starts_with("Probably yes") || reply.text == "probably true" ? "yes"
+                                : reply.text.starts_with("Probably no") || reply.text == "probably false" ? "no"
+                                                                                                           : "none";
+        if (got == fields[2]) {
+            ++right;
+        } else {
+            std::println("analogy.txt line {}: \"{}\" expected {}, got {} ({})", number, fields[1], fields[2], got, reply.text);
+        }
+    }
+    std::println("analogy: {} of {} guesses as expected", right, cases);
+    CHECK(cases >= 8);
+    CHECK(right == cases);
+    // The reason names the analogy, and a guess is no truth.
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_analogy.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    for (const char* text : {"A sparrow is a bird.", "A robin is a bird.", "Sparrows fly."}) {
+        (void)brain.hear(ops.from_text(text), "user:pedro");
+    }
+    const larry::Reply guess = brain.answer(ops.from_text("Do robins fly?"));
+    CHECK(guess.text == "Probably yes.");
+    CHECK(std::ranges::any_of(guess.because, [](const std::string& x) { return x == "analogy: robins and sparrows are both kinds of bird, and Sparrows fly. (R8)"; }));
+    CHECK(brain.truth(ops.from_text("robins fly")).truth == Truth::Unknown);
+    CHECK(brain.answer(ops.from_text("Robins fly.")).text == "probably true");
+}
+
+TEST(a_plan_is_the_chain_of_actions_told) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_plan.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    CHECK(brain.plan("open the door").steps.empty());
+    CHECK(brain.plan("open the door").text() == "I know no way to open the door.");
+    for (const char* text : {"To open the door, turn the key.", "To turn the key, hold the key.",
+                             "To hold the key, pick up the key.", "To bake bread, knead the dough.",
+                             "To knead the dough, mix the flour and the water."}) {
+        (void)brain.hear(ops.from_text(text), "user:pedro");
+    }
+    const larry::Brain::Plan door = brain.plan("open the door");
+    CHECK(door.steps == (std::vector<std::string>{"pick up the key", "hold the key", "turn the key", "open the door"}));
+    CHECK(door.because.size() == 3);
+    CHECK(door.text() == "To open the door: 1. pick up the key 2. hold the key 3. turn the key 4. open the door");
+    CHECK(brain.plan("Turn the key").steps == (std::vector<std::string>{"pick up the key", "hold the key", "turn the key"}));
+    CHECK(brain.plan("bake bread").steps == (std::vector<std::string>{"mix the flour and the water", "knead the dough", "bake bread"}));
+    CHECK(brain.plan("fly").steps.empty());
+    // A circle stops.
+    (void)brain.hear(ops.from_text("To sleep, rest."), "user:pedro");
+    (void)brain.hear(ops.from_text("To rest, sleep."), "user:pedro");
+    CHECK(brain.plan("sleep").steps == (std::vector<std::string>{"rest", "sleep"}));
 }
 
 TEST(working_memory_holds_what_is_in_play) {

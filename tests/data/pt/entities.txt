@@ -1,0 +1,14 @@
+# A1 em português: frases e as suas entidades. Campos separados por " | ": a frase, depois
+# cada entidade. Linhas que começam por "#" são comentários.
+O céu é azul. | O | céu | é | azul
+o céu é azul | o | céu | é | azul
+O mar é verde! | O | mar | é | verde
+O céu está azul? | O | céu | está | azul
+O céu, o mar e a relva. | O | céu | o | mar | e | a | relva
+Os pássaros voam. | Os | pássaros | voam
+Voa! | Voa
+Eu estou aqui. | Eu | estou | aqui
+O Sr. Silva chegou. | O | Sr. Silva | chegou
+A Maria foi para a cozinha. | A | Maria | foi | para | a | cozinha
+O João tem 3 maçãs. | O | João | tem | 3 | maçãs
+Isto custa 1.000 euros. | Isto | custa | 1.000 | euros

@@ -242,6 +242,94 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// A10 (first step): the relation a defining sentence states, from the
+    /// phrases of relations.txt: "A sparrow is a bird." relates sparrow to
+    /// bird, "is a kind of"; "Sparrows are birds." the same, by the singular
+    /// forms (A4). The ends are the heads of the two sides, as the index
+    /// keys them. Nothing when the core has no such phrase, or the right
+    /// side is no noun.
+    struct Relation {
+        Bytes kind;
+        Bytes from;
+        Bytes to;
+        std::string phrase;
+    };
+    [[nodiscard]] std::optional<Relation> relation_of(const Description& d) const;
+
+    /// R4 (first step): the chain of "is a kind of" bonds from one word to
+    /// another, at most four steps, as the words passed ("sparrow", "bird",
+    /// "animal"); empty when there is none.
+    [[nodiscard]] std::vector<Bytes> chain(const Bytes& from, const Bytes& to, int steps = 4) const;
+
+    /// R8 (first step): a guess by analogy when no conception and no rule
+    /// answers: the nearest conception of the same structure that differs
+    /// in one word, where the two words are kinds of the same thing ("a
+    /// robin" and "a sparrow", both birds) or forms of one word; its answer
+    /// is carried over as a guess, never as a truth.
+    struct Guess {
+        bool yes = true;
+        StoredAtom like;        ///< The conception the guess is carried from.
+        Bytes word;             ///< The word of the question.
+        Bytes other;            ///< The word of the conception.
+        Bytes shared;           ///< What both are kinds of, or "form" for forms of one word.
+        [[nodiscard]] std::string reason() const;
+    };
+    [[nodiscard]] std::optional<Guess> analogy(const Description& question) const;
+
+    /// S2 (first step): a plan for a goal from the actions Larry was told,
+    /// sentences of the form "To open the door, turn the key.": what must
+    /// be done before, step by step, from the first thing to do to the goal.
+    /// Empty when no action reaches the goal; bounded to six steps and no
+    /// step twice.
+    struct Plan {
+        std::string goal;
+        std::vector<std::string> steps;      ///< In order, the goal last.
+        std::vector<StoredAtom> because;     ///< The action conceptions used.
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Plan plan(std::string_view goal) const;
+
+    /// A11 (first step): the sentence with its third-person pronouns replaced
+    /// by what they refer to in the conceptions heard before (the molecule
+    /// being heard newest first, then the atoms in play, then the cache):
+    /// "he" and "she" by the latest proper noun, "it" by the latest common
+    /// noun phrase, "they" and "them" by the latest plural or joined phrase,
+    /// subjects before objects. Nothing when there is no such pronoun or no
+    /// referent. The result is a reading (Q29): what was said is stored,
+    /// and Larry thinks with this.
+    [[nodiscard]] std::optional<Description> refer(const Description& d) const;
+
+    /// R3 (first step): the present state a question asks about, from the
+    /// latest conception that set it. "Where is Mary?" is answered by the
+    /// latest "Mary moved to the bathroom." as "Mary is in the bathroom.";
+    /// "Is Mary in the kitchen?" by yes or no against that state. The verbs
+    /// that change a state and the state they leave are in states.txt. The
+    /// conceptions are searched newest first: the molecule being heard, then
+    /// the atoms in play, then the cache. Nothing when the question is not
+    /// about a state or no conception set one.
+    [[nodiscard]] std::optional<Reply> state_of(const Description& question) const;
+
+    /// S4: what Larry knows about a subject (a word): the conceptions that
+    /// hold it by status, the categories it was taught or seen with, how
+    /// many uses have a category and how many are guessed or unknown, the
+    /// conflicts among its conceptions, its other bonds, and the plain
+    /// questions it cannot answer ("what sky is", "where sky is").
+    struct Knowledge {
+        Bytes word;
+        std::vector<StoredAtom> validated;
+        std::vector<StoredAtom> proposed;
+        std::vector<StoredAtom> withdrawn;
+        std::vector<CategoryCount> categories;
+        std::int64_t sure_uses = 0;
+        std::int64_t unsure_uses = 0;
+        std::vector<Bond> conflicts;
+        std::vector<Bond> bonds;
+        std::vector<std::string> cannot;
+        /// One line: "\"sky\": 3 conceptions (1 validated, 2 proposed, 0 withdrawn); known as noun (3); ...".
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Knowledge knowledge(std::string_view subject) const;
+
     /// A5: a question Larry asks about a word it cannot describe from
     /// memory: unknown, open between categories, or guessed.
     struct Question {
@@ -260,6 +348,50 @@ public:
     /// one of the base rules; else what store did.
     std::optional<Stored> teach(const Sentence& sentence, std::string_view word, std::string_view category,
                                 std::string_view source);
+
+    /// R5 (first step): a general atom proposed from examples: when two or
+    /// more kinds of one thing (by the "is a kind of" bonds) are said to do
+    /// or be the same ("Sparrows fly.", "Robins fly."), "Birds fly." is
+    /// proposed and stored as an assumption, never as a truth; a
+    /// counter-example among the kinds ("Penguins do not fly.") stops or
+    /// withdraws it.
+    struct Proposal {
+        std::string sentence;              ///< "Birds fly."
+        std::vector<std::string> examples; ///< The conceptions it came from.
+        std::string counter;               ///< The counter-example that stopped it, or empty.
+        bool stored = false;               ///< Stored as an assumption now.
+        bool withdrawn = false;            ///< An earlier proposal withdrawn by a counter-example.
+    };
+
+    /// S3 (first step): what Larry would think about, in order: the words it
+    /// could not describe (A5), the conflicts nobody settled (R2), and the
+    /// proposals waiting for the user (R5).
+    struct Attention {
+        std::vector<Question> questions;
+        std::vector<Bond> conflicts;
+        std::vector<StoredAtom> proposals;
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Attention attention() const;
+
+    /// S7 (first step): what Larry does with no input, within a budget of
+    /// seconds: it looks for conflicts among the conceptions it holds and
+    /// bonds them (novelty over memory, C16), it proposes general atoms from
+    /// examples (R5), and it reports what it found and what waits for the
+    /// user (S3).
+    struct Thought {
+        std::vector<Bond> conflicts_found;   ///< New "conflicts with" bonds.
+        std::vector<Proposal> proposals;     ///< Proposed, stopped or withdrawn.
+        Attention waiting;
+        double seconds = 0;
+        bool out_of_time = false;
+        [[nodiscard]] std::string text() const;
+    };
+    Thought think(double seconds = 2.0);
+
+    /// R5: the proposals from the examples in memory, stored as assumptions
+    /// when new; what think() does for rules from examples.
+    std::vector<Proposal> propose();
 
     /// N6: working memory, the atoms now in play, newest first: what was
     /// heard and stored, and the conceptions that answered or came nearest.
@@ -353,7 +485,9 @@ private:
     /// stores what it hears only when `store` is set.
     [[nodiscard]] Reply respond(const Sentence& sentence, std::string_view source, bool store);
     [[nodiscard]] std::vector<Bytes> expanded_words(const Description& d) const;
-    [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
+    /// The core of words; a number word that is a determiner here ("um" in
+    /// Portuguese is "a" and "one") stays a word, not digits.
+    [[nodiscard]] Core core_of(std::vector<Bytes> words, const std::vector<Bytes>& determiners = {}) const;
     /// The exclusive group two different words share, or empty: "colour".
     [[nodiscard]] Bytes exclusive_group(const Bytes& a, const Bytes& b) const;
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;
@@ -362,10 +496,19 @@ private:
     /// of a core, affirmations only; from the cache, the ones in play first (N6).
     [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
     /// truth() and answers() without the working memory: what they decide.
-    [[nodiscard]] Verdict decide(const Description& claim) const;
+    [[nodiscard]] Verdict decide(const Description& claim, const Bytes* except = nullptr) const;
     [[nodiscard]] std::vector<StoredAtom> search_answers(const Description& question) const;
     /// N6: puts an atom at the front of the working memory, within its bound.
     void bring_into_play(const StoredAtom& atom) const;
+    /// The relation in a core, with the description for the categories of
+    /// its words, whatever the polarity (A10, R4).
+    [[nodiscard]] std::optional<Relation> relation_in(const Core& form, const Description& d) const;
+    /// The conceptions newest first: the molecule being heard, the atoms in
+    /// play, then the cache; each once (R3, A11).
+    [[nodiscard]] std::vector<StoredAtom> newest_first() const;
+    /// The core Larry thinks with: of the reading when the conception has
+    /// one (Q29, A11), else of the conception as said.
+    [[nodiscard]] Core thinking_core(const StoredAtom& atom) const;
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.

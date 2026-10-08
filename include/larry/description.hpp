@@ -20,6 +20,8 @@ enum class Source : std::uint8_t {
               ///< guess, never as evidence.
     Dictionary,  ///< No stored atom contains the word; the dictionary gives it
                  ///< one category (A2b).
+    Rule,        ///< The base rules give it: a pronoun of pronouns.txt, a number
+                 ///< word of number_words.txt (A11, M1).
 };
 
 /// What describing a sentence noted about one entity.

@@ -1,6 +1,7 @@
 #include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/babi.hpp"
 #include "larry/bench.hpp"
 #include "larry/measure.hpp"
 #include "larry/brain.hpp"
@@ -128,6 +129,20 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conversation, with its conceptions in order
   molecule <name>              one molecule: its conceptions in order, who said
                                each and when
+  plan <goal>                  a plan for a goal (S2) from the actions Larry was
+                               told ("To open the door, turn the key."): the
+                               steps in order, the goal last
+  think [seconds]              what Larry does with no input (S7): finds the
+                               conflicts among its conceptions, proposes
+                               general atoms from examples as assumptions
+                               (R5), and lists what waits for you (S3)
+  attention                    what Larry would think about (S3): the words to
+                               ask about, the conflicts to settle, the
+                               proposals waiting
+  know <word>                  what Larry knows about a subject (S4): its
+                               conceptions by status, the categories it was
+                               taught or seen with, its guessed uses, its
+                               conflicts and bonds, and what it cannot answer
   forms <word>                 what the word is a form of (A4): its base, the
                                category and feature its ending or its irregular
                                pair gives, the rule, and its "form of" bonds
@@ -145,11 +160,15 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                n training sentences (100 300 1000 3000 all),
                                from memory alone and with the dictionary; the
                                treebank comes from scripts/ud.sh
+  babi [task]                  the bAbI tasks (Weston and others, 2015): each
+                               story heard, its questions answered and judged;
+                               one task, or every task scripts/babi.sh fetched
   bench [n]                    measure Larry with n generated atoms (10000) in a
                                scratch file: sentences stored and described per
                                second, lookups per second, the time to answer,
                                the start-up time, the bytes per atom
 
+LARRY_LANGUAGE picks the constellation: en (default) or pt (A12).
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
 memory/<locale>.atoms. When the file does not exist yet, Larry rebuilds it
 from the lessons first. The cloud, the record of conceptions, is the
@@ -169,6 +188,8 @@ std::string_view name(larry::Language language) {
     switch (language) {
     case larry::Language::English:
         return "English";
+    case larry::Language::Portuguese:
+        return "Portuguese";
     }
     return "unknown";
 }
@@ -286,9 +307,21 @@ std::unique_ptr<larry::Dictionary> open_dictionary(larry::Language language) {
     return std::make_unique<larry::Dictionary>(file);
 }
 
+/// A12: the constellation from LARRY_LANGUAGE ("en", "pt"); English otherwise.
+larry::Language language_from_environment() {
+    const char* const code = std::getenv("LARRY_LANGUAGE");
+    if (code != nullptr && *code != '\0') {
+        if (const std::optional<larry::Language> language = larry::language_named(code)) {
+            return *language;
+        }
+        std::println(stderr, "larry: no constellation \"{}\"; English it is", code);
+    }
+    return larry::Language::English;
+}
+
 struct Larry {
     std::string user{user_name()};
-    larry::Constellation constellation{larry::Language::English};
+    larry::Constellation constellation{language_from_environment()};
     larry::BaseRules rules{constellation.language()};
     std::unique_ptr<larry::Dictionary> dictionary{open_dictionary(constellation.language())};
     larry::Grammar grammar{rules};
@@ -411,6 +444,8 @@ std::string source(const larry::EntityNote& note) {
     }
     case larry::Source::Dictionary:
         return "dictionary";
+    case larry::Source::Rule:
+        return "base rules (a pronoun, a number word or a conjunction)";
     }
     return "";
 }
@@ -770,6 +805,65 @@ int run(std::span<const std::string_view> args) {
                                [](std::string_view what) { std::println(stderr, "larry: {}", what); });
             for (const larry::Score& score : curve) {
                 std::println("  {}", score.text());
+            }
+        }
+        return 0;
+    }
+    if (command == "babi") {
+        const std::filesystem::path dir = std::filesystem::path{LARRY_CONTENT_DIR} / "babi";
+        // The original files, when the user has them: content/babi/en/qa<task>_*_test.txt.
+        const auto text_file = [&](int task) -> std::filesystem::path {
+            const std::filesystem::path en = dir / "en";
+            if (std::filesystem::is_directory(en)) {
+                for (const auto& entry : std::filesystem::directory_iterator{en}) {
+                    const std::string name = entry.path().filename().string();
+                    if (name.starts_with(std::format("qa{}_", task)) && name.ends_with("_test.txt")) {
+                        return entry.path();
+                    }
+                }
+            }
+            return {};
+        };
+        std::vector<int> tasks;
+        if (!rest.empty()) {
+            tasks.push_back(std::stoi(std::string{rest[0]}));
+        } else {
+            for (int task = 1; task <= 20; ++task) {
+                if (std::filesystem::exists(dir / std::format("qa{}_test_0.json", task)) || !text_file(task).empty()) {
+                    tasks.push_back(task);
+                }
+            }
+        }
+        if (tasks.empty()) {
+            throw std::runtime_error("babi needs the stories: run scripts/babi.sh first");
+        }
+        const larry::BaseRules rules{larry::Language::English};
+        for (const int task : tasks) {
+            std::vector<larry::BabiStory> stories;
+            if (const std::filesystem::path text = text_file(task); !text.empty()) {
+                stories = larry::read_babi_text(text);
+            }
+            for (const int offset : {0, 100}) {
+                if (!stories.empty()) {
+                    break;
+                }
+                const std::filesystem::path file = dir / std::format("qa{}_test_{}.json", task, offset);
+                if (std::filesystem::exists(file)) {
+                    std::vector<larry::BabiStory> page = larry::read_babi(file);
+                    stories.insert(stories.end(), page.begin(), page.end());
+                }
+            }
+            if (stories.empty()) {
+                std::println("task {}: no stories under {}; run scripts/babi.sh, or put the original "
+                             "tasks_1-20_v1-2/en/*.txt files under {}/en/", task, dir.string(), dir.string());
+                continue;
+            }
+            const larry::BabiResult result =
+                larry::run_babi(rules, task, stories, std::filesystem::temp_directory_path() / "larry_babi.atoms",
+                                [](std::string_view what) { std::println(stderr, "larry: {}", what); });
+            std::println("{}", result.text());
+            for (const std::string& miss : result.misses) {
+                std::println("  miss: {}", miss);
             }
         }
         return 0;
@@ -1430,6 +1524,85 @@ int run(std::span<const std::string_view> args) {
                 larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
             std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
                          held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
+    if (command == "plan") {
+        if (rest.empty()) {
+            throw std::runtime_error("plan needs a goal");
+        }
+        const larry::Brain::Plan p = larry.brain.plan(join(rest));
+        std::println("{}", p.text());
+        for (const larry::StoredAtom& atom : p.because) {
+            std::println("  because: {}", larry.ops.text(atom.description.atom));
+        }
+        return 0;
+    }
+    if (command == "think") {
+        const double seconds = rest.empty() ? 2.0 : std::stod(std::string{rest[0]});
+        const larry::Brain::Thought thought = larry.brain.think(seconds);
+        std::println("{}", thought.text());
+        for (const larry::Bond& b : thought.conflicts_found) {
+            const std::optional<larry::StoredAtom> from = larry.brain.conception_at(b.from);
+            const std::optional<larry::StoredAtom> to = larry.brain.conception_at(b.to);
+            std::println("  conflict: \"{}\" with \"{}\"", from ? std::string{larry.ops.text(from->description.atom)} : "?",
+                         to ? std::string{larry.ops.text(to->description.atom)} : "?");
+        }
+        for (const larry::Brain::Proposal& p : thought.proposals) {
+            std::string examples;
+            for (const std::string& e : p.examples) {
+                examples += (examples.empty() ? "" : ", ") + e;
+            }
+            if (!p.counter.empty()) {
+                std::println("  {}: \"{}\" from {}, stopped by \"{}\"", p.withdrawn ? "withdrawn" : "not proposed", p.sentence, examples, p.counter);
+            } else {
+                std::println("  {}: \"{}\" from {}", p.stored ? "proposed as an assumption" : "already proposed", p.sentence, examples);
+            }
+        }
+        return 0;
+    }
+    if (command == "attention") {
+        const larry::Brain::Attention a = larry.brain.attention();
+        std::println("{}", a.text());
+        for (const larry::Brain::Question& q : a.questions) {
+            std::println("  ask: {}{}", q.text, q.guess.empty() ? "" : "  (" + q.guess + ")");
+        }
+        for (const larry::Bond& b : a.conflicts) {
+            const std::optional<larry::StoredAtom> from = larry.brain.conception_at(b.from);
+            const std::optional<larry::StoredAtom> to = larry.brain.conception_at(b.to);
+            std::println("  settle: \"{}\" or \"{}\" (larry validate)", from ? std::string{larry.ops.text(from->description.atom)} : "?",
+                         to ? std::string{larry.ops.text(to->description.atom)} : "?");
+        }
+        for (const larry::StoredAtom& atom : a.proposals) {
+            std::println("  decide: \"{}\" ({})", larry.ops.text(atom.description.atom), atom.sources.empty() ? "" : atom.sources.front());
+        }
+        return 0;
+    }
+    if (command == "know") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("know needs one word");
+        }
+        const larry::Brain::Knowledge k = larry.brain.knowledge(rest[0]);
+        std::println("{}", k.text());
+        const auto list = [&](std::string_view status, const std::vector<larry::StoredAtom>& atoms) {
+            for (std::size_t i = 0; i < atoms.size() && i < 10; ++i) {
+                std::println("  {:<10} {}", status, larry.ops.text(atoms[i].description.atom));
+            }
+            if (atoms.size() > 10) {
+                std::println("  {:<10} and {} more", status, atoms.size() - 10);
+            }
+        };
+        list("validated", k.validated);
+        list("proposed", k.proposed);
+        list("withdrawn", k.withdrawn);
+        for (const larry::Bond& b : k.conflicts) {
+            const std::optional<larry::StoredAtom> from = larry.brain.conception_at(b.from);
+            const std::optional<larry::StoredAtom> to = larry.brain.conception_at(b.to);
+            std::println("  conflict   \"{}\" with \"{}\"", from ? std::string{larry.ops.text(from->description.atom)} : "?",
+                         to ? std::string{larry.ops.text(to->description.atom)} : "?");
+        }
+        for (const larry::Bond& b : k.bonds) {
+            std::println("  bond       {} --{}--> {}", as_text(b.from.bytes), as_text(b.kind), as_text(b.to.bytes));
         }
         return 0;
     }

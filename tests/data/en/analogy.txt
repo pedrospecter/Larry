@@ -1,0 +1,12 @@
+# R8: guesses by analogy. Fields are separated by " | ": the sentences heard before
+# (a space between them), the question or claim, and the guess expected: "yes", "no"
+# or "none" (no analogy). The kinds come from the defining sentences (A10).
+A sparrow is a bird. A robin is a bird. Sparrows fly. | Do robins fly? | yes
+A sparrow is a bird. A robin is a bird. Sparrows fly. | Robins fly. | yes
+A sparrow is a bird. A penguin is a bird. Sparrows do not swim. | Do penguins swim? | no
+A cat is a pet. A dog is a pet. The cat likes milk. | Does the dog like milk? | yes
+A cat is a pet. A dog is a pet. The cat is small. | Is the dog small? | yes
+A car is a vehicle. A bus is a vehicle. The car is fast. | Is the bus fast? | yes
+A sparrow is a bird. Sparrows fly. | Do robins fly? | none
+A sparrow is a bird. A robin is a bird. Sparrows fly. | Do robins sing? | none
+The sky is blue. | Is the sea blue? | none

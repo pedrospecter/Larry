@@ -69,6 +69,10 @@ public:
     /// case, from expressions.txt.
     [[nodiscard]] const std::vector<Bytes>& expressions() const noexcept { return expressions_; }
 
+    /// Conjunctions ("and", "or", "but"), from conjunctions.txt: a conjunction
+    /// by rule, before any lesson (A11).
+    [[nodiscard]] const std::vector<Bytes>& conjunctions() const noexcept { return conjunctions_; }
+
     /// Words that negate a sentence ("not", "never"), from negation_words.txt.
     [[nodiscard]] const std::vector<Bytes>& negation_words() const noexcept {
         return negation_words_;
@@ -97,6 +101,14 @@ public:
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& irregular() const noexcept {
         return irregular_;
     }
+
+    /// Verb phrases of defining sentences and the bond they leave between the
+    /// two things (A10), from relations.txt: "is a" and "is a kind of".
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& relations() const noexcept { return relations_; }
+
+    /// Verb phrases that change a state and the state they leave (R3), from
+    /// states.txt: "moved to" and "is in", "picked up" and "has".
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& states() const noexcept { return states_; }
 
     /// Pronouns and their features ("first person;singular"), from pronouns.txt.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& pronouns() const noexcept {
@@ -203,6 +215,9 @@ private:
     std::vector<std::pair<Bytes, Bytes>> endings_;
     std::vector<std::pair<Bytes, Bytes>> forms_;
     std::vector<std::pair<Bytes, Bytes>> irregular_;
+    std::vector<std::pair<Bytes, Bytes>> states_;
+    std::vector<std::pair<Bytes, Bytes>> relations_;
+    std::vector<Bytes> conjunctions_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;
     std::vector<std::pair<Bytes, Bytes>> auxiliaries_;
     std::vector<std::pair<Bytes, Bytes>> emotions_;
