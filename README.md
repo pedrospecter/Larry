@@ -116,3 +116,4 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry harness "The sea is wide."   # "wide" was never said of the sea
     ./build/larry qualify "Close the window."  # order (command), by rule 6 and by example
     ./build/larry words sky
+    ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up

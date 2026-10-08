@@ -1,6 +1,7 @@
 #include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/bench.hpp"
 #include "larry/brain.hpp"
 #include "larry/cognition.hpp"
 #include "larry/constellation.hpp"
@@ -119,6 +120,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                draft in lessons/<locale>/drafts/ for you to
                                correct and teach
   count                        how many conceptions and word uses memory holds
+  bench [n]                    measure Larry with n generated atoms (10000) in a
+                               scratch file: sentences stored and described per
+                               second, lookups per second, the time to answer,
+                               the start-up time, the bytes per atom
 
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
 memory/<locale>.atoms. When the file does not exist yet, Larry rebuilds it
@@ -706,6 +711,19 @@ int run(std::span<const std::string_view> args) {
     }
     const std::string_view command = args[0];
     const std::span<const std::string_view> rest = args.subspan(1);
+    if (command == "bench") {
+        // F8: its own rules and scratch file; the user's memory and the cloud stay out of it.
+        std::int64_t atoms = 10000;
+        if (!rest.empty()) {
+            atoms = std::stoll(std::string{rest[0]});
+        }
+        const larry::BaseRules rules{larry::Language::English};
+        const larry::Benchmark result =
+            larry::bench(rules, atoms, std::filesystem::temp_directory_path() / "larry_bench.atoms",
+                         [](std::string_view what) { std::println(stderr, "larry: {}", what); });
+        std::print("{}", result.text());
+        return 0;
+    }
     Larry larry;
 
     if (command == "show") {

@@ -203,7 +203,7 @@ Milestone 2f (reached 2026-10-08): `larry ask "What is two plus three?"` answers
 Milestone 2g (reached 2026-10-08): `larry ask "How many minutes are there in 3 hours?"` answers 180 minutes; `larry ask "Solve 2x + 3 = 11"` answers x = 4 and names the rule; `larry ask "What day of the week was January 1, 2000?"` answers Saturday.
 
 **Stage 3 — Memory**
-- [ ] F8 Benchmarks
+- [x] F8 Benchmarks: `larry bench [n]` measures with generated atoms; the numbers are in the log.
 - [ ] N2 Local copy of the atoms (Q11): the cache and the cloud exist (N2a, N2b); the targets below are not measured yet
 - [ ] N3 Bonds
 - [ ] N4 Molecules
@@ -293,6 +293,7 @@ Done when: two rebuilds give the same `atoms` contents, byte for byte. Done: the
 
 **F8 · Benchmarks.** `larry bench` measures sentences assimilated per second, lookups per second, memory per atom, and time to answer, with ten thousand and with one million atoms. Generated atoms are fine for this. A session that changes storage or lookup writes the new numbers in the log.
 Done when: the benchmark finishes in a few minutes and prints one line per measure.
+Done (F8): `bench()` generates "The <noun> is <adjective>." with made-up words of two syllables, teaches and stores them in a scratch memory file, and prints one line per measure: stored per second, memory per atom, described from the word index per second, lookups by metadata and by prefix per second, the time to answer "Is the <noun> <adjective>?", the start-up time with the file, and the file bytes per atom. After the storing each phase runs its count or ten seconds, whichever ends first, so a run with a million atoms ends in minutes. Without a cloud, a dictionary or a grammar: the cache alone.
 
 ### Track A — Language assimilation (goal 1)
 
@@ -655,3 +656,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | M2 | Linux, GCC 14 and clang 18 with libc++: 18 test executables pass, also with the sanitizers and without libpq. Arithmetic suite: 53 questions; dates suite: 21 questions; all as expected. `larry ask "How many minutes are there in 3 hours?"` answers 180 minutes; "What day of the week was January 1, 2000?" answers Saturday. | A sum of quantities comes out in the first unit ("1 km plus 500 metres" is 1.5 km) unless a unit is asked for. Not yet: fractions of quantities as words of their own ("a third of an hour" works, "a third hour" does not), months and years as spans, times of day. |
 | 2026-10-08 | M3 | Linux, GCC 14 and clang 18 with libc++: 19 test executables pass, also with the sanitizers and without libpq. Algebra suite: 31 texts (26 with an answer, 5 that are not algebra), all as expected. `larry ask "Solve 2x + 3 = 11"` answers x = 4, because: algebra: 2x + 3 = 11 gives x = 4; "What is x if x^2 - 5x + 6 = 0?" answers x = 2 or x = 3. Milestone 2g reached. | One unknown, named x; a second letter makes the sentence no algebra. Degree is at most two: "x^3 = 8" and "x * x * x = 8" go their usual way instead of a wrong answer. Not yet: inequalities, two unknowns, factoring ("x^2 - 1" as (x + 1)(x - 1)), roots written as surds (x^2 = 2 gives 1.414214). |
 | 2026-10-08 | N2d | 19 test executables pass in the four builds; the connection suite: 6 tests. With a cloud that does not answer, `larry ask` took over a minute before (libpq has no timeout of its own) and takes 10.4 s now, says "no cloud: ... timeout expired" and answers from the cache. | Found while checking M3 from the command line: the session's `LARRY_DB` is out of reach from this machine. A local host keeps no timeout, so `dbname=larry` stays as it was. |
+| 2026-10-08 | F8 | 20 test executables pass in the four builds. `larry bench 10000` on this machine (4 cores, GCC 14, -O2): stored 3,922 sentences per second; memory 2,450 bytes per atom; described from the word index 74 sentences per second; lookups by metadata 26,718 per second (37 µs each); prefix lookups 549 per second; answers 54 ms each; start-up 0.68 s; file 523 bytes per atom. The million-atom numbers follow with N2. | The numbers name the work for N2: describing walks every use of a word ("the" has one use per atom), a lookup reads the whole atom back, and start-up parses the hex log line by line. The targets (a prefix lookup under 10 µs and start-up under 1 s with a million atoms) are far. |
