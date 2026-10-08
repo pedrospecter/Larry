@@ -98,6 +98,10 @@ BaseRules::BaseRules(Language language) : language_(language) {
     forms_ = read_pairs(dir / "forms.txt");
     irregular_ = read_pairs(dir / "irregular.txt");
     states_ = read_pairs(dir / "states.txt");
+    relations_ = read_pairs(dir / "relations.txt");
+    std::ranges::stable_sort(relations_, [](const auto& a, const auto& b) {
+        return std::ranges::count(a.first, ' ') > std::ranges::count(b.first, ' ');  // longest phrase first
+    });
     std::ranges::stable_sort(states_, [](const auto& a, const auto& b) {
         return std::ranges::count(a.first, ' ') > std::ranges::count(b.first, ' ');  // longest phrase first
     });

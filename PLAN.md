@@ -221,7 +221,7 @@ Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, a
 
 **Stage 5 — Meaning**
 - [ ] A9 Image (Q3)
-- [ ] A10 Word meanings and relations
+- [ ] A10 Word meanings and relations: first step done (A10a), defining sentences become bonds ("is a kind of", "is part of", "is the opposite of", "means the same as"), and sparrow reaches animal in two steps; done with A9 (meanings apart).
 - [ ] A11 Reference across sentences: first step done (A11a), third-person pronouns refer to the latest thing of their kind said before; done when bAbI tasks 11 and 13 are measured (Q36) and A8 gives the groups.
 - [ ] C6, C7, C12, C17 Comparisons of meaning
 - [ ] C16 Novelty
@@ -237,7 +237,7 @@ Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, a
 Milestone 3: Larry answers questions about what it was told, says "I don't know" when it has nothing, and reports a conflict when it is told two things that cannot both be true.
 
 **Stage 7 — Reasoning**
-- [ ] R4 Chaining
+- [ ] R4 Chaining: first step done (R4a), "is a kind of" bonds chain to answer what no conception says; done when concluded atoms are stored with their support (R2) and bAbI tasks 2, 3 and 15 are measured (Q36).
 - [ ] R5 Rules from examples (Q7)
 - [ ] R6 Best explanation
 - [ ] R7 Numbers, sets and space
@@ -348,6 +348,7 @@ Done when: in a suite of sentence pairs, every pair that means the same has equa
 
 **A10 · Word meanings and relations.** Separate the meanings of one word (the bank of a river, the bank that holds money) and learn relations between words: is a kind of, is part of, is the opposite of, means the same as. Larry learns them from defining sentences, which are ordinary atoms ("a sparrow is a bird"), and stores them as bonds between entities.
 Done when: after reading a set of defining sentences, the bonds from sparrow reach animal in two steps. Needs N3, A9.
+First step done (A10a): `relations.txt` names the verb phrases of defining sentences and the bond they leave ("is a", "is an", "are", "is a kind of" leave "is a kind of"; "is part of"; "is the opposite of"; "means", "is the same as" leave "means the same as"). When a conception is stored, `Brain::relation_of` finds the phrase in its core, takes the heads of the two sides without their articles, in the singular by A4 ("Robins are birds" bonds robin to bird), and bonds them with the sentence as origin; "are" alone needs a noun on the right ("Sparrows are small" bonds nothing). After "A sparrow is a bird." and "A bird is an animal.", the spreading lookup (N5) reaches animal from sparrow in two steps. Not yet: the meanings of one word apart (the bank of a river), which needs the image (A9).
 
 **A11 · Reference across sentences.** Link "it", "she" or "the animal" to the earlier entity it refers to within a molecule.
 Done when: a suite passes, and bAbI tasks 11 and 13 are measured. Needs N4, A8.
@@ -495,6 +496,7 @@ First step done (R3a): `states.txt` names the verb phrases that change a state a
 
 **R4 · Chaining.** Combine several atoms through bonds and conditions to reach a new atom, forwards when an atom is stored and backwards from a question. Every concluded atom records the atoms it came from. Depth and time are bounded.
 Done when: a suite passes, and bAbI tasks 2, 3 and 15 are measured. Needs C8, C15, R3.
+First step done (R4a): `Brain::chain` walks the "is a kind of" bonds from one word to another, four steps at most, and `truth` uses it when no conception answers a claim of that shape: "Is a sparrow an animal?" is Yes, because "sparrow is a kind of bird, bird is a kind of animal (chained, R4)", with the two defining conceptions as what it came from; the negation of such a claim is false. This is the first step of C7 (follows from) too. Not yet: forward chaining when an atom is stored, conditions ("if ... then"), concluded atoms stored with their support, and the bound on time.
 
 **R5 · Rules from examples.** From several atoms that fit one pattern, propose a general atom and store it as an assumption: sparrows fly, robins fly, both are birds, so "birds fly". A counter-example ("penguins do not fly") narrows or withdraws it.
 Done when: a suite with held-out cases passes, and bAbI task 16 is measured. Needs C4, C7, R2, Q7.
@@ -691,3 +693,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | R3a, F9 | 23 test executables pass in the four builds; babi: 5 tests; brain: 22. `larry babi 1`: 100% of 1,000 questions right in 200 stories, in 4.8 s. | The first bAbI number. Task 1 needs the latest state alone; the runner is ready for the other tasks once their stories are on the machine. The JSON reader of W1 is its own module now (`json.hpp`). |
 | 2026-10-08 | R2c, G5, S4 | 23 test executables pass in the four builds; brain: 24 tests. The user contradicting the user: the earlier is withdrawn and "Is the door open?" answers No; a lesson contradicted by the user: both stay and Larry asks. | Q14 applied as the user answered it; a validated conception is the one exception, because only a validator undoes a validation (R2b). "Knowing what it knows" is a report from what exists (statuses, the index, the bonds), with no new store: S4 cost one function. |
 | 2026-10-08 | A11a | 23 test executables pass in the four builds; brain: 25 tests, the reference suite of 12 cases. | Reference is a reading, like tolerance (K3): the conception keeps what was said and carries what was meant. Without gender data "he" after "Daniel ... Sandra ..." takes Sandra; a names file with gender would fix most of it (Q37). |
+| 2026-10-08 | A10a, R4a | 23 test executables pass in the four builds; brain: 26 tests. Five defining sentences give four bonds of two kinds; "Is a sparrow an animal?" is answered Yes through two bonds, and "Is an animal a sparrow?" is not. | A relation is read from the core by a phrase list, as the states (R3) and the arithmetic (M1) are: the same device, rules as data. The chain is the first conclusion Larry draws that no conception states; it is traced to the bonds and the conceptions behind them, as rule 6 asks. |

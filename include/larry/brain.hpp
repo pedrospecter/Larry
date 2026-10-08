@@ -242,6 +242,25 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// A10 (first step): the relation a defining sentence states, from the
+    /// phrases of relations.txt: "A sparrow is a bird." relates sparrow to
+    /// bird, "is a kind of"; "Sparrows are birds." the same, by the singular
+    /// forms (A4). The ends are the heads of the two sides, as the index
+    /// keys them. Nothing when the core has no such phrase, or the right
+    /// side is no noun.
+    struct Relation {
+        Bytes kind;
+        Bytes from;
+        Bytes to;
+        std::string phrase;
+    };
+    [[nodiscard]] std::optional<Relation> relation_of(const Description& d) const;
+
+    /// R4 (first step): the chain of "is a kind of" bonds from one word to
+    /// another, at most four steps, as the words passed ("sparrow", "bird",
+    /// "animal"); empty when there is none.
+    [[nodiscard]] std::vector<Bytes> chain(const Bytes& from, const Bytes& to, int steps = 4) const;
+
     /// A11 (first step): the sentence with its third-person pronouns replaced
     /// by what they refer to in the conceptions heard before (the molecule
     /// being heard newest first, then the atoms in play, then the cache):
@@ -407,6 +426,9 @@ private:
     [[nodiscard]] std::vector<StoredAtom> search_answers(const Description& question) const;
     /// N6: puts an atom at the front of the working memory, within its bound.
     void bring_into_play(const StoredAtom& atom) const;
+    /// The relation in a core, with the description for the categories of
+    /// its words, whatever the polarity (A10, R4).
+    [[nodiscard]] std::optional<Relation> relation_in(const Core& form, const Description& d) const;
     /// The conceptions newest first: the molecule being heard, the atoms in
     /// play, then the cache; each once (R3, A11).
     [[nodiscard]] std::vector<StoredAtom> newest_first() const;

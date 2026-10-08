@@ -142,6 +142,14 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
     if (const std::optional<StoredAtom> held = memory_->find(d.metadata)) {
         bring_into_play(*held);
     }
+    // A10: a defining sentence bonds its two things ("is a kind of", "is part of", ...).
+    if (stored == Stored::New) {
+        if (const std::optional<Relation> relation = relation_of(d)) {
+            (void)bond(Bond{relation->kind, BondEnd{BondEnd::Kind::Entity, relation->from},
+                            BondEnd{BondEnd::Kind::Entity, relation->to},
+                            {"conception: " + std::string{ops.text(d.atom)}}});
+        }
+    }
     // A4: each word that is a form of a known word is bonded to it, "form of".
     if (stored == Stored::New) {
         static const Bytes form_of{'f', 'o', 'r', 'm', ' ', 'o', 'f'};
@@ -202,6 +210,120 @@ Core Brain::thinking_core(const StoredAtom& atom) const {
     }
     const AtomOperations ops;
     return core(assimilation_.describe(ops.from_text(atom.reading), memory_));
+}
+
+std::optional<Brain::Relation> Brain::relation_of(const Description& d) const {
+    if (d.category.bytes != affirmation) {
+        return std::nullopt;
+    }
+    const Core form = core(d);
+    if (form.negated) {
+        return std::nullopt;  // "a sparrow is not a bird" defines nothing
+    }
+    return relation_in(form, d);
+}
+
+std::optional<Brain::Relation> Brain::relation_in(const Core& form, const Description& d) const {
+    const AtomOperations ops;
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes adjective = bytes_of("adjective");
+    static const Bytes verb = bytes_of("verb");
+    static const Bytes determiner = bytes_of("determiner");
+    static const std::vector<Bytes> articles = {bytes_of("a"), bytes_of("an"), bytes_of("the")};
+    if (form.words.size() < 3) {
+        return std::nullopt;
+    }
+    // The category of a core word, from the description (the core keeps the order of the words it kept).
+    const auto category_of = [&](const Bytes& word) -> Bytes {
+        for (const Entity& e : d.entities.entities) {
+            if (ops.fold(e.word) == word) {
+                return e.category;
+            }
+        }
+        return {};
+    };
+    const auto head_of = [&](std::vector<Bytes> side) -> std::optional<Bytes> {
+        while (!side.empty() && (std::ranges::contains(articles, side.front()) || category_of(side.front()) == determiner)) {
+            side.erase(side.begin());
+        }
+        if (side.empty()) {
+            return std::nullopt;
+        }
+        const Bytes& head = side.back();
+        const Bytes category = category_of(head);
+        if (category == adjective || category == verb || category == determiner) {
+            return std::nullopt;
+        }
+        // The singular form (A4): "sparrows" is "sparrow".
+        if (const std::optional<Form> singular = assimilation_.form_of(head, memory_);
+            singular && singular->category == noun && singular->base != head) {
+            return singular->base;
+        }
+        if (category.empty() && !std::ranges::contains(articles, head)) {
+            const std::vector<Form> by_ending = assimilation_.forms().candidates(head);
+            if (!by_ending.empty() && by_ending.front().category == noun && by_ending.front().feature == bytes_of("plural")) {
+                return by_ending.front().base;
+            }
+        }
+        return head;
+    };
+    for (const auto& [phrase, kind] : rules_->relations()) {
+        const std::vector<Bytes> parts = split_words(phrase);
+        if (parts.empty() || form.words.size() < parts.size() + 2) {
+            continue;
+        }
+        for (std::size_t p = 1; p + parts.size() < form.words.size(); ++p) {
+            if (!std::equal(parts.begin(), parts.end(), form.words.begin() + static_cast<std::ptrdiff_t>(p))) {
+                continue;
+            }
+            const std::vector<Bytes> left(form.words.begin(), form.words.begin() + static_cast<std::ptrdiff_t>(p));
+            const std::vector<Bytes> right(form.words.begin() + static_cast<std::ptrdiff_t>(p + parts.size()), form.words.end());
+            // "are" alone needs a noun on the right: "sparrows are birds", not "sparrows are small".
+            const bool bare = parts.size() == 1;
+            if (bare) {
+                const Bytes category = category_of(right.back());
+                const bool noun_like = category == noun || category == proper_noun ||
+                                       (category.empty() && !assimilation_.forms().candidates(right.back()).empty() &&
+                                        assimilation_.forms().candidates(right.back()).front().category == noun);
+                if (!noun_like || category_of(left.back()) == adjective) {
+                    continue;
+                }
+            }
+            const std::optional<Bytes> from = head_of(left);
+            const std::optional<Bytes> to = head_of(right);
+            if (!from || !to || *from == *to) {
+                continue;
+            }
+            return Relation{kind, *from, *to, std::string(phrase.begin(), phrase.end())};
+        }
+    }
+    return std::nullopt;
+}
+
+std::vector<Bytes> Brain::chain(const Bytes& from, const Bytes& to, int steps) const {
+    static const Bytes kind_of = bytes_of("is a kind of");
+    std::vector<std::vector<Bytes>> paths = {{from}};
+    std::vector<Bytes> seen = {from};
+    for (int step = 0; step < steps && !paths.empty(); ++step) {
+        std::vector<std::vector<Bytes>> next;
+        for (const std::vector<Bytes>& path : paths) {
+            for (const Bond& bond : memory_->bonds_from(BondEnd{BondEnd::Kind::Entity, path.back()})) {
+                if (bond.kind != kind_of || bond.to.kind != BondEnd::Kind::Entity || std::ranges::contains(seen, bond.to.bytes)) {
+                    continue;
+                }
+                std::vector<Bytes> longer = path;
+                longer.push_back(bond.to.bytes);
+                if (bond.to.bytes == to) {
+                    return longer;
+                }
+                seen.push_back(bond.to.bytes);
+                next.push_back(std::move(longer));
+            }
+        }
+        paths = std::move(next);
+    }
+    return {};
 }
 
 std::optional<Description> Brain::refer(const Description& d) const {
@@ -1262,6 +1384,39 @@ Verdict Brain::decide(const Description& claim) const {
                     cache(atom);
                 }
                 verdict.because.push_back(std::move(atom));
+                return verdict;
+            }
+        }
+    }
+    // R4 (first step): "a sparrow is an animal" follows from "a sparrow is a
+    // bird" and "a bird is an animal": the chain of "is a kind of" bonds.
+    for (const Core& form : forms) {
+        if (const std::optional<Relation> relation = relation_in(form, claim); relation && relation->kind == bytes_of("is a kind of")) {
+            const std::vector<Bytes> path = chain(relation->from, relation->to);
+            if (path.size() >= 3) {
+                std::string steps;
+                for (std::size_t i = 0; i + 1 < path.size(); ++i) {
+                    steps += (i == 0 ? "" : ", ") + std::string(path[i].begin(), path[i].end()) + " is a kind of " +
+                             std::string(path[i + 1].begin(), path[i + 1].end());
+                }
+                verdict.truth = form.negated ? Truth::False : Truth::True;
+                verdict.rules.push_back(steps + " (chained, R4)");
+                const AtomOperations ops;
+                for (std::size_t i = 0; i + 1 < path.size(); ++i) {
+                    for (const Bond& bond : memory_->bonds_from(BondEnd{BondEnd::Kind::Entity, path[i]})) {
+                        if (bond.to.bytes != path[i + 1]) {
+                            continue;
+                        }
+                        for (const std::string& origin : bond.origins) {
+                            if (origin.starts_with("conception: ")) {
+                                const Description said = assimilation_.describe(ops.from_text(origin.substr(12)), memory_);
+                                if (const std::optional<StoredAtom> held = memory_->find(said.metadata)) {
+                                    verdict.because.push_back(*held);
+                                }
+                            }
+                        }
+                    }
+                }
                 return verdict;
             }
         }

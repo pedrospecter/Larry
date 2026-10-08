@@ -1139,6 +1139,54 @@ TEST(pronouns_refer_to_what_was_said_before) {
     CHECK(brain.answer(ops.from_text("Is Mary in the hallway?")).text == "Yes.");
 }
 
+TEST(defining_sentences_bond_the_kinds_and_the_chain_answers) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_kinds.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const auto kinds = [&](std::string_view word) {
+        std::vector<std::string> out;
+        for (const larry::Bond& bond : cache.bonds_from(larry::BondEnd::entity(word))) {
+            if (bond.kind == b("is a kind of")) {
+                out.emplace_back(bond.to.bytes.begin(), bond.to.bytes.end());
+            }
+        }
+        return out;
+    };
+    (void)brain.hear(ops.from_text("A sparrow is a bird."), "user:pedro");
+    (void)brain.hear(ops.from_text("A bird is an animal."), "user:pedro");
+    (void)brain.hear(ops.from_text("Sparrows are small."), "user:pedro");  // no kind: small is no noun
+    (void)brain.hear(ops.from_text("Robins are birds."), "user:pedro");   // the singular forms
+    (void)brain.hear(ops.from_text("A wing is part of a bird."), "user:pedro");
+    CHECK(kinds("sparrow") == std::vector<std::string>{"bird"});
+    CHECK(kinds("bird") == std::vector<std::string>{"animal"});
+    CHECK(kinds("robin") == std::vector<std::string>{"bird"});
+    CHECK(kinds("sparrows").empty());
+    CHECK(cache.bonds_from(larry::BondEnd::entity("wing")).size() == 1);
+    CHECK(cache.bonds_from(larry::BondEnd::entity("wing")).front().kind == b("is part of"));
+    CHECK(cache.bonds_from(larry::BondEnd::entity("sparrow")).front().origins == std::vector<std::string>{"conception: A sparrow is a bird."});
+    // A10: the bonds from sparrow reach animal in two steps.
+    const std::vector<larry::Neighbour> near = cache.spread({larry::BondEnd::entity("sparrow")}, 2, 50);
+    const auto animal = std::ranges::find(near, larry::BondEnd::entity("animal"), &larry::Neighbour::end);
+    CHECK(animal != near.end());
+    CHECK(animal != near.end() && animal->steps == 2);
+    CHECK(brain.chain(b("sparrow"), b("animal")) == (std::vector<Bytes>{b("sparrow"), b("bird"), b("animal")}));
+    CHECK(brain.chain(b("animal"), b("sparrow")).empty());
+    CHECK(brain.chain(b("robin"), b("animal")).size() == 3);
+    // R4: the chain answers what no conception says directly.
+    const larry::Reply yes = brain.answer(ops.from_text("Is a sparrow an animal?"));
+    CHECK(yes.text == "Yes.");
+    CHECK(std::ranges::any_of(yes.because, [](const std::string& x) { return x == "rule: sparrow is a kind of bird, bird is a kind of animal (chained, R4)"; }));
+    CHECK(std::ranges::any_of(yes.because, [](const std::string& x) { return x == "A sparrow is a bird."; }));
+    CHECK(brain.answer(ops.from_text("Is a sparrow a bird?")).text == "Yes.");  // direct
+    CHECK(brain.answer(ops.from_text("Is an animal a sparrow?")).text.starts_with("I don't know"));
+    CHECK(brain.answer(ops.from_text("a robin is an animal")).text == "true");
+    CHECK(brain.answer(ops.from_text("A sparrow is not an animal.")).text == "false");
+    CHECK(brain.answer(ops.from_text("Is a wing an animal?")).text.starts_with("I don't know"));  // part of is no kind of
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";
