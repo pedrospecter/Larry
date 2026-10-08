@@ -285,6 +285,8 @@ public:
         std::string goal;
         std::vector<std::string> steps;      ///< In order, the goal last.
         std::vector<StoredAtom> because;     ///< The action conceptions used.
+        std::string no_way;                  ///< What to say with no steps, in the language.
+        std::string heading;                 ///< "To <goal>:" in the language.
         [[nodiscard]] std::string text() const;
     };
     [[nodiscard]] Plan plan(std::string_view goal) const;
@@ -465,6 +467,11 @@ public:
         last_notice_.clear();
     }
 
+    /// G2, A12: what Larry says, by the name of the reply in replies.txt of
+    /// the constellation ("yes", "unknown", "read as"); "[name]" when the
+    /// file lacks it. The texts with "{}" are filled with std::vformat.
+    [[nodiscard]] std::string say(std::string_view name) const;
+
     [[nodiscard]] Memory& memory() const noexcept { return *memory_; }
     [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
@@ -509,6 +516,18 @@ private:
     /// The core Larry thinks with: of the reading when the conception has
     /// one (Q29, A11), else of the conception as said.
     [[nodiscard]] Core thinking_core(const StoredAtom& atom) const;
+    /// A9: the image of a stored conception, from its reading when it has one
+    /// (K3, A11), else from its description. Not stored: made when needed.
+    [[nodiscard]] ImageElectron image_of(const StoredAtom& atom) const;
+    /// G1, G2: the conception said again from its image, in the
+    /// constellation's words; its text as stored when the image gives no
+    /// sentence.
+    [[nodiscard]] std::string restate(const StoredAtom& atom) const;
+    /// G2: the answer that fits a question with a gap: the words of the
+    /// conception the question does not have ("blue" for "What is the sky?"
+    /// and "The sky is blue."), as a sentence; empty when every word is in
+    /// the question.
+    [[nodiscard]] std::string short_answer(const Description& question, const StoredAtom& atom) const;
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.

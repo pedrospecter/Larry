@@ -1,0 +1,10 @@
+# O que um pronome representa (A11): o pronome, '=', a que se refere, separado por ';'.
+# "person" toma o último nome, "thing" o último grupo nominal comum, "many" o último plural
+# ou grupo ligado por "e"; "masculine" e "feminine" escolhem um nome desse género em
+# names.txt (um nome que o ficheiro não conhece serve para ambos).
+656c65=706572736f6e3b6d617363756c696e65
+656c61=706572736f6e3b66656d696e696e65
+656c6573=6d616e793b6d617363756c696e65
+656c6173=6d616e793b66656d696e696e65
+6c6865=706572736f6e
+6c686573=6d616e79

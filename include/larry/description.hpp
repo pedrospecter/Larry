@@ -37,6 +37,12 @@ struct EntityNote {
     /// A4: when the category came from the word's form: "skies is a form of
     /// sky (ending ies (y + ies))". The source is Guess then.
     std::string form;
+    /// A6: for a word memory knows with several categories (source Open), how
+    /// the most specific context chose the one the entity carries: "the words
+    /// on both sides", "the word before", "the word after", "the categories on
+    /// both sides", "the category before", "the category after" or "the most
+    /// used". Empty when nothing chose and the category is empty.
+    std::string context;
 };
 
 /// A sentence with all of its electrons: what assimilation produces, what the

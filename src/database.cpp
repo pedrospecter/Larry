@@ -496,7 +496,6 @@ std::vector<StoredAtom> Database::read_atoms(const Result& result) {
         d.category = std::move(electrons.category);
         d.type = std::move(electrons.type);
         d.entities = std::move(electrons.entities);
-        d.image.bytes = bytes;
         const Bytes status = result.bytes(row, 3);
         atom.status = status_from(std::string_view{reinterpret_cast<const char*>(status.data()),
                                                    status.size()})

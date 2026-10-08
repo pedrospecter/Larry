@@ -84,6 +84,37 @@ public:
     /// irregular pair. The word as written, in any case.
     [[nodiscard]] std::optional<Form> form_of(const Bytes& word, const Memory* memory) const;
 
+    /// A9: the image of a described sentence, the form in which two sentences
+    /// that say the same thing are equal: its qualification, then its words in
+    /// their base form grouped by role in a fixed order (subject, predicate,
+    /// object, attribute, complement, modifier, link, none), the articles,
+    /// the interjections and the do-support dropped, a number word as its
+    /// digits, a contraction expanded, the marks that carry meaning kept
+    /// beside a word ("(plural)", "(past)"), and "not" at the end when the
+    /// sentence is negated. Text, so `larry show` reads it: "affirmation |
+    /// subject: sky | predicate: be | attribute: blue".
+    [[nodiscard]] ImageElectron image(const Description& d, const Memory* memory) const;
+
+    /// G1: the word a base takes for a category and a feature ("sky", noun,
+    /// plural: "skies"): of the forms the rules give (A4 backwards), the one
+    /// memory has met, else the one the dictionary knows, else the first;
+    /// the base itself when the rules give none.
+    [[nodiscard]] Bytes word_form(const Bytes& base, const Bytes& category, const Bytes& feature,
+                                  const Memory* memory) const;
+
+    /// G1: a sentence from an image (A9), the reverse of describing: the
+    /// words of each role in the order subject, predicate, object,
+    /// attribute, complement, modifier, link, none (a question puts its
+    /// question words or its auxiliary first), each base in the form its
+    /// marks and the subject ask for (the plural, the time, the person), a
+    /// common noun with the article memory saw before it most, the negation
+    /// word after the first auxiliary with do-support when the rules have it
+    /// ("Penguins do not fly.") or before the predicate when they do not ("O
+    /// céu não é azul."), a capital first and the end mark of the
+    /// qualification. Describing the result gives the image back. Empty for
+    /// an image that is not one.
+    [[nodiscard]] std::string sentence_of(const ImageElectron& image, const Memory* memory) const;
+
 
 private:
     struct Span {

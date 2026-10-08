@@ -364,6 +364,14 @@ Comparison Cognition::difference(const Description& a, const Description& b) con
     return c;
 }
 
+Comparison Cognition::same_meaning(const Description& a, const Description& b) const {
+    Comparison c;
+    c.kind = ComparisonKind::SameMeaning;
+    c.holds = !a.image.bytes.empty() && a.image.bytes == b.image.bytes;
+    match_in_place(c, a, b);
+    return c;
+}
+
 Comparison Cognition::same_structure(const Description& a, const Description& b) const {
     Comparison c;
     c.kind = ComparisonKind::SameStructure;

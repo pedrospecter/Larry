@@ -1,0 +1,24 @@
+# A tiny Portuguese treebank in the CoNLL-U form, for the alignment test of the
+# measurement (A6): a word written as one and analysed as two ("do").
+# sent_id = 1
+# text = O gato do vizinho dorme.
+1	O	o	DET	_	Definite=Def|Gender=Masc|Number=Sing|PronType=Art	2	det	_	_
+2	gato	gato	NOUN	_	Gender=Masc|Number=Sing	5	nsubj	_	_
+3-4	do	_	_	_	_	_	_	_	_
+3	de	de	ADP	_	_	5	case	_	_
+4	o	o	DET	_	Definite=Def|Gender=Masc|Number=Sing|PronType=Art	5	det	_	_
+5	vizinho	vizinho	NOUN	_	Gender=Masc|Number=Sing	2	nmod	_	_
+6	dorme	dormir	VERB	_	Mood=Ind|Number=Sing|Person=3|Tense=Pres|VerbForm=Fin	0	root	_	SpaceAfter=No
+7	.	.	PUNCT	_	_	6	punct	_	_
+
+# sent_id = 2
+# text = A Maria foi à cozinha.
+1	A	o	DET	_	Definite=Def|Gender=Fem|Number=Sing|PronType=Art	2	det	_	_
+2	Maria	Maria	PROPN	_	Gender=Fem|Number=Sing	3	nsubj	_	_
+3	foi	ir	VERB	_	Mood=Ind|Number=Sing|Person=3|Tense=Past|VerbForm=Fin	0	root	_	_
+4-5	à	_	_	_	_	_	_	_	_
+4	a	a	ADP	_	_	6	case	_	_
+5	a	o	DET	_	Definite=Def|Gender=Fem|Number=Sing|PronType=Art	6	det	_	_
+6	cozinha	cozinha	NOUN	_	Gender=Fem|Number=Sing	3	obl	_	SpaceAfter=No
+7	.	.	PUNCT	_	_	3	punct	_	_
+

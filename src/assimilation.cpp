@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <array>
 #include <map>
 #include <span>
 #include <string>
@@ -464,13 +465,97 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
                 d.notes[i].near = std::move(near);
             }
         }
+        // A6 (the most specific context): a word memory knows with several
+        // categories takes the one its own uses have in the most specific
+        // context that matches: the same words on both sides, then the same
+        // word on one side, then the same categories on both sides, then on
+        // one side, then the most used. A level decides when it has votes and
+        // one winner; a tie falls to the next level. Two passes: the first
+        // decides by the context alone, so the second sees the categories the
+        // first chose on its neighbours; the second may fall to the most used.
+        // The word stays Open (it is known, with several categories), with the
+        // chosen category first among its candidates and the level in the note.
+        static const std::array<std::string_view, 7> levels = {
+            "the words on both sides", "the word before",     "the word after",  "the categories on both sides",
+            "the category before",     "the category after", "the most used"};
+        for (const bool last : {false, true}) {
+            for (std::size_t i = 0; i < n; ++i) {
+                EntityNote& note = d.notes[i];
+                if (note.source != Source::Open || note.candidates.empty() || !d.entities.entities[i].category.empty()) {
+                    continue;
+                }
+                const std::vector<WordUse>& uses = memory->uses(ops.fold(d.entities.entities[i].word));
+                if (uses.empty()) {
+                    continue;  // the dictionary's candidates: no use of its own to read
+                }
+                const Bytes before = i > 0 ? ops.fold(d.entities.entities[i - 1].word) : Bytes{};
+                const Bytes after = i + 1 < n ? ops.fold(d.entities.entities[i + 1].word) : Bytes{};
+                const Bytes& before_category = i > 0 ? d.entities.entities[i - 1].category : before;
+                const Bytes& after_category = i + 1 < n ? d.entities.entities[i + 1].category : after;
+                std::array<std::map<Bytes, std::int64_t>, 7> votes;
+                for (const WordUse& use : uses) {
+                    if (!std::ranges::contains(note.candidates, use.category)) {
+                        continue;
+                    }
+                    // At the start or the end of the sentence the neighbour is
+                    // empty, and an empty neighbour in a use is the same place.
+                    const bool word_before = use.before == before;
+                    const bool word_after = use.after == after;
+                    const bool category_before = i == 0 ? use.before.empty()
+                                                        : (!before_category.empty() && use.before_category == before_category);
+                    const bool category_after = i + 1 == n ? use.after.empty()
+                                                           : (!after_category.empty() && use.after_category == after_category);
+                    if (word_before && word_after) {
+                        ++votes[0][use.category];
+                    }
+                    if (word_before) {
+                        ++votes[1][use.category];
+                    }
+                    if (word_after) {
+                        ++votes[2][use.category];
+                    }
+                    if (category_before && category_after) {
+                        ++votes[3][use.category];
+                    }
+                    if (category_before) {
+                        ++votes[4][use.category];
+                    }
+                    if (category_after) {
+                        ++votes[5][use.category];
+                    }
+                    ++votes[6][use.category];
+                }
+                const std::size_t deepest = last ? votes.size() : votes.size() - 1;
+                for (std::size_t level = 0; level < deepest; ++level) {
+                    std::vector<std::pair<std::int64_t, Bytes>> ranked;
+                    for (const auto& [category, count] : votes[level]) {
+                        ranked.emplace_back(count, category);
+                    }
+                    std::ranges::sort(ranked, [](const auto& a, const auto& b) { return a.first > b.first; });
+                    if (ranked.empty() || (ranked.size() > 1 && ranked[0].first == ranked[1].first)) {
+                        continue;
+                    }
+                    d.entities.entities[i].category = ranked.front().second;
+                    note.context = levels[level];
+                    std::vector<Bytes> ordered{ranked.front().second};
+                    for (const Bytes& candidate : note.candidates) {
+                        if (candidate != ranked.front().second) {
+                            ordered.push_back(candidate);
+                        }
+                    }
+                    note.candidates = std::move(ordered);
+                    break;
+                }
+            }
+        }
         // A6 (first step): an unknown or open word takes the category that
         // known words have in the same context, the words before and after
         // it, when the votes have one winner. It is a guess, marked as one.
-        // For an open word only its candidates may win.
+        // For an open word only its candidates may win. A word one slip away
+        // from a known one (A2b) is guessed the same way and asked about too.
         for (std::size_t i = 0; i < n; ++i) {
             const bool open = d.notes[i].source == Source::Open;
-            if ((d.notes[i].source != Source::Unknown && !open) || !d.notes[i].near.empty()) {
+            if ((d.notes[i].source != Source::Unknown && !open) || !d.entities.entities[i].category.empty()) {
                 continue;
             }
             const std::vector<Bytes> allowed = d.notes[i].candidates;
@@ -518,8 +603,7 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
     types(d);
-    const std::span<const std::uint8_t> bytes = ops.bytes(atom);
-    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.image = image(d, memory);
     d.metadata = ops.metadata(d.category, d.type, d.entities);
     return d;
 }
@@ -538,10 +622,10 @@ void Assimilation::redescribe(Description& d) const {
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
     types(d);
-    const std::span<const std::uint8_t> bytes = ops.bytes(d.atom);
-    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.image = image(d, nullptr);
     d.metadata = ops.metadata(d.category, d.type, d.entities);
 }
+
 
 namespace {
 
@@ -626,8 +710,7 @@ void Assimilation::types(Description& d) const {
     static const Bytes preposition = bytes_of("preposition");
     static const Bytes interjection = bytes_of("interjection");
     static const Bytes conjunction = bytes_of("conjunction");
-    static const std::vector<Bytes> copulas = {bytes_of("is"), bytes_of("are"), bytes_of("was"),
-                                               bytes_of("were"), bytes_of("am")};
+    const std::vector<Bytes>& copulas = rules_->copulas();  // copulas.txt (A7)
 
     std::vector<Entity>& entities = d.entities.entities;
     const std::size_t n = entities.size();
@@ -658,6 +741,7 @@ void Assimilation::types(Description& d) const {
             for (const auto& [key, value] : table) {
                 if (key == word) {
                     out = split(value, ';');
+                    std::erase(out, bytes_of("support"));  // a mark for the image (A9), not a feature
                     return true;
                 }
             }
@@ -717,8 +801,18 @@ void Assimilation::types(Description& d) const {
             break;
         }
     }
-    bool copula = predicate < n && entities[predicate].category == auxiliary_verb &&
-                  std::ranges::contains(copulas, folded[predicate]);
+    // The copula may be inside a contraction ("isn't"): its first word counts.
+    Bytes head = predicate < n ? folded[predicate] : Bytes{};
+    for (const auto& [contraction, expansion] : rules_->contractions()) {
+        if (contraction == head) {
+            const std::vector<Bytes> parts = split(expansion, ' ');
+            if (!parts.empty()) {
+                head = parts.front();
+            }
+            break;
+        }
+    }
+    bool copula = predicate < n && entities[predicate].category == auxiliary_verb && std::ranges::contains(copulas, head);
     for (std::size_t i = predicate + 1; copula && i < n; ++i) {
         if (entities[i].category == verb) {
             copula = false;
@@ -774,6 +868,477 @@ void Assimilation::types(Description& d) const {
     type.push_back(' ');
     type.insert(type.end(), emotion.begin(), emotion.end());
     d.type.bytes = std::move(type);
+}
+
+ImageElectron Assimilation::image(const Description& d, const Memory* memory) const {
+    const AtomOperations ops;
+    static const Bytes interjection = bytes_of("interjection");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes auxiliary_verb = bytes_of("auxiliary verb");
+    static const Bytes guessed = bytes_of("guessed");
+    static const Bytes support = bytes_of("support");
+    static const std::array<std::string_view, 8> order = {"subject", "predicate", "object",   "attribute",
+                                                          "complement", "modifier", "link", "none"};
+    // The marks that carry meaning; "present", "third person", "singular" and
+    // "base" are the plain case and are not written.
+    static const std::vector<Bytes> marks = {bytes_of("plural"),      bytes_of("past"),        bytes_of("progressive"),
+                                             bytes_of("participle"),  bytes_of("comparative"), bytes_of("superlative")};
+    const auto role_of = [&](const Entity& e) -> std::string_view {
+        for (auto it = e.types.rbegin(); it != e.types.rend(); ++it) {
+            if (*it == guessed) {
+                continue;
+            }
+            for (const std::string_view role : order) {
+                if (std::string_view{reinterpret_cast<const char*>(it->data()), it->size()} == role) {
+                    return role;
+                }
+            }
+            break;  // the role is the last type: the features come before it
+        }
+        return "none";
+    };
+    std::map<std::string_view, std::vector<std::string>> groups;
+    bool negated = false;
+    for (const Entity& e : d.entities.entities) {
+        if (e.category == interjection) {
+            continue;
+        }
+        const std::string_view role = role_of(e);
+        const Bytes folded = ops.fold(e.word);
+        // A contraction is its words.
+        std::vector<Bytes> words;
+        for (const auto& [contraction, expansion] : rules_->contractions()) {
+            if (contraction == folded) {
+                for (const Bytes& part : split(expansion, ' ')) {
+                    words.push_back(part);
+                }
+                break;
+            }
+        }
+        if (words.empty()) {
+            words.push_back(folded);
+        }
+        std::vector<std::string> pending_marks;  // do-support leaves its time to the next word
+        for (const Bytes& word : words) {
+            if (std::ranges::contains(rules_->articles(), word)) {
+                continue;
+            }
+            if (std::ranges::contains(rules_->negation_words(), word)) {
+                negated = !negated;
+                continue;
+            }
+            bool is_number = false;
+            for (const auto& [number, digits] : rules_->number_words()) {
+                if (number == word) {
+                    groups[role].emplace_back(digits.begin(), digits.end());
+                    is_number = true;
+                    break;
+                }
+            }
+            if (is_number) {
+                continue;
+            }
+            // Do-support (auxiliaries.txt, "support"): dropped, its time kept.
+            // The word of an auxiliary verb, of a contraction ("don't"), or of
+            // an entity nobody categorized; a verb "do" stays ("I do my work").
+            if (e.category == auxiliary_verb || e.category.empty() || words.size() > 1) {
+                bool supports = false;
+                for (const auto& [auxiliary, features] : rules_->auxiliaries()) {
+                    if (auxiliary == word) {
+                        const std::vector<Bytes> parts = split(features, ';');
+                        supports = std::ranges::contains(parts, support);
+                        if (supports) {
+                            for (const Bytes& part : parts) {
+                                if (std::ranges::contains(marks, part)) {
+                                    pending_marks.emplace_back(part.begin(), part.end());
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (supports) {
+                    continue;
+                }
+            }
+            // The base form, by the pairs and the endings (A4); an ending
+            // counts only when its category is the entity's.
+            std::optional<Form> form = form_of(word, memory);
+            if (!form && !e.category.empty()) {
+                form = forms_.by_ending(word);
+                if (form && form->category != e.category) {
+                    form.reset();
+                }
+            }
+            std::string text = e.category == proper_noun ? std::string(e.word.begin(), e.word.end())
+                                                         : std::string(word.begin(), word.end());
+            std::vector<std::string> word_marks = std::move(pending_marks);
+            pending_marks.clear();
+            if (form) {
+                text.assign(form->base.begin(), form->base.end());
+                if (std::ranges::contains(marks, form->feature)) {
+                    word_marks.emplace_back(form->feature.begin(), form->feature.end());
+                }
+            }
+            for (const std::string& mark : word_marks) {
+                text += " (" + mark + ")";
+            }
+            groups[role].push_back(std::move(text));
+        }
+    }
+    std::string out(d.category.bytes.begin(), d.category.bytes.end());
+    for (const std::string_view role : order) {
+        const auto found = groups.find(role);
+        if (found == groups.end() || found->second.empty()) {
+            continue;
+        }
+        out += " | ";
+        out += role;
+        out += ":";
+        for (const std::string& word : found->second) {
+            out += " " + word;
+        }
+    }
+    if (negated) {
+        out += " | not";
+    }
+    ImageElectron image;
+    image.bytes.assign(out.begin(), out.end());
+    return image;
+}
+
+Bytes Assimilation::word_form(const Bytes& base, const Bytes& category, const Bytes& feature,
+                              const Memory* memory) const {
+    const std::vector<Bytes> candidates = forms_.forms_of(base, category, feature);
+    if (candidates.empty()) {
+        return base;
+    }
+    if (memory != nullptr) {
+        for (const Bytes& candidate : candidates) {
+            if (!memory->uses(candidate).empty()) {
+                return candidate;
+            }
+        }
+    }
+    if (dictionary_ != nullptr) {
+        for (const Bytes& candidate : candidates) {
+            if (dictionary_->contains(candidate)) {
+                return candidate;
+            }
+        }
+    }
+    return candidates.front();
+}
+
+std::string Assimilation::sentence_of(const ImageElectron& image, const Memory* memory) const {
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes verb = bytes_of("verb");
+    static const Bytes adjective = bytes_of("adjective");
+    static const Bytes auxiliary_verb = bytes_of("auxiliary verb");
+    static const Bytes pronoun = bytes_of("pronoun");
+    static const Bytes support = bytes_of("support");
+    static const Bytes plural = bytes_of("plural");
+    static const Bytes singular = bytes_of("singular");
+    static const Bytes past = bytes_of("past");
+    static const Bytes present = bytes_of("present");
+    static const Bytes third_person = bytes_of("third person");
+    static const Bytes first_person = bytes_of("first person");
+    static const Bytes second_person = bytes_of("second person");
+    static const Bytes question = bytes_of("question");
+    static const std::array<std::string_view, 8> order = {"subject", "predicate", "object",   "attribute",
+                                                          "complement", "modifier", "link", "none"};
+    struct Word {
+        Bytes base;
+        std::vector<Bytes> marks;
+    };
+    // 1. Read the image.
+    const std::string text(image.bytes.begin(), image.bytes.end());
+    std::vector<std::string> parts;
+    for (std::size_t from = 0;;) {
+        const std::size_t at = text.find(" | ", from);
+        parts.push_back(text.substr(from, at == std::string::npos ? std::string::npos : at - from));
+        if (at == std::string::npos) {
+            break;
+        }
+        from = at + 3;
+    }
+    if (parts.empty() || parts.front().empty()) {
+        return {};
+    }
+    const Bytes qualification = bytes_of(parts.front());
+    bool negated = false;
+    std::map<std::string_view, std::vector<Word>> groups;
+    for (std::size_t i = 1; i < parts.size(); ++i) {
+        const std::string& part = parts[i];
+        if (part == "not") {
+            negated = true;
+            continue;
+        }
+        const std::size_t colon = part.find(": ");
+        if (colon == std::string::npos) {
+            return {};
+        }
+        const auto role = std::ranges::find(order, std::string_view{part}.substr(0, colon));
+        if (role == order.end()) {
+            return {};
+        }
+        std::vector<Word>& words = groups[*role];
+        for (const Bytes& token : split(bytes_of(part.substr(colon + 2)), ' ')) {
+            if (token.size() > 2 && token.front() == '(' && token.back() == ')') {
+                if (!words.empty()) {
+                    words.back().marks.emplace_back(token.begin() + 1, token.end() - 1);
+                }
+            } else {
+                words.push_back({token, {}});
+            }
+        }
+    }
+    // 2. What a base is, for the rules that follow: memory's most used
+    // category, else the category its irregular pairs give it, else the
+    // dictionary's first, else what the role suggests.
+    const auto category_of = [&](const Bytes& base, std::string_view role) -> Bytes {
+        if (memory != nullptr) {
+            Bytes best;
+            std::int64_t most = 0;
+            for (const CategoryCount& c : memory->categories_of(base)) {
+                if (c.count > most) {
+                    most = c.count;
+                    best = c.category;
+                }
+            }
+            if (!best.empty()) {
+                return best;
+            }
+        }
+        for (const auto& [form, value] : rules_->irregular()) {
+            const std::vector<Bytes> value_parts = split(value, ':');
+            if (value_parts.size() == 3 && value_parts[0] == base) {
+                return value_parts[1];
+            }
+        }
+        if (dictionary_ != nullptr) {
+            const std::vector<Bytes> found = dictionary_->categories(base);
+            if (!found.empty()) {
+                return found.front();
+            }
+        }
+        if (role == "predicate") {
+            return verb;
+        }
+        if (role == "attribute") {
+            return adjective;
+        }
+        return noun;
+    };
+    const auto features_of_auxiliary = [&](const Bytes& word) -> std::vector<Bytes> {
+        for (const auto& [auxiliary, features] : rules_->auxiliaries()) {
+            if (auxiliary == word) {
+                return split(features, ';');
+            }
+        }
+        return {};
+    };
+    // 3. The subject's number and person, which the predicate agrees with.
+    std::vector<Bytes> wanted = {third_person, singular};
+    for (const Word& w : groups["subject"]) {
+        if (std::ranges::contains(w.marks, plural)) {
+            wanted = {plural};
+            break;
+        }
+        for (const auto& [word, features] : rules_->pronouns()) {
+            if (word == w.base) {
+                const std::vector<Bytes> parts_of = split(features, ';');
+                std::vector<Bytes> person_number;
+                for (const Bytes& f : parts_of) {
+                    if (f == first_person || f == second_person || f == third_person || f == singular || f == plural) {
+                        person_number.push_back(f);
+                    }
+                }
+                if (!person_number.empty()) {
+                    wanted = person_number;
+                }
+                break;
+            }
+        }
+    }
+    // An auxiliary's features fit when none of its person or number features
+    // is outside what is wanted.
+    const auto fits = [&](const Bytes& word, const Bytes& time) {
+        const std::vector<Bytes> features = features_of_auxiliary(word);
+        if (features.empty() || !std::ranges::contains(features, time)) {
+            return false;
+        }
+        for (const Bytes& f : features) {
+            if ((f == first_person || f == second_person || f == third_person || f == singular || f == plural) &&
+                !std::ranges::contains(wanted, f)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    // The form of a verb for a time, agreeing with the subject.
+    const auto verb_form = [&](const Bytes& base, const Bytes& category, const Bytes& time) -> Bytes {
+        if (category == auxiliary_verb) {
+            std::vector<Bytes> candidates = forms_.forms_of(base, category, time);
+            for (const Bytes& candidate : forms_.forms_of(base, category, third_person)) {
+                candidates.push_back(candidate);
+            }
+            for (const Bytes& candidate : candidates) {
+                if (fits(candidate, time)) {
+                    return candidate;
+                }
+            }
+            if (time == present && fits(base, time)) {
+                return base;
+            }
+            return candidates.empty() ? base : candidates.front();
+        }
+        if (time == present) {
+            return std::ranges::contains(wanted, third_person) && std::ranges::contains(wanted, singular)
+                       ? word_form(base, category, third_person, memory)
+                       : base;
+        }
+        return word_form(base, category, time, memory);
+    };
+    // The article memory saw before a common noun most.
+    const auto article_before = [&](const Bytes& word) -> Bytes {
+        if (memory == nullptr) {
+            return {};
+        }
+        std::map<Bytes, std::int64_t> counts;
+        for (const WordUse& use : memory->uses(word)) {
+            if (std::ranges::contains(rules_->articles(), use.before)) {
+                ++counts[use.before];
+            }
+        }
+        Bytes best;
+        std::int64_t most = 0;
+        for (const auto& [article, count] : counts) {
+            if (count > most) {
+                most = count;
+                best = article;
+            }
+        }
+        return best;
+    };
+    // 4. Render each group.
+    const Bytes negation = rules_->negation_words().empty() ? Bytes{} : rules_->negation_words().front();
+    Bytes support_word;  // do-support, when the rules have it and the predicate needs it
+    const auto render = [&](std::string_view role, std::vector<Bytes>& out) {
+        const auto found = groups.find(role);
+        if (found == groups.end()) {
+            return;
+        }
+        bool first_auxiliary_done = false;
+        for (const Word& w : found->second) {
+            const bool number = !w.base.empty() && std::ranges::all_of(w.base, [](std::uint8_t c) { return c >= '0' && c <= '9'; });
+            if (number) {
+                out.push_back(w.base);
+                continue;
+            }
+            const Bytes category = category_of(w.base, role);
+            Bytes word = w.base;
+            if (role == "predicate" && (category == verb || category == auxiliary_verb)) {
+                Bytes time = present;
+                for (const Bytes& mark : w.marks) {
+                    if (mark == past || mark == bytes_of("progressive") || mark == bytes_of("participle")) {
+                        time = mark;
+                    }
+                }
+                if (negated && category == verb && !first_auxiliary_done && support_word.empty()) {
+                    // Do-support carries the time and the negation: "did not fly".
+                    for (const auto& [auxiliary, features] : rules_->auxiliaries()) {
+                        const std::vector<Bytes> parts_of = split(features, ';');
+                        if (std::ranges::contains(parts_of, support) && fits(auxiliary, time)) {
+                            support_word = auxiliary;
+                            break;
+                        }
+                    }
+                    if (!support_word.empty()) {
+                        out.push_back(support_word);
+                        out.push_back(negation);
+                        first_auxiliary_done = true;
+                        out.push_back(w.base);
+                        continue;
+                    }
+                }
+                word = verb_form(w.base, category, time);
+                out.push_back(word);
+                if (negated && !first_auxiliary_done && category == auxiliary_verb) {
+                    out.push_back(negation);
+                    first_auxiliary_done = true;
+                }
+                continue;
+            }
+            if (category == noun) {
+                if (std::ranges::contains(w.marks, plural)) {
+                    word = word_form(w.base, noun, plural, memory);
+                }
+                const Bytes article = article_before(word);
+                if (!article.empty() && (out.empty() || !std::ranges::contains(rules_->articles(), out.back()))) {
+                    out.push_back(article);
+                }
+                out.push_back(word);
+                continue;
+            }
+            for (const Bytes& mark : w.marks) {
+                word = word_form(w.base, category, mark, memory);
+            }
+            out.push_back(word);
+        }
+    };
+    std::vector<Bytes> out;
+    const bool asks = qualification == question;
+    std::vector<std::string_view> sequence(order.begin(), order.end());
+    if (asks) {
+        // A question word leads ("What is the sky?"), else the auxiliary ("Is the sky blue?").
+        std::string_view leading;
+        for (const std::string_view role : order) {
+            const auto found = groups.find(role);
+            if (found != groups.end() && !found->second.empty() &&
+                std::ranges::contains(rules_->question_words(), found->second.front().base)) {
+                leading = role;
+                break;
+            }
+        }
+        if (!leading.empty() && leading != "subject") {
+            sequence = {leading, "subject", "predicate", "object", "attribute", "complement", "modifier", "link", "none"};
+            std::erase(sequence, leading);
+            sequence.insert(sequence.begin(), leading);
+            sequence.insert(sequence.begin() + 1, "predicate");
+            sequence.erase(std::ranges::find(sequence.begin() + 2, sequence.end(), std::string_view{"predicate"}));
+        } else if (leading.empty()) {
+            sequence = {"predicate", "subject", "object", "attribute", "complement", "modifier", "link", "none"};
+        }
+    }
+    // The negation of a verb without an auxiliary when the rules have no
+    // do-support: the negation word before the predicate ("não é").
+    bool has_support = false;
+    for (const auto& [auxiliary, features] : rules_->auxiliaries()) {
+        if (std::ranges::contains(split(features, ';'), support)) {
+            has_support = true;
+            break;
+        }
+    }
+    for (const std::string_view role : sequence) {
+        if (role == "predicate" && negated && !has_support && !negation.empty()) {
+            out.push_back(negation);
+            negated = false;  // placed
+        }
+        render(role, out);
+    }
+    if (out.empty()) {
+        return {};
+    }
+    std::string sentence;
+    for (const Bytes& word : out) {
+        sentence += (sentence.empty() ? "" : " ") + std::string(word.begin(), word.end());
+    }
+    if (sentence[0] >= 'a' && sentence[0] <= 'z') {
+        sentence[0] = static_cast<char>(sentence[0] - 'a' + 'A');
+    }
+    sentence += asks ? "?" : ".";
+    return sentence;
 }
 
 }  // namespace larry

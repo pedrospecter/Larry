@@ -18,8 +18,9 @@ Without libpq the build still works, with the cache alone.
 ## The machine and the cloud
 
 The machine keeps the language: the sentences it has met, the words with
-their categories, types and contexts, the English dictionary
-(`dictionary/en/words.txt`, 192,960 words, always there), and a cache of
+their categories, types and contexts, the dictionary of each language
+(`dictionary/en/words.txt`, 192,960 words from Moby; `dictionary/pt/words.txt`,
+21,391 words from the Bosque treebank; always there), and a cache of
 recent conceptions in `memory/en.atoms`. The cloud, where the conceptions
 live for good, is the PostgreSQL server `LARRY_DB` names. A question is
 answered from the cache at once; what the cache cannot answer, Larry
@@ -107,8 +108,9 @@ round", "forget that ..." (a validator only). The list is in
 
     ./build/larry show "the grass is green"
     ./build/larry compare "the sky is blue" "the sea is blue"
+    ./build/larry compare "The sky isn't blue." "The sky is not blue."   # same meaning yes: equal images (A9, C6)
     ./build/larry ask "Is the sky blue?"       # Yes.
-    ./build/larry ask "What is the sky?"       # The sky is blue.
+    ./build/larry ask "What is the sky?"       # Blue. because: The sky is blue. (G2: what fills the gap)
     ./build/larry ask "the sky is green"       # false, because the sky is blue
     ./build/larry say "The skyy is blue."      # Did you mean "sky"?
     ./build/larry say "Sky are blue."          # I read it as "The sky is blue."
@@ -123,6 +125,7 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry forms skies                 # skies is a form of sky: noun plural, by the ending (A4)
     ./build/larry know sky                    # what Larry knows about a subject, and what it cannot answer (S4)
     ./build/larry say "She went to the kitchen."   # after "Mary went to the garden.": I read it as "Mary went to the kitchen." (A11)
+    ./build/larry say "He is tired."          # after "Sandra ... Daniel ...": Daniel, by the gender of the names in names.txt
     ./build/larry say "A sparrow is a bird."  # bonds sparrow to bird, "is a kind of" (A10); with "A bird is an animal.":
     ./build/larry ask "Is a sparrow an animal?"    # Yes, chained (R4)
     ./build/larry ask "Do robins fly?"        # Probably yes: robins and sparrows are both kinds of bird, and sparrows fly (R8)

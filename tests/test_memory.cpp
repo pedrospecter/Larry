@@ -91,7 +91,7 @@ TEST(store_and_find_round_trip) {
     CHECK(found->description.entities.entities.size() == 4);
     CHECK(found->description.entities.entities[1].word == b("sky"));
     CHECK(found->description.entities.entities[1].category == b("noun"));
-    CHECK(found->description.image.bytes == b("The sky is blue."));
+    CHECK(found->description.image.bytes.empty());  // A9: the image is made again when needed, not stored
     CHECK(!memory.find(sea_blue().metadata).has_value());
 }
 

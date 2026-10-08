@@ -175,6 +175,17 @@ TEST(the_held_out_list_passes) {
     CHECK(failed == 0);
 }
 
+TEST(the_forms_of_a_base_come_back) {
+    // G1, A4 backwards: the irregular pair first, then the endings put on.
+    const larry::Forms f{rules()};
+    CHECK(f.forms_of(b("go"), b("verb"), b("past")).front() == b("went"));  // then "goed", by the ending
+    CHECK(f.forms_of(b("sky"), b("noun"), b("plural")).front() == b("skies"));  // then "skyes", "skys"
+    CHECK(f.forms_of(b("cat"), b("noun"), b("plural")) == (std::vector<Bytes>{b("cates"), b("cats")}));
+    CHECK(f.forms_of(b("love"), b("verb"), b("past")) == (std::vector<Bytes>{b("loved")}));
+    CHECK(f.forms_of(b("child"), b("noun"), b("plural")).front() == b("children"));
+    CHECK(f.forms_of(b("blue"), b("adjective"), b("plural")).empty());
+}
+
 int main() {
     return larry::test::run();
 }

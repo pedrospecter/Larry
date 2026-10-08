@@ -215,15 +215,15 @@ TEST(the_brain_thinks_in_portuguese_rules) {
         (void)brain.remember(atom.description, atom.status, "lesson:pt");  // the bonds of A4 and A10 come with it
     }
     // R1: true, false, unknown, by the Portuguese negation words.
-    CHECK(brain.answer(ops.from_text("O céu é azul.")).text == "true");
-    CHECK(brain.answer(ops.from_text("O céu não é azul.")).text == "false");
-    CHECK(brain.answer(ops.from_text("Os pinguins voam.")).text == "false");
+    CHECK(brain.answer(ops.from_text("O céu é azul.")).text == "verdadeiro");
+    CHECK(brain.answer(ops.from_text("O céu não é azul.")).text == "falso");
+    CHECK(brain.answer(ops.from_text("Os pinguins voam.")).text == "falso");
     // K1: an exclusive attribute from exclusives.txt.
-    CHECK(brain.answer(ops.from_text("O céu é verde.")).text == "false");
+    CHECK(brain.answer(ops.from_text("O céu é verde.")).text == "falso");
     // A10 and R4: the defining sentences of the lesson bond the kinds, and the chain answers.
     CHECK(cache.bonds_from(larry::BondEnd::entity("pardal")).size() >= 1);
     CHECK(brain.chain(b("pardal"), b("animal")) == (std::vector<Bytes>{b("pardal"), b("pássaro"), b("animal")}));
-    CHECK(brain.answer(ops.from_text("Um pardal é um animal?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Um pardal é um animal?")).text == "Sim.");
     // M1: arithmetic in Portuguese words, from arithmetic.txt and number_words.txt.
     CHECK(brain.answer(ops.from_text("Quanto é dois mais três?")).text == "5");
     CHECK(brain.answer(ops.from_text("Quanto é dez vezes dez?")).text == "100");
@@ -231,6 +231,24 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     const larry::Reply heard = brain.hear(ops.from_text("O mar é verde."), "user:pedro");
     CHECK(heard.stored);
     CHECK(cache.count() == 22);
+    // A11 with gender (Q37): "ela" takes the latest feminine name and "ele" the latest
+    // masculine one, from references.txt and names.txt.
+    (void)brain.hear(ops.from_text("A Maria foi ao jardim."), "user:pedro");
+    (void)brain.hear(ops.from_text("O João foi ao escritório."), "user:pedro");
+    const larry::Reply ela = brain.hear(ops.from_text("Ela foi à cozinha."), "user:pedro");
+    CHECK(std::ranges::contains(ela.because, std::string{"read as: A Maria foi à cozinha."}));
+    const larry::Reply ele = brain.hear(ops.from_text("Ele está cansado."), "user:pedro");
+    CHECK(std::ranges::contains(ele.because, std::string{"read as: O João está cansado."}));
+    // A9: the image from the Portuguese files: the article dropped, "é" as "ser".
+    const larry::Description azul = assimilation().describe(ops.from_text("O céu é azul."), &cache);
+    CHECK(std::string(azul.image.bytes.begin(), azul.image.bytes.end()) ==
+          "affirmation | subject: céu | predicate: ser | attribute: azul");
+    CHECK(larry::Cognition{}.same_meaning(azul, assimilation().describe(ops.from_text("Céu é azul."), &cache)).holds);
+    // G1: back from the image with the Portuguese files: the article memory saw,
+    // "ser" as "é", and the negation word before the predicate.
+    CHECK(assimilation().sentence_of(azul.image, &cache) == "O céu é azul.");
+    const larry::Description nao = assimilation().describe(ops.from_text("O céu não é azul."), &cache);
+    CHECK(assimilation().sentence_of(nao.image, &cache) == "O céu não é azul.");
 }
 
 int main() {

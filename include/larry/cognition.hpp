@@ -48,6 +48,7 @@ enum class ComparisonKind : std::uint8_t {
     Alignment = 3,      ///< C3: which entity in one corresponds to which in the other?
     Difference = 4,     ///< C4: where exactly do they differ?
     SameStructure = 5,  ///< C5: the same categories and types in the same order?
+    SameMeaning = 6,    ///< C6: are the images equal?
 };
 
 /// Entity a of the first atom lines up with entity b of the second.
@@ -116,6 +117,10 @@ public:
     /// C5: do they have the same categories and types in the same order? Holds
     /// only when every category is known.
     [[nodiscard]] Comparison same_structure(const Description& a, const Description& b) const;
+
+    /// C6: are the images equal (A9)? Holds when both have an image and the
+    /// images are the same bytes.
+    [[nodiscard]] Comparison same_meaning(const Description& a, const Description& b) const;
 };
 
 }  // namespace larry

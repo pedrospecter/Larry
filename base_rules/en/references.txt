@@ -1,0 +1,12 @@
+# What a pronoun stands for (A11): the pronoun, '=', what it refers to, separated by ';'.
+# "person" takes the latest name, "thing" the latest common noun phrase, "many" the latest
+# plural or joined phrase; "masculine" and "feminine" pick a name of that gender from
+# names.txt (a name the file does not know fits either); "owner" means the word also
+# owns ("her book"), so it refers only when nothing it could own follows.
+6865=706572736f6e3b6d617363756c696e65
+68696d=706572736f6e3b6d617363756c696e65
+736865=706572736f6e3b66656d696e696e65
+686572=706572736f6e3b66656d696e696e653b6f776e6572
+6974=7468696e67
+74686579=6d616e79
+7468656d=6d616e79

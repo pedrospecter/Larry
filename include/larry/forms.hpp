@@ -50,6 +50,15 @@ public:
     /// word has no ending.
     [[nodiscard]] std::optional<Form> by_ending(const Bytes& word) const;
 
+    /// G1, A4 backwards: the words a base may take for a category and a
+    /// feature, in the order to try: the irregular pairs first ("go", verb,
+    /// past: "went"), then each ending of endings.txt that gives that
+    /// category and feature, put on the way the parser takes it off ("sky"
+    /// and "ies": "skies"; "love" and "ed": "loved"; "stop" and "ed":
+    /// "stoped", since the doubling is not undone here). Whoever calls picks
+    /// the one memory or the dictionary knows.
+    [[nodiscard]] std::vector<Bytes> forms_of(const Bytes& base, const Bytes& category, const Bytes& feature) const;
+
 private:
     const BaseRules* rules_;
 };

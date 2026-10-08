@@ -31,6 +31,26 @@ bool in(const std::vector<Bytes>& list, const Bytes& item) {
     return std::ranges::contains(list, item);
 }
 
+// The parts of a rule value ("person;masculine"), split at a separator.
+std::vector<Bytes> split_on(const Bytes& text, std::uint8_t separator) {
+    std::vector<Bytes> out;
+    Bytes current;
+    for (const std::uint8_t b : text) {
+        if (b == separator) {
+            if (!current.empty()) {
+                out.push_back(std::move(current));
+                current.clear();
+            }
+        } else {
+            current.push_back(b);
+        }
+    }
+    if (!current.empty()) {
+        out.push_back(std::move(current));
+    }
+    return out;
+}
+
 // The words of an expansion ("is not"), split at spaces.
 std::vector<Bytes> split_words(const Bytes& text) {
     std::vector<Bytes> out;
@@ -207,6 +227,47 @@ std::vector<StoredAtom> Brain::newest_first() const {
     return out;
 }
 
+ImageElectron Brain::image_of(const StoredAtom& atom) const {
+    const AtomOperations ops;
+    if (!atom.reading.empty()) {
+        return assimilation_.describe(ops.from_text(atom.reading), memory_).image;
+    }
+    return assimilation_.image(atom.description, memory_);
+}
+
+std::string Brain::restate(const StoredAtom& atom) const {
+    const AtomOperations ops;
+    const std::string generated = assimilation_.sentence_of(image_of(atom), memory_);
+    if (!generated.empty()) {
+        return generated;
+    }
+    return std::string{ops.text(atom.description.atom)};
+}
+
+std::string Brain::short_answer(const Description& question, const StoredAtom& atom) const {
+    const AtomOperations ops;
+    std::vector<Bytes> asked;
+    for (const Bytes& word : expanded_words(question)) {
+        asked.push_back(word);
+    }
+    const Description& said = atom.reading.empty() ? atom.description
+                                                   : assimilation_.describe(ops.from_text(atom.reading), memory_);
+    std::string out;
+    for (const Entity& e : said.entities.entities) {
+        if (std::ranges::contains(asked, ops.fold(e.word))) {
+            continue;
+        }
+        out += (out.empty() ? "" : " ") + std::string(e.word.begin(), e.word.end());
+    }
+    if (out.empty()) {
+        return out;
+    }
+    if (out[0] >= 'a' && out[0] <= 'z') {
+        out[0] = static_cast<char>(out[0] - 'a' + 'A');
+    }
+    return out + ".";
+}
+
 Core Brain::thinking_core(const StoredAtom& atom) const {
     if (atom.reading.empty()) {
         return core(atom.description);
@@ -233,7 +294,7 @@ std::optional<Brain::Relation> Brain::relation_in(const Core& form, const Descri
     static const Bytes adjective = bytes_of("adjective");
     static const Bytes verb = bytes_of("verb");
     static const Bytes determiner = bytes_of("determiner");
-    static const std::vector<Bytes> articles = {bytes_of("a"), bytes_of("an"), bytes_of("the")};
+    const std::vector<Bytes>& articles = rules_->articles();
     if (form.words.size() < 3) {
         return std::nullopt;
     }
@@ -331,11 +392,20 @@ std::vector<Bytes> Brain::chain(const Bytes& from, const Bytes& to, int steps) c
     return {};
 }
 
+std::string Brain::say(std::string_view name) const {
+    for (const auto& [key, text] : rules_->replies()) {
+        if (std::string_view{reinterpret_cast<const char*>(key.data()), key.size()} == name) {
+            return std::string(text.begin(), text.end());
+        }
+    }
+    return "[" + std::string{name} + "]";
+}
+
 std::string Brain::Plan::text() const {
     if (steps.empty()) {
-        return "I know no way to " + goal + ".";
+        return no_way;
     }
-    std::string out = "To " + goal + ":";
+    std::string out = heading;
     for (std::size_t i = 0; i < steps.size(); ++i) {
         out += std::format(" {}. {}", i + 1, steps[i]);
     }
@@ -346,6 +416,8 @@ Brain::Plan Brain::plan(std::string_view goal) const {
     const AtomOperations ops;
     Plan out;
     out.goal = std::string{goal};
+    out.no_way = std::vformat(say("no way"), std::make_format_args(out.goal));
+    out.heading = std::vformat(say("to"), std::make_format_args(out.goal));
     const auto lower = [](std::string text) {
         for (char& c : text) {
             c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
@@ -544,7 +616,7 @@ std::vector<Brain::Proposal> Brain::propose() {
     const AtomOperations ops;
     static const Bytes kind_of = bytes_of("is a kind of");
     static const Bytes noun = bytes_of("noun");
-    static const std::vector<Bytes> articles = {bytes_of("a"), bytes_of("an"), bytes_of("the")};
+    const std::vector<Bytes>& articles = rules_->articles();
     std::vector<Proposal> out;
     // The kinds: for each thing, the things that are a kind of it.
     std::map<Bytes, std::vector<Bytes>> members;
@@ -783,10 +855,57 @@ std::optional<Description> Brain::refer(const Description& d) const {
     static const Bytes object_role = bytes_of("object");
     static const Bytes link_role = bytes_of("link");
     static const Bytes plural = bytes_of("plural");
-    static const std::vector<std::string> persons = {"he", "she", "him"};
-    static const std::vector<std::string> things = {"it"};
-    static const std::vector<std::string> plurals = {"they", "them"};
+    static const Bytes person_kind = bytes_of("person");
+    static const Bytes thing_kind = bytes_of("thing");
+    static const Bytes many_kind = bytes_of("many");
+    static const Bytes owner_kind = bytes_of("owner");
+    static const Bytes masculine = bytes_of("masculine");
+    static const Bytes feminine = bytes_of("feminine");
     const std::vector<Entity>& entities = d.entities.entities;
+    // What a pronoun stands for, from references.txt: its kind and, for a
+    // person, the gender of the name it takes.
+    struct Reference {
+        bool person = false;
+        bool thing = false;
+        bool many = false;
+        bool owner = false;
+        Bytes gender;
+    };
+    const auto reference_of = [&](const Bytes& word) -> std::optional<Reference> {
+        for (const auto& [pronoun_word, what] : rules_->references()) {
+            if (pronoun_word != word) {
+                continue;
+            }
+            Reference out;
+            for (const Bytes& part : split_on(what, ';')) {
+                if (part == person_kind) {
+                    out.person = true;
+                } else if (part == thing_kind) {
+                    out.thing = true;
+                } else if (part == many_kind) {
+                    out.many = true;
+                } else if (part == owner_kind) {
+                    out.owner = true;
+                } else if (part == masculine || part == feminine) {
+                    out.gender = part;
+                }
+            }
+            return out;
+        }
+        return std::nullopt;
+    };
+    // The gender of a phrase, from the first of its words names.txt knows
+    // ("O João", "Mary Smith"); empty when the file knows none of them.
+    const auto gender_of = [&](const std::string& phrase) -> Bytes {
+        for (const Bytes& word : split_words(bytes_of(phrase))) {
+            for (const auto& [known, gender] : rules_->names()) {
+                if (known == word) {
+                    return gender;
+                }
+            }
+        }
+        return {};
+    };
     // What a pronoun may stand for, from a conception: its subject phrase and
     // its object phrases, as written, with their kind and number.
     struct Phrase {
@@ -869,18 +988,19 @@ std::optional<Description> Brain::refer(const Description& d) const {
         if (e.category != pronoun) {
             continue;
         }
-        const Bytes folded = ops.fold(e.word);
-        const std::string word(folded.begin(), folded.end());
-        const bool person = std::ranges::contains(persons, word);
-        const bool thing = std::ranges::contains(things, word);
-        const bool many = std::ranges::contains(plurals, word);
-        // "her" refers when nothing it could own follows.
-        const bool her = word == "her" && (i + 1 == entities.size() ||
-                                           (entities[i + 1].category != noun && entities[i + 1].category != adjective &&
-                                            entities[i + 1].category != determiner));
-        if (!person && !thing && !many && !her) {
+        const std::optional<Reference> reference = reference_of(ops.fold(e.word));
+        if (!reference) {
             continue;
         }
+        // A word that also owns ("her book") refers when nothing it could own follows.
+        const bool owns = reference->owner && i + 1 < entities.size() &&
+                          (entities[i + 1].category == noun || entities[i + 1].category == adjective ||
+                           entities[i + 1].category == determiner);
+        if (owns) {
+            continue;
+        }
+        const bool many = reference->many;
+        const bool thing = reference->thing;
         if (!fetched) {
             recent = newest_first();
             fetched = true;
@@ -906,9 +1026,14 @@ std::optional<Description> Brain::refer(const Description& d) const {
             const Description resolved =
                 atom.reading.empty() ? atom.description : assimilation_.describe(ops.from_text(atom.reading), memory_);
             for (const Phrase& phrase : phrases_of(resolved)) {
-                const bool fits = many ? phrase.plural
-                                  : thing ? (!phrase.proper && !phrase.plural)
-                                          : (phrase.proper && !phrase.plural);
+                bool fits = many ? phrase.plural
+                            : thing ? (!phrase.proper && !phrase.plural)
+                                    : (phrase.proper && !phrase.plural);
+                // A gendered pronoun takes a name of its gender, or one nobody knows the gender of.
+                if (fits && !many && !thing && !reference->gender.empty()) {
+                    const Bytes gender = gender_of(phrase.text);
+                    fits = gender.empty() || gender == reference->gender;
+                }
                 if (fits && !std::ranges::contains(own, phrase.text)) {
                     referent = phrase;
                     break;
@@ -1032,7 +1157,7 @@ std::optional<Reply> Brain::state_of(const Description& question) const {
                 }
                 sentence += ".";
                 if (yes_no) {
-                    reply.text = object == place ? "Yes." : "No.";
+                    reply.text = object == place ? say("yes") : say("no");
                     reply.because.push_back(sentence + " (the latest state)");
                 } else {
                     reply.text = sentence;
@@ -2196,7 +2321,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     Reply reply;
     // W3: an order Larry knows how to do, by its words, before anything else.
     if (std::optional<Command> cmd = command(said); cmd && cmd->operation == "request") {
-        reply.text = "I cannot do that yet. I can:";
+        reply.text = say("cannot do");
         for (const std::string& ability : abilities()) {
             if (ability.starts_with("can you") || ability.starts_with("please")) {
                 continue;
@@ -2211,7 +2336,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         for (const std::string& argument : cmd->arguments) {
             what += " \"" + argument + "\"";
         }
-        reply.text = "I can do that: " + what + ".";
+        reply.text = std::vformat(say("can do"), std::make_format_args(what));
         reply.because.push_back(std::format("command: \"{}\" is {}", cmd->pattern, cmd->operation));
         reply.command = std::move(cmd);
         return reply;
@@ -2219,9 +2344,9 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     // M1: a calculation is done, not looked up, and nothing is stored.
     if (const std::optional<Calculation> calc = calculate(sentence)) {
         if (!calc->defined) {
-            reply.text = "That is " + calc->result + ".";
+            reply.text = std::vformat(say("that is"), std::make_format_args(calc->result));
         } else if (calc->comparison) {
-            reply.text = store ? (calc->holds ? "Yes." : "No.") : (calc->holds ? "true" : "false");
+            reply.text = store ? (calc->holds ? say("yes") : say("no")) : (calc->holds ? say("true") : say("false"));
         } else {
             reply.text = calc->result;
         }
@@ -2230,7 +2355,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     }
     const Reading reading = read(said);
     if (!reading.accepted) {
-        reply.text = "I cannot read that";
+        reply.text = say("cannot read");
         for (std::size_t i = 0; i < reading.deviations.size(); ++i) {
             reply.text += (i == 0 ? ": " : "; ") + reading.deviations[i];
         }
@@ -2250,7 +2375,8 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         reply.because.emplace_back("rule: a pronoun stands for the latest thing of its kind said before (A11)");
     }
     if (reading.changed || referred) {
-        reply.text = std::format("I read it as \"{}\". ", ops.text(d.atom));
+        const std::string read_text{ops.text(d.atom)};
+        reply.text = std::vformat(say("read as"), std::make_format_args(read_text));
         reply.because.push_back(std::format("read as: {}", ops.text(d.atom)));
     }
     // K4: what is unusual goes into the reasons; a stored affirmation says it too.
@@ -2269,7 +2395,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         return reply;
     }
     if (qualification == "order") {
-        reply.text += "I cannot do that yet. I can:";
+        reply.text += say("cannot do");
         for (const std::string& ability : abilities()) {
             reply.text += " " + ability + ",";
         }
@@ -2280,13 +2406,13 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     const std::string read_as = reading.changed || referred ? std::string{ops.text(d.atom)} : std::string{};
     if (qualification == "assumption") {
         if (!store) {
-            reply.text += "That is an assumption: I do not judge it.";
+            reply.text += say("assumption not judged");
             reply.because.emplace_back("rule: an assumption is kept apart from the truths");
             return reply;
         }
         remember(said, Status::Proposed, source, read_as);
         reply.stored = true;
-        reply.text += "Noted as an assumption, not as a truth.";
+        reply.text += say("assumption noted");
         reply.because.emplace_back("rule: an assumption is kept apart from the truths");
         return reply;
     }
@@ -2296,11 +2422,25 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         }
         const std::vector<StoredAtom> found = answers(d);
         if (!found.empty()) {
+            // G2: a question with a gap is answered by what fills the gap
+            // ("Blue."); any other by the conception said again from its
+            // image (G1); the conception as stored is what it came from.
+            bool gap = false;
+            for (const Entity& e : d.entities.entities) {
+                if (std::ranges::contains(rules_->question_words(), ops.fold(e.word))) {
+                    gap = true;
+                    break;
+                }
+            }
             for (std::size_t i = 0; i < found.size() && i < 3; ++i) {
                 if (i > 0) {
                     reply.text += ' ';
                 }
-                reply.text += text_of(found[i]);
+                std::string answer = gap ? short_answer(d, found[i]) : std::string{};
+                if (answer.empty()) {
+                    answer = restate(found[i]);
+                }
+                reply.text += answer;
                 reply.because.push_back(text_of(found[i]));
             }
             return reply;
@@ -2308,7 +2448,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         const Verdict verdict = truth(d);
         if (verdict.truth == Truth::Unknown) {
             if (const std::optional<Guess> guess = analogy(d)) {
-                reply.text += guess->yes ? "Probably yes." : "Probably no.";
+                reply.text += guess->yes ? say("probably yes") : say("probably no");
                 reply.because.push_back(guess->reason());
                 reply.because.emplace_back("rule: a guess by analogy is a guess, not a truth (R8)");
                 return reply;
@@ -2316,13 +2456,13 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         }
         switch (verdict.truth) {
         case Truth::True:
-            reply.text += "Yes.";
+            reply.text += say("yes");
             break;
         case Truth::False:
-            reply.text += "No.";
+            reply.text += say("no");
             break;
         case Truth::Unknown:
-            reply.text += "I don't know.";
+            reply.text += say("unknown");
             break;
         }
         for (const StoredAtom& atom : verdict.because) {
@@ -2335,7 +2475,8 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
             reply.because.push_back("nearest: " + text_of(atom));
         }
         if (verdict.truth == Truth::Unknown && !verdict.nearest.empty()) {
-            reply.text += " I know: " + text_of(verdict.nearest.front());
+            const std::string nearest_text = text_of(verdict.nearest.front());
+            reply.text += " " + std::vformat(say("i know colon"), std::make_format_args(nearest_text));
         }
         return reply;
     }
@@ -2345,7 +2486,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     if (!store) {
         if (verdict.truth == Truth::Unknown) {
             if (const std::optional<Guess> guess = analogy(d)) {  // R8
-                reply.text += guess->yes ? "probably true" : "probably false";
+                reply.text += guess->yes ? say("probably true") : say("probably false");
                 reply.because.push_back(guess->reason());
                 reply.because.emplace_back("rule: a guess by analogy is a guess, not a truth (R8)");
                 return reply;
@@ -2353,13 +2494,13 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         }
         switch (verdict.truth) {
         case Truth::True:
-            reply.text += "true";
+            reply.text += say("true");
             break;
         case Truth::False:
-            reply.text += "false";
+            reply.text += say("false");
             break;
         case Truth::Unknown:
-            reply.text += "I don't know";
+            reply.text += say("unknown claim");
             break;
         }
         for (const StoredAtom& atom : verdict.because) {
@@ -2377,7 +2518,8 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
             reply.because.push_back("nearest: " + text_of(atom));
         }
         if (verdict.truth == Truth::Unknown && !verdict.nearest.empty()) {
-            reply.text += ". I know: " + text_of(verdict.nearest.front());
+            const std::string nearest_text = text_of(verdict.nearest.front());
+            reply.text += ". " + std::vformat(say("i know colon"), std::make_format_args(nearest_text));
         }
         return reply;
     }
@@ -2385,8 +2527,8 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     const Stored stored = remember(said, Status::Proposed, source, read_as);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {
-        reply.text += stored == Stored::New ? "I know. " + text_of(verdict.because.front())
-                                           : "I already know that.";
+        const std::string known_text = text_of(verdict.because.front());
+        reply.text += stored == Stored::New ? std::vformat(say("i know"), std::make_format_args(known_text)) : say("already know");
         reply.because.push_back(text_of(verdict.because.front()));
         return reply;
     }
@@ -2410,15 +2552,16 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         if (same_source && earlier.status != Status::Validated) {
             (void)set_status(earlier.description.metadata, Status::Withdrawn,
                              "rule: the later from the same source stands (Q14)");
-            reply.text += "That contradicts what you told me before: " + text_of(earlier) +
-                         " The later stands; I withdrew the earlier.";
+            const std::string earlier_text = text_of(earlier);
+            reply.text += std::vformat(say("contradicts"), std::make_format_args(earlier_text));
             reply.because.push_back("withdrawn: " + text_of(earlier));
             reply.because.emplace_back("rule: from the same source, the later stands and the earlier is withdrawn (Q14, R2)");
             reply.because.emplace_back("bond: conflicts with, recorded (N3)");
             return reply;
         }
-        reply.text += "That conflicts with what I know: " + text_of(earlier) + " I keep both and note the conflict." +
-                      " Which is true: \"" + std::string{ops.text(said.atom)} + "\" or \"" + text_of(earlier) + "\"?";
+        const std::string earlier_text = text_of(earlier);
+        const std::string said_text{ops.text(said.atom)};
+        reply.text += std::vformat(say("conflicts"), std::make_format_args(earlier_text, said_text, earlier_text));
         reply.because.push_back(text_of(earlier));
         reply.because.emplace_back(same_source
                                        ? "rule: a validator decided the earlier; only a validator undoes it (R2b), so Larry asks (G5)"
@@ -2426,7 +2569,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         reply.because.emplace_back("bond: conflicts with, recorded (N3)");
         return reply;
     }
-    reply.text += "Noted.";
+    reply.text += say("noted");
     reply.because.emplace_back("rule: an affirmation is stored as a conception");
     for (const std::string& line : unusual) {
         reply.text += " " + line + ".";
@@ -2437,23 +2580,31 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         const std::string_view word{reinterpret_cast<const char*>(entity.word.data()),
                                     entity.word.size()};
         if (d.notes[i].source == Source::Guess) {
-            reply.text += std::format(" I take \"{}\" as {}{}.", word,
-                                      std::string_view{reinterpret_cast<const char*>(entity.category.data()),
-                                                       entity.category.size()},
-                                      d.notes[i].form.empty() ? std::string{} : ", by its form");
+            const std::string taken_word{word};
+            const std::string taken_category(entity.category.begin(), entity.category.end());
+            const std::string by_form = d.notes[i].form.empty() ? std::string{} : say("by its form");
+            reply.text += " " + std::vformat(say("i take"), std::make_format_args(taken_word, taken_category, by_form));
             if (d.notes[i].form.empty()) {
                 reply.because.emplace_back("rule: an unknown word takes the category of known words in the same context, as a guess (A6)");
             } else {
                 reply.because.emplace_back("rule: " + d.notes[i].form + " (A4)");
             }
+            if (!d.notes[i].near.empty() && !asked) {
+                // A2b: a guessed word one slip from a known one is asked about too.
+                const Bytes& near = d.notes[i].near.front();
+                const std::string near_word(near.begin(), near.end());
+                reply.text += " " + std::vformat(say("did you mean"), std::make_format_args(near_word));
+                reply.because.emplace_back("rule: the dictionary knows a word one slip away (A2b)");
+                asked = true;
+            }
         } else if (d.notes[i].source == Source::Unknown && !asked) {
-            reply.text += std::format(" What is \"{}\"?", word);
+            const std::string asked_word{word};
+            reply.text += " " + std::vformat(say("what is"), std::make_format_args(asked_word));
             reply.because.emplace_back("rule: Larry asks about a word it does not know (A5)");
             if (!d.notes[i].near.empty()) {
                 const Bytes& near = d.notes[i].near.front();
-                reply.text += std::format(" Did you mean \"{}\"?",
-                                          std::string_view{reinterpret_cast<const char*>(near.data()),
-                                                           near.size()});
+                const std::string near_word(near.begin(), near.end());
+                reply.text += " " + std::vformat(say("did you mean"), std::make_format_args(near_word));
                 reply.because.emplace_back("rule: the dictionary knows a word one slip away (A2b)");
             }
             asked = true;

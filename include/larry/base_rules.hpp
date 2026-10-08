@@ -74,6 +74,10 @@ public:
     [[nodiscard]] const std::vector<Bytes>& conjunctions() const noexcept { return conjunctions_; }
 
     /// Words that negate a sentence ("not", "never"), from negation_words.txt.
+    /// articles.txt (A9, A10): the articles, dropped from the image.
+    [[nodiscard]] const std::vector<Bytes>& articles() const noexcept { return articles_; }
+    /// copulas.txt (A7): the verbs after which an adjective or a noun is an attribute of the subject.
+    [[nodiscard]] const std::vector<Bytes>& copulas() const noexcept { return copulas_; }
     [[nodiscard]] const std::vector<Bytes>& negation_words() const noexcept {
         return negation_words_;
     }
@@ -105,10 +109,18 @@ public:
     /// Verb phrases of defining sentences and the bond they leave between the
     /// two things (A10), from relations.txt: "is a" and "is a kind of".
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& relations() const noexcept { return relations_; }
+    /// references.txt (A11): a pronoun and what it stands for ("person;masculine", "thing", "many").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& references() const noexcept { return references_; }
+    /// names.txt (A11, Q37): a first name and its gender ("masculine" or "feminine").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& names() const noexcept { return names_; }
 
     /// Verb phrases that change a state and the state they leave (R3), from
     /// states.txt: "moved to" and "is in", "picked up" and "has".
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& states() const noexcept { return states_; }
+
+    /// What Larry says, in this language (G2, A12), from replies.txt: the
+    /// reply's name and its text, with "{}" for what the brain fills in.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& replies() const noexcept { return replies_; }
 
     /// Pronouns and their features ("first person;singular"), from pronouns.txt.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& pronouns() const noexcept {
@@ -211,12 +223,17 @@ private:
     std::vector<Bytes> assumption_words_;
     std::vector<Bytes> expressions_;
     std::vector<Bytes> negation_words_;
+    std::vector<Bytes> articles_;
+    std::vector<Bytes> copulas_;
     std::vector<std::pair<Bytes, Bytes>> contractions_;
     std::vector<std::pair<Bytes, Bytes>> endings_;
     std::vector<std::pair<Bytes, Bytes>> forms_;
     std::vector<std::pair<Bytes, Bytes>> irregular_;
     std::vector<std::pair<Bytes, Bytes>> states_;
     std::vector<std::pair<Bytes, Bytes>> relations_;
+    std::vector<std::pair<Bytes, Bytes>> references_;
+    std::vector<std::pair<Bytes, Bytes>> names_;
+    std::vector<std::pair<Bytes, Bytes>> replies_;
     std::vector<Bytes> conjunctions_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;
     std::vector<std::pair<Bytes, Bytes>> auxiliaries_;

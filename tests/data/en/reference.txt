@@ -13,3 +13,10 @@ Mary moved to the bathroom. | Afterwards she journeyed to the office. | Afterwar
 Mary went to the garden. | Mary saw her. | same
 Mary went to the garden. | The sky is blue. | same
 | She went to the kitchen. | same
+Mary went to the garden. John went to the office. | She went to the kitchen. | Mary went to the kitchen.
+Sandra went to the office. Daniel went to the hallway. | She is tired. | Sandra is tired.
+Mary went to the garden. John went to the office. | He went to the kitchen. | John went to the kitchen.
+Sandra went to the office. Daniel went to the hallway. | He is tired. | Daniel is tired.
+Alex went to the garden. | She went to the kitchen. | Alex went to the kitchen.
+John went to the garden. Alex went to the office. | She went to the kitchen. | Alex went to the kitchen.
+Mary went to the garden. John went to the office. | He gave her the milk. | John gave Mary the milk.

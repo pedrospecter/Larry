@@ -89,6 +89,8 @@ BaseRules::BaseRules(Language language) : language_(language) {
     assumption_words_ = read(dir / "assumption_words.txt");
     expressions_ = read(dir / "expressions.txt");
     negation_words_ = read(dir / "negation_words.txt");
+    articles_ = read(dir / "articles.txt");
+    copulas_ = read(dir / "copulas.txt");
     conjunctions_ = read(dir / "conjunctions.txt");
     contractions_ = read_pairs(dir / "contractions.txt");
     endings_ = read_pairs(dir / "endings.txt");
@@ -99,6 +101,9 @@ BaseRules::BaseRules(Language language) : language_(language) {
     irregular_ = read_pairs(dir / "irregular.txt");
     states_ = read_pairs(dir / "states.txt");
     relations_ = read_pairs(dir / "relations.txt");
+    replies_ = read_pairs(dir / "replies.txt");
+    references_ = read_pairs(dir / "references.txt");
+    names_ = read_pairs(dir / "names.txt");
     std::ranges::stable_sort(relations_, [](const auto& a, const auto& b) {
         return std::ranges::count(a.first, ' ') > std::ranges::count(b.first, ' ');  // longest phrase first
     });
