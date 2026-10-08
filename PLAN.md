@@ -36,7 +36,7 @@ These names are the user's. Use them as they are and do not rename them.
 | Image electron | The atom's representation. Today it is just the sentence text (Q3). | `ImageElectron` |
 | Metadata electron | The other electrons written out as bytes. It is the key under which the atom is stored and found. Different electrons always give different metadata, and atoms that share leading parts sort next to each other. | `MetadataElectron`, `AtomOperations::metadata` |
 | Constellation | A language. | `Constellation`, `Language` |
-| Base rules | The rules of a language, read from files in `base_rules/<locale>/`. Today they hold the 13 word categories. | `BaseRules` |
+| Base rules | 33 files in `base_rules/en/` and 33 in `base_rules/pt/` (A12): the 13 categories, and the lists the splitter, qualification, types, emotion, arithmetic, units, dates, algebra, states, relations, forms, conjunctions, commands and content read. Rules are data: a line in a file, never a number trained. |
 | Cognition | The process that compares atoms. | `Cognition` |
 | Database | What the brain uses to get information: the cloud, the record of conceptions, PostgreSQL on the user's Raspberry Pi, reached through libpq. `LARRY_DB` names it. | `Database` |
 | Cloud | The user's word for the database: where the conceptions live for good. The machine searches it when the cache has no answer. | `Database`, `Brain::truth`, `Brain::answers` |
@@ -77,7 +77,7 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 7. **Every item lands with tests.** The build and all tests pass before a commit.
 8. **Claim only what was measured.** Write measured numbers in the log. A capability exists when its test passes.
 
-## 4. Where the code stands (2026-10-08, end of the third session: cognition and content, Stages 2d and 2e)
+## 4. Where the code stands (2026-10-08, end of the fourth session: numbers, memory, learning words, the first steps of every track, and Portuguese)
 
 `./build/larry` builds and runs on Linux (GCC 14) with libpq as its only dependency. The machine keeps the cache (`memory/<locale>.atoms`, or `LARRY_MEMORY`); the cloud is the PostgreSQL server `LARRY_DB` names, with `scripts/setup.sh` starting a local one as the stand-in for the user's Raspberry Pi. On first use Larry rebuilds its cache from the lessons and pushes them to the cloud.
 
@@ -96,7 +96,7 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Cloud (N2) | `Database` through libpq (optional: without it Larry builds with the cache alone, `-DLARRY_CLOUD=OFF` does the same): conceptions with status and created time, sources, the word index with context. The brain answers from the cache first, then searches the cloud and caches what it finds; what Larry hears goes to both; `larry sync` pushes what the cloud lacks and pulls its most recent. Measured with the local server: an answer from the cloud 0.09 s, from the cache 0.01 s. |
 | Validation (R2a, R2b) | A conception is proposed until a validator accepts it (`larry validate`, interactive or by id); a withdrawn one is no evidence. Only validators decide: `larry validators add <name>` (anyone adds the first, then only a validator), `LARRY_USER` names who is talking, and the decision records who made it, in the cache and the cloud. A second source never validates by itself: the user asked for this safeguard. |
 | Lessons and rebuild (F7) | 96 sentences in lesson 1. Two rebuilds give the same cache file byte for byte. |
-| Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types now. Not yet stored as bonds (N3). Suites: 104 pairs. |
+| Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types. The results are not stored as bonds yet, though bonds exist (N3): the conflicts (K1), the forms (A4) and the kinds (A10) are. Suites: 104 pairs. |
 | Truth of a concept (R1a, K1) | `larry ask`: true, false or unknown, with the conception and whether it came from the cloud and is still proposed. False too when a conception gives the thing another exclusive attribute ("the sky is green" against "the sky is blue"), naming the rule; number words read as digits. Suite: 53 claims. |
 | Grammar (K2) | `Grammar`: patterns of categories with roles in `grammar.txt` (10 patterns, 6 groups); the roles come from the pattern that fits, else by position; `larry grammar` names the pattern or where the sentence breaks. Validated conceptions add their own patterns. Every lesson fits. Suite: 69 sentences. |
 | Tolerance (K3) | `Tolerance`: a sentence off the grammar is read by the nearest pattern within the allowance in `tolerance.txt` (one deviation per four words, at most two), each deviation named; a noun known only with a determiner gets it back; the predicate is made to agree with its subject. Stored as said, thought with as read. Suite: 33 sentences. |
@@ -106,7 +106,24 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Content (W2) | `Content`: every sentence of content gets a class with a reason (fact, context, question, instruction, speech, heading, reference, fragment), from `content.txt`, the qualification, the grammar and the tolerance; `larry classify`; `larry read` stores the facts alone. Suite: 34 sentences and a fixture article. |
 | Commands (W3) | `commands.txt` maps orders to what Larry can do; `Brain::command`; `larry say` and `larry chat` do them. Suite: 26 orders. |
 | Study (W4) | `Study`: content to proposed facts with their readings, words to learn with where their category came from, and a lesson draft in `lessons/<locale>/drafts/` for the user to correct and teach; `larry study`. |
-| Tests | 16 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`, with clang and libc++, and without libpq. The database and brain tests use a scratch schema of the local server and skip their cloud checks without one. |
+| Tests | 24 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`, with clang and libc++, and without libpq; suites in `tests/data/en/` (arithmetic, dates, algebra, forms, types, reference, analogy and the earlier ones), `tests/data/pt/`, `tests/data/ud/` and `tests/data/babi/`. |
+| Numbers (M1, M2, M3) | `Arithmetic`, `Calendar`, `Algebra`: operator words, fractions, units, dates and equations in one unknown, all from rule files; `larry ask "Solve 2x + 3 = 11"` gives x = 4 and the rule. Suites: 53, 21 and 31 texts. |
+| Benchmarks (F8) | `larry bench [n]`: sentences stored and described per second, lookups, answers, the spread, start-up and bytes per atom; the numbers at ten thousand and a million atoms are in the log. |
+| Bonds and molecules (N3, N4) | `Bond` (kind, two ends, origins) and `Molecule` (a text or a conversation, members in order with who and when), in the cache's log and in the cloud, exchanged by `larry sync`; `larry bonds`, `larry molecules`, `larry molecule`. |
+| Spreading lookup and working memory (N5, N6a) | `Memory::spread`, nearest first through the index and the bonds, bounded (0.62 ms for three steps among a million atoms); the brain's atoms in play answer first, re-read from the cache. `larry near`. |
+| Word forms (A4) | `Forms`: regular endings undone to a known base, irregular pairs in `irregular.txt`, "form of" bonds; an unknown word with a known form takes its category as a guess. Held-out list of 31 words. `larry forms`. |
+| Questions and answers (A5, G5) | `larry read` leaves one question per word Larry could not describe; `larry answer "<sentence>" <word> <category>` teaches it; a conflict Larry cannot settle ends with "Which is true?". |
+| Accuracy on record (A6, Milestone 2) | `larry measure` on the Universal Dependencies English test set: 78.4% of the words right from memory alone after 3,000 taught sentences, 81.8% with the dictionary (`scripts/ud.sh`). |
+| Types suite (A7) | `tests/data/en/types.txt`, 26 sentences labelled by hand, pass with the grammar. |
+| States and the bAbI runner (R3a, F9) | `states.txt` and `Brain::state_of`: "Where is Mary?" from the latest conception that moved her; `larry babi` runs the stories (task 1: 100% of 1,000 questions; tasks 2 to 20 need the files, Q36). |
+| Conflicts by Q14 (R2c) | From the same source the later stands and the earlier is withdrawn by the rule; from different sources both stay, bonded, and Larry asks. A validated conception is never withdrawn by a rule. |
+| Knowing what it knows (S4) | `larry know <word>`: the conceptions by status, the categories, the guessed uses, the conflicts, the bonds, and what Larry cannot answer. |
+| Reference (A11a) | Third-person pronouns stand for the latest thing of their kind said before, as a reading Larry thinks with; suite of 12 cases. Pronouns, number words and conjunctions are categories by the base rules. |
+| Kinds and chains (A10a, R4a, C7a) | `relations.txt`: defining sentences become "is a kind of", "is part of", "is the opposite of" and "means the same as" bonds; `Brain::chain` answers "Is a sparrow an animal?" through two bonds, traced. |
+| Rules from examples, thinking, attention (R5a, S7, S3) | `larry think [seconds]`: conflicts among the conceptions bonded, "Birds fly." proposed as an assumption from two kinds of bird that fly and withdrawn by a counter-example; `larry attention` lists what waits. |
+| Analogy (R8a) | "Do robins fly?" is "Probably yes." from "Sparrows fly." when both are kinds of bird; a guess, never a truth; 9 of 9 on the suite. |
+| Plans (S2a) | `larry plan "<goal>"`: the chain of actions told as "To open the door, turn the key.", six steps at most. |
+| Portuguese (A12a) | `LARRY_LANGUAGE=pt`: the suites of A1 to A7, R1, K1, A10, R4 and M1 pass with the Portuguese files alone; `larry ask "Quanto é dois mais três?"` answers 5. What `src/` still holds of English is listed in Q39. |
 
 ## 5. The design
 
