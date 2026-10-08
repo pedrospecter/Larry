@@ -25,6 +25,10 @@ using larry::Bytes;
 
 namespace {
 
+Bytes b(std::string_view text) {
+    return Bytes(text.begin(), text.end());
+}
+
 const larry::BaseRules& rules() {
     static const larry::BaseRules instance{larry::Language::English};
     return instance;
@@ -566,6 +570,91 @@ TEST(types_emotion) {
     // The first emotion word decides; a marker wins over it.
     CHECK(type_of(assimilation().describe(ops().from_text("Happy and sad."), nullptr)).ends_with("/ joy"));
     CHECK(type_of(assimilation().describe(ops().from_text("I am happy, yeah right."), nullptr)).ends_with("/ sarcasm"));
+}
+
+TEST(a_sentence_comes_back_from_its_image) {
+    // G1: the sentences of the C6 suite, taught into a memory with their
+    // categories, each described, generated from its image and described
+    // again: the image is the same. The generated text is the sentence itself
+    // for the plain ones.
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_generate.atoms";
+    std::filesystem::remove(file);
+    larry::Memory memory{file};
+    std::ifstream in{std::filesystem::path{LARRY_TEST_DATA_DIR} / ".." / "comparisons" / "c6_same_meaning.txt"};
+    CHECK(in.good());
+    std::vector<std::pair<std::string, std::vector<Bytes>>> sentences;
+    for (std::string line; std::getline(in, line);) {
+        if (line.empty() || line.starts_with('#')) {
+            continue;
+        }
+        std::vector<std::string> fields;
+        std::string_view rest = line;
+        while (true) {
+            const std::size_t at = rest.find(" | ");
+            fields.emplace_back(rest.substr(0, at));
+            if (at == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(at + 3);
+        }
+        fields.resize(5);
+        for (const std::size_t which : {1UL, 2UL}) {
+            if (fields[which + 2].empty()) {
+                continue;
+            }
+            std::vector<Bytes> categories;
+            for (std::string_view part = fields[which + 2]; !part.empty();) {
+                const std::size_t comma = part.find(',');
+                std::string_view one = part.substr(0, comma);
+                while (!one.empty() && one.front() == ' ') {
+                    one.remove_prefix(1);
+                }
+                categories.emplace_back(one.begin(), one.end());
+                if (comma == std::string_view::npos) {
+                    break;
+                }
+                part.remove_prefix(comma + 1);
+            }
+            sentences.emplace_back(fields[which], std::move(categories));
+        }
+    }
+    CHECK(sentences.size() >= 30);
+    for (const auto& [text, categories] : sentences) {
+        const larry::Description d = assimilation().describe(ops().from_text(text), &memory, categories);
+        (void)memory.store(d.atom, d.metadata);
+    }
+    int failed = 0;
+    for (const auto& [text, categories] : sentences) {
+        const larry::Description d = assimilation().describe(ops().from_text(text), &memory);
+        const std::string generated = assimilation().sentence_of(d.image, &memory);
+        const larry::Description again = assimilation().describe(ops().from_text(generated), &memory);
+        if (again.image.bytes != d.image.bytes) {
+            ++failed;
+            std::println("G1: \"{}\" gave \"{}\": image \"{}\" became \"{}\"", text, generated,
+                         std::string(d.image.bytes.begin(), d.image.bytes.end()),
+                         std::string(again.image.bytes.begin(), again.image.bytes.end()));
+        }
+    }
+    CHECK(failed == 0);
+    const auto back = [&](std::string_view text) {
+        return assimilation().sentence_of(assimilation().describe(ops().from_text(text), &memory).image, &memory);
+    };
+    CHECK(back("The sky is blue.") == "The sky is blue.");
+    CHECK(back("The sky isn't blue.") == "The sky is not blue.");
+    CHECK(back("Penguins don't fly.") == "Penguins do not fly.");
+    CHECK(back("The children are sleeping.") == "The children are sleeping.");
+    CHECK(back("Mary went to the garden.") == "Mary went to the garden.");
+    CHECK(back("The dog chased the cat.") == "The dog chased the cat.");
+    CHECK(back("The skies are grey.") == "The skies are grey.");
+    CHECK(back("Is the sky blue?") == "Is the sky blue?");
+    CHECK(back("Oh, the sky is blue.") == "The sky is blue.");
+    CHECK(back("The sky was blue.") == "The sky was blue.");
+    // The word forms backwards (A4): the one memory met, else the rules' first.
+    CHECK(assimilation().word_form(b("sky"), b("noun"), b("plural"), &memory) == b("skies"));
+    CHECK(assimilation().word_form(b("child"), b("noun"), b("plural"), &memory) == b("children"));
+    CHECK(assimilation().word_form(b("go"), b("verb"), b("past"), &memory) == b("went"));
+    CHECK(assimilation().word_form(b("love"), b("verb"), b("past"), nullptr) == b("loved"));
+    CHECK(assimilation().word_form(b("blue"), b("adjective"), b("plural"), nullptr) == b("blue"));
 }
 
 int main() {

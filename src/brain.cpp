@@ -235,6 +235,39 @@ ImageElectron Brain::image_of(const StoredAtom& atom) const {
     return assimilation_.image(atom.description, memory_);
 }
 
+std::string Brain::restate(const StoredAtom& atom) const {
+    const AtomOperations ops;
+    const std::string generated = assimilation_.sentence_of(image_of(atom), memory_);
+    if (!generated.empty()) {
+        return generated;
+    }
+    return std::string{ops.text(atom.description.atom)};
+}
+
+std::string Brain::short_answer(const Description& question, const StoredAtom& atom) const {
+    const AtomOperations ops;
+    std::vector<Bytes> asked;
+    for (const Bytes& word : expanded_words(question)) {
+        asked.push_back(word);
+    }
+    const Description& said = atom.reading.empty() ? atom.description
+                                                   : assimilation_.describe(ops.from_text(atom.reading), memory_);
+    std::string out;
+    for (const Entity& e : said.entities.entities) {
+        if (std::ranges::contains(asked, ops.fold(e.word))) {
+            continue;
+        }
+        out += (out.empty() ? "" : " ") + std::string(e.word.begin(), e.word.end());
+    }
+    if (out.empty()) {
+        return out;
+    }
+    if (out[0] >= 'a' && out[0] <= 'z') {
+        out[0] = static_cast<char>(out[0] - 'a' + 'A');
+    }
+    return out + ".";
+}
+
 Core Brain::thinking_core(const StoredAtom& atom) const {
     if (atom.reading.empty()) {
         return core(atom.description);
@@ -2389,11 +2422,25 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         }
         const std::vector<StoredAtom> found = answers(d);
         if (!found.empty()) {
+            // G2: a question with a gap is answered by what fills the gap
+            // ("Blue."); any other by the conception said again from its
+            // image (G1); the conception as stored is what it came from.
+            bool gap = false;
+            for (const Entity& e : d.entities.entities) {
+                if (std::ranges::contains(rules_->question_words(), ops.fold(e.word))) {
+                    gap = true;
+                    break;
+                }
+            }
             for (std::size_t i = 0; i < found.size() && i < 3; ++i) {
                 if (i > 0) {
                     reply.text += ' ';
                 }
-                reply.text += text_of(found[i]);
+                std::string answer = gap ? short_answer(d, found[i]) : std::string{};
+                if (answer.empty()) {
+                    answer = restate(found[i]);
+                }
+                reply.text += answer;
                 reply.because.push_back(text_of(found[i]));
             }
             return reply;

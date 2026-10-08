@@ -90,6 +90,41 @@ std::vector<Form> Forms::candidates(const Bytes& word) const {
     return out;
 }
 
+std::vector<Bytes> Forms::forms_of(const Bytes& base, const Bytes& category, const Bytes& feature) const {
+    std::vector<Bytes> out;
+    for (const auto& [form, value] : rules_->irregular()) {
+        const std::vector<Bytes> parts = split(value, ':');
+        if (parts.size() == 3 && parts[0] == base && parts[1] == category && parts[2] == feature) {
+            out.push_back(form);
+        }
+    }
+    for (const auto& [ending, value] : rules_->endings()) {
+        const std::vector<Bytes> parts = split(value, ':');
+        if (parts.size() != 2 || parts[0] != category || parts[1] != feature || base.empty()) {
+            continue;
+        }
+        const std::string e = text_of(ending);
+        Bytes form;
+        if (e.starts_with("ie")) {
+            if (base.back() != 'y') {
+                continue;  // "skies" is sky + ies: the base ends with y
+            }
+            form.assign(base.begin(), base.end() - 1);
+            form.insert(form.end(), ending.begin(), ending.end());
+        } else if (base.back() == 'e' && e.front() == 'e') {
+            form = base;  // "loved": love + d
+            form.insert(form.end(), ending.begin() + 1, ending.end());
+        } else {
+            form = base;
+            form.insert(form.end(), ending.begin(), ending.end());
+        }
+        if (!std::ranges::contains(out, form)) {
+            out.push_back(std::move(form));
+        }
+    }
+    return out;
+}
+
 std::optional<Form> Forms::base_of(const Bytes& word, const Known& known) const {
     for (const Form& form : candidates(word)) {
         if (form.base == word) {

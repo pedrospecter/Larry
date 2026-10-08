@@ -251,13 +251,13 @@ TEST(hear_answers_questions) {
     CHECK(say("Is the sky green?").text == "No.");  // K1: the sky is blue
     CHECK(say("Is the sky high?").text.starts_with("I don't know."));
     CHECK(say("Is the moon made of cheese?").text == "I don't know.");
-    CHECK(say("What is the sky?").text == "The sky is blue.");
-    CHECK(say("What colour is the sky?").text == "The sky is blue.");
-    CHECK(say("Who is Tom?").text == "Tom is a teacher.");
-    CHECK(say("What is the capital of France?").text == "The capital of France is Paris.");
-    CHECK(say("What is the capital of England?").text == "London is the capital of England.");
-    CHECK(say("What is London?").text == "London is the capital of England.");
-    CHECK(say("Who went to the kitchen?").text == "Mary went to the kitchen.");
+    CHECK(say("What is the sky?").text == "Blue.");  // G2: what fills the gap
+    CHECK(say("What colour is the sky?").text == "Blue.");
+    CHECK(say("Who is Tom?").text == "A teacher.");
+    CHECK(say("What is the capital of France?").text == "Paris.");
+    CHECK(say("What is the capital of England?").text == "London.");
+    CHECK(say("What is London?").text == "The capital of England.");
+    CHECK(say("Who went to the kitchen?").text == "Mary.");
     CHECK(say("Where did Mary go?").text == "I don't know.");
     CHECK(say("What is the door?").text.starts_with("I don't know."));  // "not closed" is no answer
     CHECK(say("What is the sky?").because == (std::vector<std::string>{"The sky is blue."}));
@@ -271,8 +271,8 @@ TEST(answer_replies_to_questions_and_judges_claims_without_storing) {
     CHECK(brain.answer(ops.from_text("Is the sky blue?")).text == "Yes.");
     CHECK(brain.answer(ops.from_text("Is the sky blue?")).because == (std::vector<std::string>{"The sky is blue."}));
     CHECK(brain.answer(ops.from_text("Is the door closed?")).text == "No.");
-    CHECK(brain.answer(ops.from_text("What is the sky?")).text == "The sky is blue.");
-    CHECK(brain.answer(ops.from_text("Who is Tom?")).text == "Tom is a teacher.");
+    CHECK(brain.answer(ops.from_text("What is the sky?")).text == "Blue.");
+    CHECK(brain.answer(ops.from_text("Who is Tom?")).text == "A teacher.");
     CHECK(brain.answer(ops.from_text("Is the moon made of cheese?")).text == "I don't know.");
     // A claim is judged, with the conception and its standing.
     const larry::Reply claim = brain.answer(ops.from_text("The sky is blue."));
@@ -1430,7 +1430,7 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     const larry::Description tom = describe("Tom is a teacher.", {"proper noun", "auxiliary verb", "determiner", "noun"});
     cloud->store(tom.atom, tom.metadata, larry::Status::Proposed, "pi");
     larry::Reply who = brain.hear(ops.from_text("Who is Tom?"));
-    CHECK(who.text == "Tom is a teacher.");
+    CHECK(who.text == "A teacher.");  // G2
     CHECK(cache.find(tom.metadata).has_value());
     const larry::Reply heard = brain.hear(ops.from_text("The sky is wide."));
     CHECK(heard.text == "Noted.");

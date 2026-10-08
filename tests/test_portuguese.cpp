@@ -244,6 +244,11 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     CHECK(std::string(azul.image.bytes.begin(), azul.image.bytes.end()) ==
           "affirmation | subject: céu | predicate: ser | attribute: azul");
     CHECK(larry::Cognition{}.same_meaning(azul, assimilation().describe(ops.from_text("Céu é azul."), &cache)).holds);
+    // G1: back from the image with the Portuguese files: the article memory saw,
+    // "ser" as "é", and the negation word before the predicate.
+    CHECK(assimilation().sentence_of(azul.image, &cache) == "O céu é azul.");
+    const larry::Description nao = assimilation().describe(ops.from_text("O céu não é azul."), &cache);
+    CHECK(assimilation().sentence_of(nao.image, &cache) == "O céu não é azul.");
 }
 
 int main() {
