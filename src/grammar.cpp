@@ -238,8 +238,27 @@ struct Matcher {
     std::vector<Bytes> roles;
     std::size_t furthest = 0;
     std::vector<Bytes> expected;
+    /// K3: how many deviations may still be spent, and the ones spent so far
+    /// on the path being tried.
+    std::size_t budget = 0;
+    std::vector<Slip> slips;
 
     explicit Matcher(std::span<const Bytes> c) : categories(c), roles(c.size()) {}
+
+    /// Spends one deviation on a slip, tries on, and takes it back on failure.
+    bool spend(Slip slip, const std::function<bool()>& on) {
+        if (budget == 0) {
+            return false;
+        }
+        --budget;
+        slips.push_back(std::move(slip));
+        if (on()) {
+            return true;
+        }
+        slips.pop_back();
+        ++budget;
+        return false;
+    }
 
     void expect(std::size_t pos, const Bytes& what) {
         if (pos > furthest) {
@@ -252,13 +271,21 @@ struct Matcher {
     }
 
     bool whole(const Node& body) {
-        return match(body, 0, none, [&](std::size_t pos) {
+        std::function<bool(std::size_t)> at_end = [&](std::size_t pos) {
             if (pos == categories.size()) {
+                return true;
+            }
+            // K3: a word after the pattern's end is extra.
+            if (spend({Slip::Kind::Extra, pos, {}}, [&] {
+                    roles[pos] = none;
+                    return at_end(pos + 1);
+                })) {
                 return true;
             }
             expect(pos, end_of_sentence);
             return false;
-        });
+        };
+        return match(body, 0, none, at_end);
     }
 
     bool match(const Node& node, std::size_t pos, const Bytes& inherited, const Next& next) {
@@ -271,20 +298,56 @@ struct Matcher {
             return true;
         }
         if (node.max == 0 || count < node.max) {
+            // A repetition that takes no word and spends no slip would loop.
+            const std::size_t spent = slips.size();
             return once(node, pos, inherited, [&](std::size_t p) {
-                return p != pos && repeat(node, count + 1, p, inherited, next);
-            });
+                return (p != pos || slips.size() != spent) && repeat(node, count + 1, p, inherited, next);
+            }, count < node.min);
         }
         return false;
     }
 
-    bool once(const Node& node, std::size_t pos, const Bytes& inherited, const Next& next) {
+    bool once(const Node& node, std::size_t pos, const Bytes& inherited, const Next& next,
+              bool required = true) {
         const Bytes& role = node.role.empty() ? inherited : node.role;
         switch (node.kind) {
         case Node::Kind::Place:
             if (pos < categories.size() && contains(node.categories, categories[pos])) {
                 roles[pos] = role;
-                return next(pos + 1);
+                if (next(pos + 1)) {
+                    return true;
+                }
+            }
+            // K3, within the budget: the place is missing from the sentence;
+            // the word is extra and the place is tried at the next one; the
+            // word stands in the place with the wrong category, which costs
+            // two, since it reads a word as what it is not. A place that need
+            // not be there is never missing or wrong.
+            if (budget > 0) {
+                if (required && spend({Slip::Kind::Missing, pos, node.categories.front()},
+                                      [&] { return next(pos); })) {
+                    return true;
+                }
+                if (pos < categories.size()) {
+                    if (spend({Slip::Kind::Extra, pos, {}}, [&] {
+                            roles[pos] = none;
+                            return once(node, pos + 1, inherited, next, required);
+                        })) {
+                        return true;
+                    }
+                    if (required && budget >= 2 &&
+                        spend({Slip::Kind::Wrong, pos, node.categories.front()}, [&] {
+                            --budget;
+                            roles[pos] = role;
+                            if (next(pos + 1)) {
+                                return true;
+                            }
+                            ++budget;
+                            return false;
+                        })) {
+                        return true;
+                    }
+                }
             }
             for (const Bytes& category : node.categories) {
                 expect(pos, category);
@@ -399,6 +462,32 @@ Fit Grammar::fit(std::span<const Bytes> categories, bool question) const {
         }
     }
     out.breaks_at = furthest;
+    return out;
+}
+
+Near Grammar::nearest(std::span<const Bytes> categories, bool question, std::size_t most) const {
+    Near out;
+    if (categories.empty() || std::ranges::any_of(categories, [](const Bytes& c) { return c.empty(); })) {
+        return out;
+    }
+    for (std::size_t budget = 1; budget <= most; ++budget) {
+        for (const bool questions : {question, !question}) {
+            for (const Pattern& pattern : patterns_) {
+                if (pattern.question != questions) {
+                    continue;
+                }
+                Matcher matcher{categories};
+                matcher.budget = budget;
+                if (matcher.whole(pattern.body)) {
+                    out.found = true;
+                    out.pattern = pattern.name;
+                    out.roles = std::move(matcher.roles);
+                    out.slips = std::move(matcher.slips);
+                    return out;
+                }
+            }
+        }
+    }
     return out;
 }
 

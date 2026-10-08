@@ -128,6 +128,13 @@ public:
     /// The Grammar class parses them.
     [[nodiscard]] const std::vector<Bytes>& grammar() const noexcept { return grammar_; }
 
+    /// The tolerance settings, from tolerance.txt (K3): "words per deviation",
+    /// "most deviations", "fill <category>" and "singular <word>" with their
+    /// values. The Tolerance class reads them.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& tolerance() const noexcept {
+        return tolerance_;
+    }
+
     /// Reads one rule file. Throws std::runtime_error when the file cannot be
     /// read or a line is not hex bytes.
     [[nodiscard]] static std::vector<Bytes> read(const std::filesystem::path& file);
@@ -164,6 +171,7 @@ private:
     std::vector<Exclusive> exclusives_;
     std::vector<std::pair<Bytes, Bytes>> number_words_;
     std::vector<Bytes> grammar_;
+    std::vector<std::pair<Bytes, Bytes>> tolerance_;
 };
 
 }  // namespace larry

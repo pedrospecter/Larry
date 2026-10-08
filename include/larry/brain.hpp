@@ -10,6 +10,7 @@
 #include "larry/grammar.hpp"
 #include "larry/memory.hpp"
 #include "larry/sentence.hpp"
+#include "larry/tolerance.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -40,6 +41,13 @@ struct Verdict {
     std::vector<StoredAtom> nearest;
     /// Whether the answer came from the cloud, not from the cache.
     bool from_cloud = false;
+    /// K3: the sentence as Larry read it, when the reading changed what was
+    /// said ("The sky is blue." for "Sky is blue."); empty otherwise.
+    std::string reading;
+    /// K3: the deviations from the grammar, named; and whether they were
+    /// beyond the allowance, so that the claim was not read at all.
+    std::vector<std::string> deviations;
+    bool refused = false;
 };
 
 /// What Larry says back, with what it used to say it (rule 6).
@@ -134,6 +142,11 @@ public:
     /// [?]"; "Who went to the kitchen?" for "[?] went to the kitchen".
     [[nodiscard]] std::vector<StoredAtom> answers(const Description& question) const;
 
+    /// K3: how the brain reads a described sentence: as said when it fits
+    /// the grammar, else by the nearest pattern within the allowance, with
+    /// the deviations named; refused beyond it.
+    [[nodiscard]] Reading read(const Description& said) const;
+
     /// The core of a described sentence.
     [[nodiscard]] Core core(const Description& d) const;
 
@@ -148,6 +161,7 @@ public:
     [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
     [[nodiscard]] Grammar* grammar() const noexcept { return grammar_; }
+    [[nodiscard]] const Tolerance& tolerance() const noexcept { return tolerance_; }
 
     /// K2: adds the pattern of a validated conception to the grammar: its
     /// categories with their roles, named after the sentence. False when
@@ -174,6 +188,7 @@ private:
     const BaseRules* rules_;
     Grammar* grammar_;
     Assimilation assimilation_;
+    Tolerance tolerance_;
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;

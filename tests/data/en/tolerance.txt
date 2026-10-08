@@ -1,0 +1,54 @@
+# K3: sentences read within the tolerance, against a memory that holds the
+# sentences of the test. Fields are separated by " | ": what is expected, and the
+# sentence. The expectation is "as said" (it fits, no deviation), "N as said" (N
+# deviations, nothing to change in the reading), "N <reading>" (N deviations and
+# the sentence as read), or "refused".
+#
+# What fits is read as said.
+as said | The sky is blue.
+as said | Birds fly.
+as said | Is the sky blue?
+as said | Tom has three apples.
+as said | The sky is not green.
+#
+# A noun known only with a determiner before it gets that determiner back; the
+# grammar alone allows "Snow is white", so memory decides. Memory knows what was
+# meant, so this deviation is named but not counted against the allowance.
+1 The sky is blue. | Sky is blue.
+1 Is the sky blue? | Is sky blue?
+1 The door is closed. | Door is closed.
+1 Mary went to the kitchen. | Mary went to kitchen.
+as said | Snow is white.
+as said | Birds fly.
+#
+# A missing auxiliary verb is filled with "is", made to agree at no further cost.
+1 The sky is blue. | The sky blue.
+1 Birds are animals. | Birds animals.
+2 The sky is blue. | Sky blue.
+#
+# An extra word is left out.
+1 The sky is blue. | The the sky is blue.
+1 The sky is blue. | The sky is is blue.
+1 Birds fly. | Birds fly fly.
+as said | The sky is very blue.
+#
+# An auxiliary verb that does not agree with its subject is read as the form that does.
+1 The sky is blue. | The sky are blue.
+1 Birds are animals. | Birds is animals.
+1 Tom has three apples. | Tom have three apples.
+1 Is the sky blue? | Are the sky blue?
+#
+# Two counted deviations need five words or more; a word of the wrong category
+# costs two; an extra word is a cheaper reading than a wrong one.
+2 The sky is blue. | Sky are blue.
+2 The door is closed. | The the door are closed.
+1 The sky is blue. | The sky is blue blue.
+2 Is the sky blue? | Is sky are blue?
+2 The sky is. | Sky is.
+refused | Blue the is sky.
+2 The sky is blue. | The sky is is is blue.
+2 The sky is blue. | Sky is is blue.
+refused | Sky is is.
+#
+# A noun where the grammar takes a thing is read as said.
+as said | The sky is blueness.

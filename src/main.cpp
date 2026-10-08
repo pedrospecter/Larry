@@ -10,6 +10,7 @@
 #include "larry/grammar.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
+#include "larry/tolerance.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -49,7 +50,9 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                was expected there; "grammar" alone lists the
                                patterns
   ask <text>                   is a concept true, false or unknown, from the
-                               conceptions in memory; a yes/no question works
+                               conceptions in memory; a yes/no question works;
+                               a sentence off the grammar is read as meant
+                               within the tolerance, and the reading shown
   say <text>                   hear one sentence and reply: an affirmation is
                                stored, a question answered, an order refused,
                                an assumption noted, an expression returned
@@ -330,6 +333,16 @@ void print(const Larry& larry, const larry::Description& d) {
                  d.category.bytes.size());
     std::println("type          : {} ({} bytes)", as_text(d.type.bytes), d.type.bytes.size());
     std::println("pattern       : {}", d.pattern.empty() ? "none fits; roles by position" : d.pattern);
+    const larry::Reading reading = larry.brain.read(d);
+    std::string tolerance = reading.accepted ? (reading.changed ? std::format("read as \"{}\"", larry.ops.text(reading.meant.atom))
+                                                                : std::string{"as said"})
+                                             : "not read: " + reading.reason;
+    for (const std::string& deviation : reading.deviations) {
+        tolerance += "; " + deviation;
+    }
+    std::println("tolerance     : {} ({} deviation{}, {} counted, {} allowed)", tolerance,
+                 reading.deviations.size(), reading.deviations.size() == 1 ? "" : "s", reading.counted,
+                 reading.allowed);
     std::println("entities      : {}", d.entities.entities.size());
     for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
         const larry::Entity& entity = d.entities.entities[i];
@@ -584,6 +597,12 @@ int run(std::span<const std::string_view> args) {
         }
         for (const larry::StoredAtom& atom : verdict.nearest) {
             std::println("I know: {}", larry.ops.text(atom.description.atom));
+        }
+        if (!verdict.reading.empty()) {
+            std::println("read as: {}", verdict.reading);
+        }
+        for (const std::string& deviation : verdict.deviations) {
+            std::println("{}: {}", verdict.refused ? "not read" : "deviation", deviation);
         }
         return 0;
     }

@@ -56,6 +56,7 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
     : rules_(&rules),
       grammar_(grammar),
       assimilation_(rules, dictionary, grammar),
+      tolerance_(rules, grammar),
       cognition_(),
       memory_(&memory),
       cloud_(cloud) {
@@ -369,8 +370,27 @@ std::vector<Core> Brain::statements(const Description& question) const {
     return out;
 }
 
+Reading Brain::read(const Description& said) const {
+    return tolerance_.read(said, assimilation_, memory_);
+}
+
 Verdict Brain::truth(const Sentence& claim) const {
-    return truth(assimilation_.describe(claim, memory_));
+    const Description said = assimilation_.describe(claim, memory_);
+    const Reading reading = read(said);
+    if (!reading.accepted) {
+        Verdict verdict;
+        verdict.refused = true;
+        verdict.deviations = reading.deviations;
+        verdict.deviations.push_back(reading.reason);
+        return verdict;
+    }
+    Verdict verdict = truth(reading.changed ? reading.meant : said);
+    verdict.deviations = reading.deviations;
+    if (reading.changed) {
+        const AtomOperations ops;
+        verdict.reading = std::string{ops.text(reading.meant.atom)};
+    }
+    return verdict;
 }
 
 Verdict Brain::truth(const Description& claim) const {
@@ -571,27 +591,47 @@ std::vector<StoredAtom> Brain::answers(const Description& question) const {
 
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     const AtomOperations ops;
-    const Description d = assimilation_.describe(sentence, memory_);
+    // What was said is what gets stored; what was meant, by the reading
+    // within the tolerance (K3), is what Larry thinks with.
+    const Description said = assimilation_.describe(sentence, memory_);
+    const Reading reading = read(said);
+    Reply reply;
+    if (!reading.accepted) {
+        reply.text = "I cannot read that";
+        for (std::size_t i = 0; i < reading.deviations.size(); ++i) {
+            reply.text += (i == 0 ? ": " : "; ") + reading.deviations[i];
+        }
+        reply.text += ".";
+        reply.because.push_back("rule: " + reading.reason);
+        return reply;
+    }
+    const Description& d = reading.changed ? reading.meant : said;
+    for (const std::string& deviation : reading.deviations) {
+        reply.because.push_back("deviation: " + deviation);
+    }
+    if (reading.changed) {
+        reply.text = std::format("I read it as \"{}\". ", ops.text(d.atom));
+        reply.because.push_back(std::format("read as: {}", ops.text(d.atom)));
+    }
     const std::string_view qualification{reinterpret_cast<const char*>(d.category.bytes.data()),
                                          d.category.bytes.size()};
     const auto text_of = [&](const StoredAtom& atom) {
         return std::string{ops.text(atom.description.atom)};
     };
-    Reply reply;
     if (qualification == "expression") {
-        reply.text = std::string{ops.text(sentence)};
+        reply.text += std::string{ops.text(sentence)};
         reply.because.emplace_back("rule: an expression is answered in kind");
         return reply;
     }
     if (qualification == "order") {
-        reply.text = "I cannot do that yet.";
+        reply.text += "I cannot do that yet.";
         reply.because.emplace_back("rule: orders wait for S1");
         return reply;
     }
     if (qualification == "assumption") {
-        remember(d, Status::Proposed, source);
+        remember(said, Status::Proposed, source);
         reply.stored = true;
-        reply.text = "Noted as an assumption, not as a truth.";
+        reply.text += "Noted as an assumption, not as a truth.";
         reply.because.emplace_back("rule: an assumption is kept apart from the truths");
         return reply;
     }
@@ -610,13 +650,13 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         const Verdict verdict = truth(d);
         switch (verdict.truth) {
         case Truth::True:
-            reply.text = "Yes.";
+            reply.text += "Yes.";
             break;
         case Truth::False:
-            reply.text = "No.";
+            reply.text += "No.";
             break;
         case Truth::Unknown:
-            reply.text = "I don't know.";
+            reply.text += "I don't know.";
             break;
         }
         for (const StoredAtom& atom : verdict.because) {
@@ -635,16 +675,16 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     // An affirmation: what does memory hold already? (C16, first step)
     const Verdict verdict = truth(d);
-    const Stored stored = remember(d, Status::Proposed, source);
+    const Stored stored = remember(said, Status::Proposed, source);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {
-        reply.text = stored == Stored::New ? "I know. " + text_of(verdict.because.front())
-                                          : "I already know that.";
+        reply.text += stored == Stored::New ? "I know. " + text_of(verdict.because.front())
+                                           : "I already know that.";
         reply.because.push_back(text_of(verdict.because.front()));
         return reply;
     }
     if (verdict.truth == Truth::False) {
-        reply.text = "That conflicts with what I know: " + text_of(verdict.because.front()) +
+        reply.text += "That conflicts with what I know: " + text_of(verdict.because.front()) +
                      " I keep both and note the conflict.";
         reply.because.push_back(text_of(verdict.because.front()));
         for (const std::string& rule : verdict.rules) {
@@ -653,7 +693,7 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
         return reply;
     }
-    reply.text = "Noted.";
+    reply.text += "Noted.";
     reply.because.emplace_back("rule: an affirmation is stored as a conception");
     bool asked = false;
     for (std::size_t i = 0; i < d.notes.size(); ++i) {

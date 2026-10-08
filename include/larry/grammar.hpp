@@ -28,6 +28,30 @@ struct Fit {
     std::vector<Bytes> expected;
 };
 
+/// One way a sentence deviates from a pattern (K3): a place the sentence
+/// misses, a word the pattern has no place for, or a word of the wrong
+/// category where a place is. The last one counts as two deviations.
+struct Slip {
+    enum class Kind { Missing, Extra, Wrong };
+    Kind kind = Kind::Missing;
+    /// The word index: for a missing place, the word it was expected before
+    /// (the number of words when at the end).
+    std::size_t at = 0;
+    /// Missing or Wrong: the category the place expected (its first one).
+    Bytes category;
+};
+
+/// The nearest pattern when none fits (K3).
+struct Near {
+    bool found = false;
+    std::string pattern;
+    /// The role of each word; "none" for an extra word.
+    std::vector<Bytes> roles;
+    /// The deviations, in the order they were found; their cost is the
+    /// budget it took (a wrong word costs two).
+    std::vector<Slip> slips;
+};
+
 /// The grammar of a language: patterns of categories with the role of each
 /// place, read from grammar.txt in the base rules (K2). A pattern is data: a
 /// sequence of places, each a set of categories with a role and a mark
@@ -48,6 +72,13 @@ public:
     /// categories). Empty categories never fit: a word of unknown category
     /// has no place.
     [[nodiscard]] Fit fit(std::span<const Bytes> categories, bool question = false) const;
+
+    /// K3: when nothing fits, the pattern that fits with the fewest
+    /// deviations, up to `most`: the first pattern, in the order fit() tries
+    /// them, that fits with one deviation, else with two, and so on. Not
+    /// found when none fits within `most`.
+    [[nodiscard]] Near nearest(std::span<const Bytes> categories, bool question,
+                               std::size_t most) const;
 
     /// Adds a pattern from an example: the categories as places, one each,
     /// with these roles. The name says where it came from ("example: The sky
