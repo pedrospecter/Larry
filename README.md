@@ -125,3 +125,4 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
     scripts/ud.sh && ./build/larry measure    # A6: accuracy on the Universal Dependencies English test set
+    scripts/babi.sh && ./build/larry babi 1   # the bAbI tasks: task 1 is 100% (R3)

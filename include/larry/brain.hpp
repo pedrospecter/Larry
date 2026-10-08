@@ -242,6 +242,16 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// R3 (first step): the present state a question asks about, from the
+    /// latest conception that set it. "Where is Mary?" is answered by the
+    /// latest "Mary moved to the bathroom." as "Mary is in the bathroom.";
+    /// "Is Mary in the kitchen?" by yes or no against that state. The verbs
+    /// that change a state and the state they leave are in states.txt. The
+    /// conceptions are searched newest first: the molecule being heard, then
+    /// the atoms in play, then the cache. Nothing when the question is not
+    /// about a state or no conception set one.
+    [[nodiscard]] std::optional<Reply> state_of(const Description& question) const;
+
     /// A5: a question Larry asks about a word it cannot describe from
     /// memory: unknown, open between categories, or guessed.
     struct Question {

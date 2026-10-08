@@ -954,6 +954,31 @@ TEST(questions_are_asked_once_per_unknown_word_and_answers_teach) {
     CHECK(brain.teach(ops.from_text("The zorp is blue."), "zorp", "noun", "user:pedro") == larry::Stored::Same);
 }
 
+TEST(the_latest_state_answers_where_and_is_in) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_states.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    CHECK(brain.answer(ops.from_text("Where is Mary?")).text == "I don't know.");
+    (void)brain.hear(ops.from_text("Mary moved to the bathroom."), "user:pedro");
+    (void)brain.hear(ops.from_text("John went to the hallway."), "user:pedro");
+    const larry::Reply where = brain.answer(ops.from_text("Where is Mary?"));
+    CHECK(where.text == "Mary is in the bathroom.");
+    CHECK(std::ranges::any_of(where.because, [](const std::string& b) { return b.starts_with("rule: \"moved to\" leaves the state \"is in\""); }));
+    CHECK(brain.answer(ops.from_text("Where is John?")).text == "John is in the hallway.");
+    // A change: the latest stands, the earlier stays in memory.
+    (void)brain.hear(ops.from_text("Mary went to the kitchen."), "user:pedro");
+    CHECK(brain.answer(ops.from_text("Where is Mary?")).text == "Mary is in the kitchen.");
+    CHECK(brain.answer(ops.from_text("Is Mary in the kitchen?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Is Mary in the bathroom?")).text == "No.");
+    CHECK(brain.answer(ops.from_text("Is John in the hallway?")).text == "Yes.");
+    CHECK(cache.count() == 3);
+    // Not a state: the usual way.
+    CHECK(brain.answer(ops.from_text("Where is the sky?")).text == "I don't know.");
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";

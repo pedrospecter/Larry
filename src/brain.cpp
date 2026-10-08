@@ -4,6 +4,7 @@
 #include "larry/grammar.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <ctime>
 #include <format>
@@ -162,6 +163,116 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
         }
     }
     return stored;
+}
+
+std::optional<Reply> Brain::state_of(const Description& question) const {
+    const AtomOperations ops;
+    const std::vector<Bytes> words = expanded_words(question);
+    static const Bytes where = bytes_of("where");
+    static const std::vector<Bytes> copulas = {bytes_of("is"), bytes_of("are"), bytes_of("was"), bytes_of("were")};
+    static const Bytes in_word = bytes_of("in");
+    if (words.size() < 3) {
+        return std::nullopt;
+    }
+    // The shape: "where is X", or "is X in Y".
+    std::vector<Bytes> subject;
+    std::vector<Bytes> place;
+    bool yes_no = false;
+    if (words[0] == where && std::ranges::contains(copulas, words[1])) {
+        subject.assign(words.begin() + 2, words.end());
+    } else if (std::ranges::contains(copulas, words[0])) {
+        const auto at = std::ranges::find(words.begin() + 1, words.end(), in_word);
+        if (at == words.end() || at == words.begin() + 1 || at + 1 == words.end()) {
+            return std::nullopt;
+        }
+        subject.assign(words.begin() + 1, at);
+        place.assign(at + 1, words.end());
+        yes_no = true;
+    } else {
+        return std::nullopt;
+    }
+    // The conceptions newest first: the molecule being heard, the atoms in play, the cache.
+    std::vector<StoredAtom> newest_first;
+    std::vector<Bytes> seen;
+    const auto consider = [&](const StoredAtom& atom) {
+        if (std::ranges::contains(seen, atom.description.metadata.bytes)) {
+            return;
+        }
+        seen.push_back(atom.description.metadata.bytes);
+        newest_first.push_back(atom);
+    };
+    if (!molecule_.empty()) {
+        if (const std::optional<Molecule> m = memory_->molecule(molecule_)) {
+            for (auto it = m->members.rbegin(); it != m->members.rend(); ++it) {
+                if (const std::optional<StoredAtom> atom = memory_->find_identity(it->identity)) {
+                    consider(*atom);
+                }
+            }
+        }
+    }
+    for (const StoredAtom& atom : working_) {
+        if (const std::optional<StoredAtom> fresh = memory_->find(atom.description.metadata)) {
+            consider(*fresh);
+        }
+    }
+    const std::vector<StoredAtom> all = memory_->all();
+    for (auto it = all.rbegin(); it != all.rend(); ++it) {
+        consider(*it);
+    }
+    // The latest conception that sets a state of the subject.
+    for (const StoredAtom& atom : newest_first) {
+        if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn) {
+            continue;
+        }
+        const Core stored = core(atom.description);
+        if (stored.negated) {
+            continue;
+        }
+        for (const auto& [phrase, state] : rules_->states()) {
+            const std::vector<Bytes> parts = split_words(phrase);
+            if (parts.empty() || stored.words.size() < parts.size() + 2) {
+                continue;
+            }
+            for (std::size_t p = 1; p + parts.size() < stored.words.size(); ++p) {
+                if (!std::equal(parts.begin(), parts.end(), stored.words.begin() + static_cast<std::ptrdiff_t>(p))) {
+                    continue;
+                }
+                const std::vector<Bytes> who(stored.words.begin(), stored.words.begin() + static_cast<std::ptrdiff_t>(p));
+                if (who != subject) {
+                    continue;
+                }
+                const std::vector<Bytes> object(stored.words.begin() + static_cast<std::ptrdiff_t>(p + parts.size()), stored.words.end());
+                const std::string state_text(state.begin(), state.end());
+                if (!state_text.starts_with("is in")) {
+                    continue;  // a state that is no place: not what "where" asks
+                }
+                Reply reply;
+                std::string sentence;
+                for (const Bytes& w : subject) {
+                    sentence += (sentence.empty() ? "" : " ") + std::string(w.begin(), w.end());
+                }
+                sentence += " " + state_text;
+                for (const Bytes& w : object) {
+                    sentence += " " + std::string(w.begin(), w.end());
+                }
+                if (!sentence.empty()) {
+                    sentence[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(sentence[0])));
+                }
+                sentence += ".";
+                if (yes_no) {
+                    reply.text = object == place ? "Yes." : "No.";
+                    reply.because.push_back(sentence + " (the latest state)");
+                } else {
+                    reply.text = sentence;
+                }
+                reply.because.push_back(std::string{ops.text(atom.description.atom)});
+                reply.because.push_back("rule: \"" + std::string(phrase.begin(), phrase.end()) + "\" leaves the state \"" +
+                                        state_text + "\"; the latest conception stands (R3)");
+                return reply;
+            }
+        }
+    }
+    return std::nullopt;
 }
 
 std::vector<Brain::Question> Brain::questions(const Description& d) const {
@@ -1282,6 +1393,9 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         return reply;
     }
     if (qualification == "question") {
+        if (std::optional<Reply> state = state_of(d)) {
+            return *state;  // R3: the present state, from the latest conception that set it
+        }
         const std::vector<StoredAtom> found = answers(d);
         if (!found.empty()) {
             for (std::size_t i = 0; i < found.size() && i < 3; ++i) {

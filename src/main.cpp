@@ -1,6 +1,7 @@
 #include "larry/assimilation.hpp"
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/babi.hpp"
 #include "larry/bench.hpp"
 #include "larry/measure.hpp"
 #include "larry/brain.hpp"
@@ -145,6 +146,9 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                n training sentences (100 300 1000 3000 all),
                                from memory alone and with the dictionary; the
                                treebank comes from scripts/ud.sh
+  babi [task]                  the bAbI tasks (Weston and others, 2015): each
+                               story heard, its questions answered and judged;
+                               one task, or every task scripts/babi.sh fetched
   bench [n]                    measure Larry with n generated atoms (10000) in a
                                scratch file: sentences stored and described per
                                second, lookups per second, the time to answer,
@@ -770,6 +774,65 @@ int run(std::span<const std::string_view> args) {
                                [](std::string_view what) { std::println(stderr, "larry: {}", what); });
             for (const larry::Score& score : curve) {
                 std::println("  {}", score.text());
+            }
+        }
+        return 0;
+    }
+    if (command == "babi") {
+        const std::filesystem::path dir = std::filesystem::path{LARRY_CONTENT_DIR} / "babi";
+        // The original files, when the user has them: content/babi/en/qa<task>_*_test.txt.
+        const auto text_file = [&](int task) -> std::filesystem::path {
+            const std::filesystem::path en = dir / "en";
+            if (std::filesystem::is_directory(en)) {
+                for (const auto& entry : std::filesystem::directory_iterator{en}) {
+                    const std::string name = entry.path().filename().string();
+                    if (name.starts_with(std::format("qa{}_", task)) && name.ends_with("_test.txt")) {
+                        return entry.path();
+                    }
+                }
+            }
+            return {};
+        };
+        std::vector<int> tasks;
+        if (!rest.empty()) {
+            tasks.push_back(std::stoi(std::string{rest[0]}));
+        } else {
+            for (int task = 1; task <= 20; ++task) {
+                if (std::filesystem::exists(dir / std::format("qa{}_test_0.json", task)) || !text_file(task).empty()) {
+                    tasks.push_back(task);
+                }
+            }
+        }
+        if (tasks.empty()) {
+            throw std::runtime_error("babi needs the stories: run scripts/babi.sh first");
+        }
+        const larry::BaseRules rules{larry::Language::English};
+        for (const int task : tasks) {
+            std::vector<larry::BabiStory> stories;
+            if (const std::filesystem::path text = text_file(task); !text.empty()) {
+                stories = larry::read_babi_text(text);
+            }
+            for (const int offset : {0, 100}) {
+                if (!stories.empty()) {
+                    break;
+                }
+                const std::filesystem::path file = dir / std::format("qa{}_test_{}.json", task, offset);
+                if (std::filesystem::exists(file)) {
+                    std::vector<larry::BabiStory> page = larry::read_babi(file);
+                    stories.insert(stories.end(), page.begin(), page.end());
+                }
+            }
+            if (stories.empty()) {
+                std::println("task {}: no stories under {}; run scripts/babi.sh, or put the original "
+                             "tasks_1-20_v1-2/en/*.txt files under {}/en/", task, dir.string(), dir.string());
+                continue;
+            }
+            const larry::BabiResult result =
+                larry::run_babi(rules, task, stories, std::filesystem::temp_directory_path() / "larry_babi.atoms",
+                                [](std::string_view what) { std::println(stderr, "larry: {}", what); });
+            std::println("{}", result.text());
+            for (const std::string& miss : result.misses) {
+                std::println("  miss: {}", miss);
             }
         }
         return 0;
