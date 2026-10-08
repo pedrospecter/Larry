@@ -110,6 +110,10 @@ public:
     /// states.txt: "moved to" and "is in", "picked up" and "has".
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& states() const noexcept { return states_; }
 
+    /// What Larry says, in this language (G2, A12), from replies.txt: the
+    /// reply's name and its text, with "{}" for what the brain fills in.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& replies() const noexcept { return replies_; }
+
     /// Pronouns and their features ("first person;singular"), from pronouns.txt.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& pronouns() const noexcept {
         return pronouns_;
@@ -217,6 +221,7 @@ private:
     std::vector<std::pair<Bytes, Bytes>> irregular_;
     std::vector<std::pair<Bytes, Bytes>> states_;
     std::vector<std::pair<Bytes, Bytes>> relations_;
+    std::vector<std::pair<Bytes, Bytes>> replies_;
     std::vector<Bytes> conjunctions_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;
     std::vector<std::pair<Bytes, Bytes>> auxiliaries_;

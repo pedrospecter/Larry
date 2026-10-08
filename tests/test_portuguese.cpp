@@ -215,15 +215,15 @@ TEST(the_brain_thinks_in_portuguese_rules) {
         (void)brain.remember(atom.description, atom.status, "lesson:pt");  // the bonds of A4 and A10 come with it
     }
     // R1: true, false, unknown, by the Portuguese negation words.
-    CHECK(brain.answer(ops.from_text("O céu é azul.")).text == "true");
-    CHECK(brain.answer(ops.from_text("O céu não é azul.")).text == "false");
-    CHECK(brain.answer(ops.from_text("Os pinguins voam.")).text == "false");
+    CHECK(brain.answer(ops.from_text("O céu é azul.")).text == "verdadeiro");
+    CHECK(brain.answer(ops.from_text("O céu não é azul.")).text == "falso");
+    CHECK(brain.answer(ops.from_text("Os pinguins voam.")).text == "falso");
     // K1: an exclusive attribute from exclusives.txt.
-    CHECK(brain.answer(ops.from_text("O céu é verde.")).text == "false");
+    CHECK(brain.answer(ops.from_text("O céu é verde.")).text == "falso");
     // A10 and R4: the defining sentences of the lesson bond the kinds, and the chain answers.
     CHECK(cache.bonds_from(larry::BondEnd::entity("pardal")).size() >= 1);
     CHECK(brain.chain(b("pardal"), b("animal")) == (std::vector<Bytes>{b("pardal"), b("pássaro"), b("animal")}));
-    CHECK(brain.answer(ops.from_text("Um pardal é um animal?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Um pardal é um animal?")).text == "Sim.");
     // M1: arithmetic in Portuguese words, from arithmetic.txt and number_words.txt.
     CHECK(brain.answer(ops.from_text("Quanto é dois mais três?")).text == "5");
     CHECK(brain.answer(ops.from_text("Quanto é dez vezes dez?")).text == "100");

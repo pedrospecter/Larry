@@ -285,6 +285,8 @@ public:
         std::string goal;
         std::vector<std::string> steps;      ///< In order, the goal last.
         std::vector<StoredAtom> because;     ///< The action conceptions used.
+        std::string no_way;                  ///< What to say with no steps, in the language.
+        std::string heading;                 ///< "To <goal>:" in the language.
         [[nodiscard]] std::string text() const;
     };
     [[nodiscard]] Plan plan(std::string_view goal) const;
@@ -464,6 +466,11 @@ public:
         notice_ = std::move(on_notice);
         last_notice_.clear();
     }
+
+    /// G2, A12: what Larry says, by the name of the reply in replies.txt of
+    /// the constellation ("yes", "unknown", "read as"); "[name]" when the
+    /// file lacks it. The texts with "{}" are filled with std::vformat.
+    [[nodiscard]] std::string say(std::string_view name) const;
 
     [[nodiscard]] Memory& memory() const noexcept { return *memory_; }
     [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
