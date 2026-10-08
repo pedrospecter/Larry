@@ -127,6 +127,14 @@ public:
     /// expression is answered in kind.
     [[nodiscard]] Reply hear(const Sentence& sentence, std::string_view source = "user");
 
+    /// Answers a question or judges a claim, and stores nothing: what `larry
+    /// ask` does. A question gets yes, no, the conception that fills its gap
+    /// or "I don't know"; a claim gets true, false or I don't know; an
+    /// assumption is not judged, an order not done, an expression returned.
+    /// The reply carries the conceptions and rules it came from, the reading
+    /// of the sentence when it deviated, and what is unusual in it.
+    [[nodiscard]] Reply answer(const Sentence& sentence);
+
     /// Stores a conception in the cache and, when there is a cloud, in the
     /// cloud. What the cache says about it is the result. It stays proposed:
     /// only a validator decides (R2, first step, the user's safeguard). A
@@ -222,6 +230,9 @@ public:
     [[nodiscard]] const Cognition& cognition() const noexcept { return cognition_; }
 
 private:
+    /// hear() with a source and answer() without one: the one loop, which
+    /// stores what it hears only when `store` is set.
+    [[nodiscard]] Reply respond(const Sentence& sentence, std::string_view source, bool store);
     [[nodiscard]] std::vector<Bytes> expanded_words(const Description& d) const;
     [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
     /// The exclusive group two different words share, or empty: "colour".

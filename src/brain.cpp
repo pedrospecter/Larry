@@ -710,6 +710,14 @@ std::vector<StoredAtom> Brain::answers(const Description& question) const {
 }
 
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
+    return respond(sentence, source, true);
+}
+
+Reply Brain::answer(const Sentence& sentence) {
+    return respond(sentence, "", false);
+}
+
+Reply Brain::respond(const Sentence& sentence, std::string_view source, bool store) {
     const AtomOperations ops;
     // What was said is what gets stored; what was meant, by the reading
     // within the tolerance (K3), is what Larry thinks with.
@@ -755,6 +763,11 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     const std::string read_as = reading.changed ? std::string{ops.text(d.atom)} : std::string{};
     if (qualification == "assumption") {
+        if (!store) {
+            reply.text += "That is an assumption: I do not judge it.";
+            reply.because.emplace_back("rule: an assumption is kept apart from the truths");
+            return reply;
+        }
         remember(said, Status::Proposed, source, read_as);
         reply.stored = true;
         reply.text += "Noted as an assumption, not as a truth.";
@@ -799,8 +812,41 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         }
         return reply;
     }
-    // An affirmation: what does memory hold already? (C16, first step)
+    // A claim to judge, when nothing is stored: true, false or I don't know,
+    // with the conception, its standing, the rule and the nearest conceptions.
     const Verdict verdict = truth(d);
+    if (!store) {
+        switch (verdict.truth) {
+        case Truth::True:
+            reply.text += "true";
+            break;
+        case Truth::False:
+            reply.text += "false";
+            break;
+        case Truth::Unknown:
+            reply.text += "I don't know";
+            break;
+        }
+        for (const StoredAtom& atom : verdict.because) {
+            reply.because.push_back(
+                (verdict.from_cloud ? "cloud: " : "") + text_of(atom) +
+                (atom.status == Status::Proposed  ? " (proposed)"
+                 : atom.status == Status::Withdrawn ? " (withdrawn)"
+                 : atom.decided_by.empty()          ? ""
+                                                    : std::format(" (validated by {})", atom.decided_by)));
+        }
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
+        }
+        for (const StoredAtom& atom : verdict.nearest) {
+            reply.because.push_back("nearest: " + text_of(atom));
+        }
+        if (verdict.truth == Truth::Unknown && !verdict.nearest.empty()) {
+            reply.text += ". I know: " + text_of(verdict.nearest.front());
+        }
+        return reply;
+    }
+    // An affirmation: what does memory hold already? (C16, first step)
     const Stored stored = remember(said, Status::Proposed, source, read_as);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {

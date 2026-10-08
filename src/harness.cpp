@@ -127,7 +127,12 @@ std::vector<Relation> Harness::relations(const Description& d) const {
         folded.push_back(ops.fold(e.word));
     }
     std::vector<Relation> out;
+    // A question word stands for what is asked ("Who went?"): no relation of its own.
     const auto add = [&](std::string_view kind, std::size_t head, std::size_t dependent) {
+        if (std::ranges::contains(rules_->question_words(), folded[head]) ||
+            std::ranges::contains(rules_->question_words(), folded[dependent])) {
+            return;
+        }
         out.push_back(Relation{bytes_of(kind), folded[head], folded[dependent], head, dependent});
     };
     // The heads: the first thing with the subject role, the first verb (else

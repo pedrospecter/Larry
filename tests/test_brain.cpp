@@ -262,6 +262,35 @@ TEST(hear_answers_questions) {
     CHECK(say("What is the sky?").because == (std::vector<std::string>{"The sky is blue."}));
 }
 
+TEST(answer_replies_to_questions_and_judges_claims_without_storing) {
+    const larry::Memory& memory = hearing_brain().memory();
+    const larry::AtomOperations ops;
+    larry::Brain& brain = hearing_brain();
+    const std::int64_t before = memory.count();
+    CHECK(brain.answer(ops.from_text("Is the sky blue?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Is the sky blue?")).because == (std::vector<std::string>{"The sky is blue."}));
+    CHECK(brain.answer(ops.from_text("Is the door closed?")).text == "No.");
+    CHECK(brain.answer(ops.from_text("What is the sky?")).text == "The sky is blue.");
+    CHECK(brain.answer(ops.from_text("Who is Tom?")).text == "Tom is a teacher.");
+    CHECK(brain.answer(ops.from_text("Is the moon made of cheese?")).text == "I don't know.");
+    // A claim is judged, with the conception and its standing.
+    const larry::Reply claim = brain.answer(ops.from_text("The sky is blue."));
+    CHECK(claim.text == "true");
+    CHECK(claim.because == (std::vector<std::string>{"The sky is blue. (proposed)"}));
+    CHECK(!claim.stored);
+    const larry::Reply wrong = brain.answer(ops.from_text("The door is closed."));
+    CHECK(wrong.text == "false");
+    CHECK(std::ranges::contains(wrong.because, std::string{"The door is not closed. (proposed)"}));
+    const larry::Reply unknown = brain.answer(ops.from_text("Mary went to the garden."));
+    CHECK(unknown.text == "I don't know. I know: Mary went to the kitchen.");
+    CHECK(std::ranges::contains(unknown.because, std::string{"nearest: Mary went to the kitchen."}));
+    // The rest is answered in kind, and nothing is stored.
+    CHECK(brain.answer(ops.from_text("Suppose the sky is red.")).text == "That is an assumption: I do not judge it.");
+    CHECK(brain.answer(ops.from_text("Close the door.")).text == "I cannot do that yet.");
+    CHECK(brain.answer(ops.from_text("Hello!")).text == "Hello!");
+    CHECK(memory.count() == before);
+}
+
 TEST(hear_stores_affirmations_and_checks_novelty) {
     const larry::Memory& memory = hearing_brain().memory();
     const std::int64_t before = memory.count();

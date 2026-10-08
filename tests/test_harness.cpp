@@ -153,6 +153,7 @@ TEST(relations_come_from_the_roles) {
     CHECK(relations("Is the sky blue?") == (std::vector<std::string>{"blue, attribute of sky"}));
     CHECK(relations("Hello.").empty());
     CHECK(relations("What is the sky?").empty());  // the attribute is what is asked
+    CHECK(relations("Who went to the kitchen?") == (std::vector<std::string>{"kitchen, complement of to"}));
     CHECK(relations("The sky is not blue.").empty());  // a negation says what is not
     CHECK(relations("Penguins do not fly.").empty());
     CHECK(relations("Tom is a teacher.") == (std::vector<std::string>{"teacher, attribute of tom"}));
