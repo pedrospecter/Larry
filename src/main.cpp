@@ -669,6 +669,9 @@ std::string execute(Larry& larry, const larry::Command& command) {
     };
     const std::string& op = command.operation;
     std::string out;
+    if (op == "cannot") {
+        return {};  // denied with the reason already; nothing to run
+    }
     if (op == "search") {
         const larry::Web web{larry.constellation.language()};
         show_notice("asking Wikipedia for \"" + argument(0) + "\"");
@@ -724,6 +727,34 @@ std::string execute(Larry& larry, const larry::Command& command) {
         const larry::StudyReport report = study(larry, argument(0));
         for (const std::string& line : report.lines()) {
             out += (out.empty() ? "" : "\n") + line;
+        }
+        return out;
+    }
+    if (op == "confirm") {
+        // The claim, or the latest affirmation heard in this conversation
+        // ("confirm this"), judged against what Larry holds; nothing stored.
+        std::string claim = argument(0);
+        std::string folded = claim;
+        for (char& c : folded) {
+            c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        }
+        if (folded == "this" || folded == "that" || folded == "it" || folded.starts_with("this ") || folded.starts_with("that ")) {
+            claim.clear();
+            for (const larry::StoredAtom& atom : larry.memory.recent(20)) {
+                if (as_text(atom.description.category.bytes) == "affirmation" && atom.status != larry::Status::Withdrawn &&
+                    std::ranges::any_of(atom.sources, [&](const std::string& src) { return src.starts_with("user:") || src.starts_with("chat:"); })) {
+                    claim = std::string{larry.ops.text(atom.description.atom)};
+                    break;
+                }
+            }
+            if (claim.empty()) {
+                return "I have nothing to confirm: tell me the claim.";
+            }
+        }
+        const larry::Reply judged = larry.brain.answer(larry.ops.from_text(claim));
+        out = std::format("\"{}\": {}", claim, judged.text);
+        for (const std::string& because : judged.because) {
+            out += "\n  because: " + because;
         }
         return out;
     }
@@ -1413,7 +1444,10 @@ int run(std::span<const std::string_view> args) {
             std::println("  because: {}", because);
         }
         if (reply.command) {
-            std::println("{}", execute(larry, *reply.command));
+            const std::string done = execute(larry, *reply.command);
+            if (!done.empty()) {
+                std::println("{}", done);
+            }
         }
         return 0;
     }
@@ -1460,6 +1494,13 @@ int run(std::span<const std::string_view> args) {
                 last = brain.hear(sentence, "user:" + larry.user);
                 std::print("Larry: ");
                 stream(last.text);
+                if (last.command && last.command->operation == "cannot") {
+                    // One request per line: what follows a denied request goes with it.
+                    if (&sentence != &sentences.back()) {
+                        std::println("Larry: {}", brain.say("the rest"));
+                    }
+                    break;
+                }
                 if (last.command) {
                     try {
                         const std::string done = execute(larry, *last.command);

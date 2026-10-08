@@ -333,6 +333,16 @@ std::optional<std::string> Brain::goal_of(const Description& order) const {
     if (order.entities.entities.size() < 2 || rules_->copulas().empty()) {
         return std::nullopt;
     }
+    // The thing has to be known: every word of it with a category in memory,
+    // and no more than a few words; else the order is beyond a goal of this shape.
+    if (order.entities.entities.size() > 5) {
+        return std::nullopt;
+    }
+    for (std::size_t i = 1; i < order.entities.entities.size(); ++i) {
+        if (memory_->categories_of(ops.fold(order.entities.entities[i].word)).empty()) {
+            return std::nullopt;
+        }
+    }
     const Bytes base = ops.fold(first.word);
     Bytes participle = assimilation_.word_form(base, verb, bytes_of("participle"), memory_);
     if (participle == base) {
@@ -1234,6 +1244,11 @@ std::optional<Description> Brain::refer(const Description& d) const {
         }
         const std::optional<Reference> reference = reference_of(ops.fold(e.word));
         if (!reference) {
+            continue;
+        }
+        // Q40: "it" before a verb of impersonal.txt ("it rains") stands for nothing.
+        if (reference->thing && i + 1 < entities.size() &&
+            std::ranges::contains(rules_->impersonal(), ops.fold(entities[i + 1].word))) {
             continue;
         }
         // A word that also owns ("her book") refers when nothing it could own follows.
@@ -2566,7 +2581,7 @@ std::vector<std::string> Brain::abilities() const {
     std::vector<std::string> seen;
     for (const auto& [pattern, operation] : rules_->commands()) {
         const std::string op(operation.begin(), operation.end());
-        if (op == "request" || std::ranges::contains(seen, op)) {
+        if (op == "request" || op == "cannot" || std::ranges::contains(seen, op)) {
             continue;
         }
         seen.push_back(op);
@@ -2601,8 +2616,43 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     // within the tolerance (K3), is what Larry thinks with.
     const Description said = assimilation_.describe(sentence, memory_);
     Reply reply;
-    // W3: an order Larry knows how to do, by its words, before anything else.
-    if (std::optional<Command> cmd = command(said); cmd && cmd->operation == "request") {
+    // A3, G3: an expression with an answer of its own ("how are you?"), by answers.txt.
+    {
+        std::string folded{ops.text(sentence)};
+        for (char& c : folded) {
+            c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        }
+        while (!folded.empty() && (folded.back() == '?' || folded.back() == '!' || folded.back() == '.' || folded.back() == ' ')) {
+            folded.pop_back();
+        }
+        for (const auto& [expression, answer] : rules_->answers()) {
+            if (std::string_view{reinterpret_cast<const char*>(expression.data()), expression.size()} == folded) {
+                reply.text = std::string(answer.begin(), answer.end());
+                reply.because.emplace_back("rule: an expression with an answer of its own (answers.txt)");
+                return reply;
+            }
+        }
+    }
+    // W3: an order Larry knows how to do, by its words, before anything else;
+    // one it understands and cannot do is denied with the reason.
+    if (std::optional<Command> cmd = command(said); cmd && cmd->operation == "cannot") {
+        std::string verb(cmd->pattern.begin(), cmd->pattern.end());
+        const std::size_t star = verb.find(" *");
+        if (star != std::string::npos) {
+            verb = verb.substr(0, star);
+        }
+        std::string can;
+        for (const std::string& ability : abilities()) {
+            if (ability.starts_with("can you") || ability.starts_with("please")) {
+                continue;
+            }
+            can += (can.empty() ? "" : ", ") + ability;
+        }
+        reply.text = std::vformat(say("cannot verb"), std::make_format_args(verb, can));
+        reply.because.push_back(std::format("command: \"{}\" is one Larry cannot do", cmd->pattern));
+        reply.command = std::move(cmd);
+        return reply;
+    } else if (cmd && cmd->operation == "request") {
         reply.text = say("cannot do");
         for (const std::string& ability : abilities()) {
             if (ability.starts_with("can you") || ability.starts_with("please")) {

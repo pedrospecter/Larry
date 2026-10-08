@@ -115,6 +115,10 @@ public:
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& references() const noexcept { return references_; }
     /// names.txt (A11, Q37): a first name and its gender ("masculine" or "feminine").
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& names() const noexcept { return names_; }
+    /// answers.txt (A3, G3): an expression in lower case without its end mark, and what Larry answers.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& answers() const noexcept { return answers_; }
+    /// impersonal.txt (A11, Q40): the verbs whose "it" stands for nothing ("it rains").
+    [[nodiscard]] const std::vector<Bytes>& impersonal() const noexcept { return impersonal_; }
     /// goals.txt (S1): the shape of an order and the state that satisfies it ("close *", "* is closed").
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& goals() const noexcept { return goals_; }
     /// conditions.txt (R9, R6): the word that opens a condition and the word that may open its result ("if", "then").
@@ -243,6 +247,8 @@ private:
     std::vector<std::pair<Bytes, Bytes>> references_;
     std::vector<std::pair<Bytes, Bytes>> names_;
     std::vector<std::pair<Bytes, Bytes>> goals_;
+    std::vector<std::pair<Bytes, Bytes>> answers_;
+    std::vector<Bytes> impersonal_;
     std::vector<std::pair<Bytes, Bytes>> conditions_;
     mutable std::map<std::string, std::vector<std::pair<Bytes, Bytes>>> translations_;
     std::vector<std::pair<Bytes, Bytes>> replies_;

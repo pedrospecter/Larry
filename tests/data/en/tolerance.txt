@@ -31,6 +31,8 @@ as said | Birds fly.
 1 The sky is blue. | The sky is is blue.
 1 Birds fly. | Birds fly fly.
 as said | The sky is very blue.
+# A content word no pattern places is kept: what was said stands, with the deviation named.
+1 as said | Snow the sky is blue.
 #
 # An auxiliary verb that does not agree with its subject is read as the form that does.
 1 The sky is blue. | The sky are blue.
