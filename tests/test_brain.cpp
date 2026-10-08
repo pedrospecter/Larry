@@ -686,6 +686,71 @@ TEST(orders_that_are_commands_are_matched_with_their_arguments) {
     CHECK(brain.answer(ops.from_text("Count the conceptions.")).command.has_value());
 }
 
+TEST(recognition_says_what_a_sentence_is_and_feels) {
+    larry::Brain& brain = hearing_brain();
+    const larry::AtomOperations ops;
+    const larry::Brain::Recognition sarcasm = brain.recognize(ops.from_text("Oh great, another meeting."));
+    CHECK(sarcasm.kind == "statement");
+    CHECK(sarcasm.emotion == "sarcasm");
+    CHECK(sarcasm.emotion_reason == "the marker \"oh great\"");
+    CHECK(!sarcasm.command.has_value());
+    const larry::Brain::Recognition polite = brain.recognize(ops.from_text("Could you search for the sea?"));
+    CHECK(polite.kind == "request");
+    CHECK(polite.qualification == larry::Qualification::Question);
+    CHECK(polite.command.has_value());
+    if (polite.command) {
+        CHECK(polite.command->operation == "search");
+        CHECK(polite.command->arguments == (std::vector<std::string>{"the sea"}));
+        CHECK(polite.command->pattern == "could you * / search for *");
+    }
+    CHECK(polite.kind_reason == "the command \"could you * / search for *\" (search)");
+    const larry::Brain::Recognition love = brain.recognize(ops.from_text("I love the sea."));
+    CHECK(love.emotion == "joy");
+    CHECK(love.emotion_reason == "the word \"love\"");
+    const larry::Brain::Recognition plain = brain.recognize(ops.from_text("The sky is blue."));
+    CHECK(plain.kind == "statement");
+    CHECK(plain.kind_reason == "rule 7: anything else is an affirmation");
+    CHECK(plain.emotion == "neutral");
+    CHECK(brain.recognize(ops.from_text("What is 2 plus 2?")).calculation.has_value());
+    // A polite request Larry cannot do waits, and says what it can do.
+    const larry::Reply cannot = brain.hear(ops.from_text("Could you close the window?"), "user:pedro");
+    CHECK(cannot.text.starts_with("I cannot do that yet. I can: search for *"));
+    CHECK(!cannot.command.has_value());
+    CHECK(brain.hear(ops.from_text("Can you please count the conceptions?"), "user:pedro").command.has_value());
+    // The suite: kind, emotion, sentence.
+    const std::filesystem::path suite = std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "recognize.txt";
+    std::ifstream in{suite, std::ios::binary};
+    CHECK(static_cast<bool>(in));
+    std::size_t cases = 0;
+    std::size_t failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        const std::string_view text = trim_view(line);
+        if (text.empty() || text.front() == '#') {
+            continue;
+        }
+        const std::size_t first = text.find(" | ");
+        const std::size_t second = first == std::string_view::npos ? first : text.find(" | ", first + 3);
+        CHECK(second != std::string_view::npos);
+        if (second == std::string_view::npos) {
+            continue;
+        }
+        const std::string kind{trim_view(text.substr(0, first))};
+        const std::string emotion{trim_view(text.substr(first + 3, second - first - 3))};
+        const std::string sentence{trim_view(text.substr(second + 3))};
+        ++cases;
+        const larry::Brain::Recognition r = brain.recognize(ops.from_text(sentence));
+        if (r.kind != kind || r.emotion != emotion) {
+            ++failed;
+            std::println(stderr, "recognize.txt line {}: \"{}\" expected {} {}, got {} {} ({}; {})", number, sentence,
+                         kind, emotion, r.kind, r.emotion, r.kind_reason, r.emotion_reason);
+        }
+    }
+    CHECK(cases >= 20);
+    CHECK(failed == 0);
+}
+
 TEST(hear_handles_orders_assumptions_and_expressions) {
     const larry::Memory& memory = hearing_brain().memory();
     const larry::Reply order = say("Close the window.");
@@ -847,6 +912,15 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cloud->set_reading(cloud->find(third.metadata)->id, "The moon is white.");
     CHECK(brain.sync(100).pulled == 1);
     CHECK(cache.find(third.metadata)->reading == "The moon is white.");
+    // G4a: a search in the cloud says so.
+    std::vector<std::string> notices;
+    brain.notice([&](std::string_view what) { notices.emplace_back(what); });
+    CHECK(brain.truth(ops.from_text("the moon is made of cheese")).truth == Truth::Unknown);
+    CHECK(notices == (std::vector<std::string>{"searching the cloud"}));  // once, not once a word
+    notices.clear();
+    CHECK(brain.truth(ops.from_text("the sky is blue")).truth == Truth::True);  // the cache answers
+    CHECK(notices.empty());
+    brain.notice({});
     // N2c: the cloud is the record. A decision taken there reaches the cache
     // at refresh, and so does a reading; what the cache alone holds stays.
     cloud->set_status(cloud->find(grass.metadata)->id, larry::Status::Withdrawn, "pedro");

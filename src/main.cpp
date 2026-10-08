@@ -17,6 +17,7 @@
 #include "larry/web.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -33,7 +34,10 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
+
+#include <unistd.h>
 
 namespace {
 
@@ -63,6 +67,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                or object of a verb), whether the conceptions
                                know it, find it plausible or never saw it, and
                                what they know instead
+  recognize <text>             what each sentence is (a statement, a question,
+                               a request, an assumption, an expression), its
+                               emotion (sarcasm, joy, anger, ...), the command
+                               it is, the calculation it asks, and its content
+                               class, each with the reason
   qualify <text>               what kind of sentence each one is: an
                                affirmation (a declaration), a question, an
                                order (a command), an assumption or an
@@ -71,9 +80,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   ask <text>                   answer a question, or judge a claim, and store
                                nothing: a question gets yes, no, the conception
                                that answers it or "I don't know"; a claim gets
-                               true, false or I don't know; with the reasons, the
-                               reading of a sentence off the grammar, and what
-                               is unusual in it
+                               true, false or I don't know; a calculation its
+                               result ("What is two plus three?"); with the
+                               reasons, the reading of a sentence off the
+                               grammar, and what is unusual in it
   say <text>                   hear one sentence and reply: an affirmation is
                                stored, a question answered, an order done when
                                it is a command Larry knows (see
@@ -81,7 +91,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                "define", "tell me about", "compare", ...), an
                                assumption noted, an expression returned
   chat                         hear a line at a time from standard input;
-                               "why?" explains the last reply, "bye" ends
+                               "why?" explains the last reply, "bye" ends; the
+                               reply streams word by word on a terminal
+                               (LARRY_STREAM=0 prints it at once), and a line
+                               in brackets says what Larry is doing meanwhile
   sync [n]                     push the cache's conceptions to the cloud and
                                pull the cloud's n most recent (100) into it
   validate                     go through the proposed conceptions one by one:
@@ -474,6 +487,48 @@ std::string open_words(const larry::Description& d) {
     return out;
 }
 
+/// G4a: whether replies stream word by word: on a terminal, unless
+/// LARRY_STREAM is 0.
+bool streaming() {
+    const char* const setting = std::getenv("LARRY_STREAM");
+    if (setting != nullptr && std::string_view{setting} == "0") {
+        return false;
+    }
+    return isatty(fileno(stdout)) != 0;
+}
+
+/// G4a: prints a text word by word, with a short pause between words when
+/// streaming, so that the reply shows as it is written.
+void stream(std::string_view text) {
+    if (!streaming()) {
+        std::println("{}", text);
+        return;
+    }
+    std::string word;
+    const auto flush_word = [&] {
+        std::print("{}", word);
+        std::fflush(stdout);
+        if (!word.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
+        word.clear();
+    };
+    for (const char c : text) {
+        word.push_back(c);
+        if (c == ' ' || c == '\n') {
+            flush_word();
+        }
+    }
+    flush_word();
+    std::println("");
+}
+
+/// G4a: a notice while Larry works: "(searching the cloud for "sky"...)".
+void show_notice(std::string_view what) {
+    std::println("  ({}...)", what);
+    std::fflush(stdout);
+}
+
 /// W4: studies a file, a Wikipedia title or a URL: the content is classified,
 /// the facts proposed, the words gathered, and a lesson draft written.
 larry::StudyReport study(Larry& larry, std::string_view what) {
@@ -492,6 +547,7 @@ larry::StudyReport study(Larry& larry, std::string_view what) {
         }
     } else {
         const larry::Web web{larry.constellation.language()};
+        show_notice("fetching \"" + std::string{what} + "\"");
         const larry::Page page = web.fetch(what);
         text = page.text;
         name = page.title;
@@ -523,6 +579,7 @@ std::string execute(Larry& larry, const larry::Command& command) {
     std::string out;
     if (op == "search") {
         const larry::Web web{larry.constellation.language()};
+        show_notice("asking Wikipedia for \"" + argument(0) + "\"");
         const std::vector<larry::Hit> hits = web.search(argument(0));
         if (hits.empty()) {
             return "nothing found for \"" + argument(0) + "\".";
@@ -535,6 +592,7 @@ std::string execute(Larry& larry, const larry::Command& command) {
     if (op == "define") {
         const larry::Web web{larry.constellation.language()};
         const std::string word = thing(argument(0));
+        show_notice("asking Wiktionary for \"" + word + "\"");
         const std::vector<larry::Meaning> meanings = web.define(word);
         if (meanings.empty()) {
             return "Wiktionary has no English entry for \"" + word + "\".";
@@ -547,6 +605,7 @@ std::string execute(Larry& larry, const larry::Command& command) {
     }
     if (op == "fetch") {
         const larry::Web web{larry.constellation.language()};
+        show_notice("fetching \"" + argument(0) + "\"");
         const larry::Page page = web.fetch(argument(0));
         return std::format("kept \"{}\" in {}: {} bytes.", page.title, page.file.string(), page.text.size());
     }
@@ -799,6 +858,33 @@ int run(std::span<const std::string_view> args) {
         }
         return 0;
     }
+    if (command == "recognize") {
+        if (rest.empty()) {
+            throw std::runtime_error("recognize needs a sentence");
+        }
+        const larry::Content content{larry.rules};
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Brain::Recognition r = larry.brain.recognize(sentence);
+            std::println("{}", larry.ops.text(sentence));
+            std::println("kind       : {} ({}), by {}", r.kind, larry::name(r.qualification), r.kind_reason);
+            std::println("emotion    : {}, by {}", r.emotion, r.emotion_reason);
+            if (r.command && r.command->operation != "request") {
+                std::string arguments;
+                for (const std::string& a : r.command->arguments) {
+                    arguments += " \"" + a + "\"";
+                }
+                std::println("command    : {}{}", r.command->operation, arguments);
+            } else {
+                std::println("command    : none");
+            }
+            if (r.calculation) {
+                std::println("arithmetic : {}", r.calculation->rule());
+            }
+            const larry::Piece piece = content.classify(sentence, larry.brain);
+            std::println("content    : {}, {}", larry::name(piece.what), piece.reason);
+        }
+        return 0;
+    }
     if (command == "qualify") {
         if (rest.empty()) {
             throw std::runtime_error("qualify needs a sentence");
@@ -914,6 +1000,7 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "chat") {
         larry::Brain& brain = larry.brain;
+        brain.notice(show_notice);
         larry::Reply last;
         std::println("Larry: hello. I hold {} conceptions{}. Say \"bye\" to end, \"why?\" to ask why.",
                      larry.memory.count(),
@@ -945,10 +1032,13 @@ int run(std::span<const std::string_view> args) {
                     return 0;
                 }
                 last = brain.hear(sentence, "user:" + larry.user);
-                std::println("Larry: {}", last.text);
+                std::print("Larry: ");
+                stream(last.text);
                 if (last.command) {
                     try {
-                        std::println("Larry: {}", execute(larry, *last.command));
+                        const std::string done = execute(larry, *last.command);
+                        std::print("Larry: ");
+                        stream(done);
                     } catch (const std::exception& e) {
                         std::println("Larry: I could not: {}", e.what());
                     }

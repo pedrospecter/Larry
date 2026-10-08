@@ -61,6 +61,15 @@ public:
     /// else the emotion of the first emotion word, else neutral.
     void types(Description& d) const;
 
+    /// The emotion of a sentence and what gave it (A3b): sarcasm when a
+    /// marker phrase of sarcasm.txt occurs, else the emotion of the first
+    /// word in emotions.txt, else neutral with no marker.
+    struct Emotion {
+        Bytes feeling;
+        std::string marker;
+    };
+    [[nodiscard]] Emotion emotion(const Description& d) const;
+
     [[nodiscard]] const Grammar* grammar() const noexcept { return grammar_; }
 
 

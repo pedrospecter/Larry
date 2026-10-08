@@ -58,6 +58,7 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
       assimilation_(rules, dictionary, grammar),
       tolerance_(rules, grammar),
       harness_(rules),
+      arithmetic_(rules),
       cognition_(),
       memory_(&memory),
       cloud_(cloud) {
@@ -240,6 +241,7 @@ std::int64_t Brain::refresh() {
     if (cloud_ == nullptr) {
         return 0;
     }
+    tell("asking the cloud for its standings");
     const AtomOperations ops;
     std::map<Bytes, Database::Standing> record;
     for (Database::Standing& s : cloud_->standings()) {
@@ -299,6 +301,9 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
     }
     std::vector<std::int64_t> ids;
     for (const Bytes& spelling : spellings(*rarest)) {
+        if (cloud) {
+            tell("searching the cloud");
+        }
         std::vector<StoredAtom> found = cloud ? cloud_->containing(spelling) : memory_->containing(spelling);
         for (StoredAtom& atom : found) {
             if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn &&
@@ -489,6 +494,9 @@ Qualifying Brain::qualify(const Description& d) const {
             break;
         }
         std::vector<std::int64_t> seen;
+        if (cloud) {
+            tell("searching the cloud for sentences of the same structure");
+        }
         for (const Entity& e : d.entities.entities) {
             const Bytes word = ops.fold(e.word);
             for (StoredAtom& atom : cloud ? cloud_->containing(word) : memory_->containing(word)) {
@@ -820,14 +828,80 @@ std::optional<Command> Brain::command(const Description& d) const {
     if (folded.empty()) {
         return std::nullopt;
     }
-    for (const auto& [pattern, operation] : rules_->commands()) {
-        const std::string text(pattern.begin(), pattern.end());
-        std::vector<std::string> arguments;
-        if (match_words(words_of(text), 0, folded, written, 0, arguments)) {
-            return Command{std::string(operation.begin(), operation.end()), std::move(arguments), text};
+    // A polite request ("could you search for the sea") is the command its
+    // words make; one that makes none stays a request Larry cannot do.
+    const auto match = [&](const std::vector<std::string>& f, const std::vector<std::string>& w,
+                           auto& self) -> std::optional<Command> {
+        for (const auto& [pattern, operation] : rules_->commands()) {
+            const std::string text(pattern.begin(), pattern.end());
+            const std::string op(operation.begin(), operation.end());
+            std::vector<std::string> arguments;
+            if (!match_words(words_of(text), 0, f, w, 0, arguments)) {
+                continue;
+            }
+            if (op != "request") {
+                return Command{op, std::move(arguments), text};
+            }
+            const std::vector<std::string> inner_written = words_of(arguments.front());
+            std::vector<std::string> inner_folded;
+            for (const std::string& word : inner_written) {
+                const Bytes fw = ops.fold(Bytes(word.begin(), word.end()));
+                inner_folded.emplace_back(fw.begin(), fw.end());
+            }
+            if (inner_folded.empty() || inner_folded.front() == "please") {
+                return Command{op, std::move(arguments), text};
+            }
+            if (std::optional<Command> inner = self(inner_folded, inner_written, self)) {
+                inner->pattern = text + " / " + inner->pattern;
+                return inner;
+            }
+            return Command{op, std::move(arguments), text};
         }
+        return std::nullopt;
+    };
+    return match(folded, written, match);
+}
+
+Brain::Recognition Brain::recognize(const Sentence& sentence) const {
+    Recognition out;
+    out.description = assimilation_.describe(sentence, memory_);
+    const Description& d = out.description;
+    const Qualified q = cognition_.qualification(d.atom, d.entities, *rules_);
+    out.qualification = q.qualification;
+    out.kind_reason = q.rule;
+    switch (q.qualification) {
+    case Qualification::Affirmation:
+        out.kind = "statement";
+        break;
+    case Qualification::Question:
+        out.kind = "question";
+        break;
+    case Qualification::Order:
+        out.kind = "request";
+        break;
+    case Qualification::Assumption:
+        out.kind = "assumption";
+        break;
+    case Qualification::Expression:
+        out.kind = "expression";
+        break;
     }
-    return std::nullopt;
+    out.command = command(d);
+    if (out.command && out.command->operation != "request") {
+        out.kind = "request";
+        out.kind_reason = std::format("the command \"{}\" ({})", out.command->pattern, out.command->operation);
+    } else if (out.command) {
+        out.kind = "request";
+        out.kind_reason = std::format("a polite request (\"{}\") that is no command Larry knows", out.command->pattern);
+    }
+    out.calculation = calculate(sentence);
+    const Assimilation::Emotion emotion = assimilation_.emotion(d);
+    out.emotion = std::string(emotion.feeling.begin(), emotion.feeling.end());
+    out.emotion_reason = emotion.marker.empty()
+                             ? "no marker of sarcasm and no emotion word"
+                             : (out.emotion == "sarcasm" ? "the marker \"" + emotion.marker + "\""
+                                                        : "the word \"" + emotion.marker + "\"");
+    return out;
 }
 
 std::vector<std::string> Brain::abilities() const {
@@ -835,13 +909,18 @@ std::vector<std::string> Brain::abilities() const {
     std::vector<std::string> seen;
     for (const auto& [pattern, operation] : rules_->commands()) {
         const std::string op(operation.begin(), operation.end());
-        if (std::ranges::contains(seen, op)) {
+        if (op == "request" || std::ranges::contains(seen, op)) {
             continue;
         }
         seen.push_back(op);
         out.emplace_back(pattern.begin(), pattern.end());
     }
     return out;
+}
+
+std::optional<Calculation> Brain::calculate(const Sentence& sentence) const {
+    const AtomOperations ops;
+    return arithmetic_.calculate(ops.text(sentence));
 }
 
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
@@ -854,12 +933,24 @@ Reply Brain::answer(const Sentence& sentence) {
 
 Reply Brain::respond(const Sentence& sentence, std::string_view source, bool store) {
     const AtomOperations ops;
+    last_notice_.clear();
     // What was said is what gets stored; what was meant, by the reading
     // within the tolerance (K3), is what Larry thinks with.
     const Description said = assimilation_.describe(sentence, memory_);
     Reply reply;
     // W3: an order Larry knows how to do, by its words, before anything else.
-    if (std::optional<Command> cmd = command(said)) {
+    if (std::optional<Command> cmd = command(said); cmd && cmd->operation == "request") {
+        reply.text = "I cannot do that yet. I can:";
+        for (const std::string& ability : abilities()) {
+            if (ability.starts_with("can you") || ability.starts_with("please")) {
+                continue;
+            }
+            reply.text += " " + ability + ",";
+        }
+        reply.text.back() = '.';
+        reply.because.emplace_back("rule: a request that matches no command waits (S1)");
+        return reply;
+    } else if (cmd) {
         std::string what = cmd->operation;
         for (const std::string& argument : cmd->arguments) {
             what += " \"" + argument + "\"";
@@ -867,6 +958,18 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         reply.text = "I can do that: " + what + ".";
         reply.because.push_back(std::format("command: \"{}\" is {}", cmd->pattern, cmd->operation));
         reply.command = std::move(cmd);
+        return reply;
+    }
+    // M1: a calculation is done, not looked up, and nothing is stored.
+    if (const std::optional<Calculation> calc = calculate(sentence)) {
+        if (!calc->defined) {
+            reply.text = "That is " + calc->result + ".";
+        } else if (calc->comparison) {
+            reply.text = store ? (calc->holds ? "Yes." : "No.") : (calc->holds ? "true" : "false");
+        } else {
+            reply.text = calc->result;
+        }
+        reply.because.push_back("rule: " + calc->rule());
         return reply;
     }
     const Reading reading = read(said);

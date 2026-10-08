@@ -514,6 +514,31 @@ bool all_digits(const Bytes& word, std::size_t end) {
 
 }  // namespace
 
+Assimilation::Emotion Assimilation::emotion(const Description& d) const {
+    const AtomOperations ops;
+    std::vector<Bytes> folded;
+    for (const Entity& e : d.entities.entities) {
+        folded.push_back(ops.fold(e.word));
+    }
+    const std::size_t n = folded.size();
+    for (const Bytes& marker : rules_->sarcasm()) {
+        const std::vector<Bytes> words = split(marker, ' ');
+        for (std::size_t i = 0; i + words.size() <= n; ++i) {
+            if (std::equal(words.begin(), words.end(), folded.begin() + static_cast<std::ptrdiff_t>(i))) {
+                return {bytes_of("sarcasm"), std::string(marker.begin(), marker.end())};
+            }
+        }
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        for (const auto& [word, feeling] : rules_->emotions()) {
+            if (word == folded[i]) {
+                return {feeling, std::string(word.begin(), word.end())};
+            }
+        }
+    }
+    return {bytes_of("neutral"), {}};
+}
+
 void Assimilation::types(Description& d) const {
     const AtomOperations ops;
     static const Bytes noun = bytes_of("noun");
@@ -650,28 +675,7 @@ void Assimilation::types(Description& d) const {
     }
 
     // 3. The emotion of the atom.
-    Bytes emotion = bytes_of("neutral");
-    bool sarcasm = false;
-    for (const Bytes& marker : rules_->sarcasm()) {
-        const std::vector<Bytes> words = split(marker, ' ');
-        for (std::size_t i = 0; !sarcasm && i + words.size() <= n; ++i) {
-            if (std::equal(words.begin(), words.end(), folded.begin() + static_cast<std::ptrdiff_t>(i))) {
-                sarcasm = true;
-            }
-        }
-    }
-    if (sarcasm) {
-        emotion = bytes_of("sarcasm");
-    } else {
-        for (std::size_t i = 0; i < n && emotion == bytes_of("neutral"); ++i) {
-            for (const auto& [word, feeling] : rules_->emotions()) {
-                if (word == folded[i]) {
-                    emotion = feeling;
-                    break;
-                }
-            }
-        }
-    }
+    const Bytes emotion = this->emotion(d).feeling;
 
     // 4. Write the types: the entity's features and its role, then the mark of
     // a guessed category; the atom's roles and emotion.

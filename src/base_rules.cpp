@@ -127,6 +127,7 @@ BaseRules::BaseRules(Language language) : language_(language) {
     tolerance_ = read_pairs(dir / "tolerance.txt");
     content_ = read_pairs(dir / "content.txt");
     commands_ = read_pairs(dir / "commands.txt");
+    arithmetic_ = read_pairs(dir / "arithmetic.txt");
 }
 
 }  // namespace larry

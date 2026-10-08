@@ -1,0 +1,36 @@
+# M1: questions and expressions with their answers. Fields are separated by " | ":
+# the answer ("none" when the text is not arithmetic, "undefined" when the
+# calculation has no result, "yes" or "no" for a comparison), and the text.
+2 | What is 1+1?
+2 | 1+1
+2 | 1 + 1 = ?
+5 | What is two plus three?
+56 | How much is seven times eight?
+3.5 | What is 7 divided by 2?
+14 | What is 2 + 3 * 4?
+20 | What is (2 + 3) * 4?
+8 | What is two cubed?
+25 | What is five squared?
+1230 | What is one thousand two hundred thirty minus zero?
+10 | What is 20 percent of 50?
+4 | What is half of 8?
+16 | What is double eight?
+3 | What is the square root of 9?
+-1 | What is 2 minus 3?
+1000000 | What is one million?
+12 | Calculate 3 x 4.
+0.1 | What is 1 divided by 10?
+1024 | What is 2 to the power of 10?
+7 | What does 3 plus 4 make?
+yes | Is 5 bigger than 3?
+no | Is 2 plus 2 five?
+yes | Is 2 + 2 equal to 4?
+no | Is 10 less than 3?
+yes | Is seven times eight 56?
+undefined | What is 1 divided by 0?
+none | What is the sky?
+none | I have 2 cats.
+none | The sky is blue.
+none | Tom has three apples.
+none | 3
+none | Is the door open?
