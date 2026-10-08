@@ -4,6 +4,7 @@
 #include "larry/brain.hpp"
 #include "larry/cognition.hpp"
 #include "larry/constellation.hpp"
+#include "larry/content.hpp"
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
@@ -41,7 +42,12 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   tell <text> [category ...]   describe a sentence and store it as a
                                conception; with the category of each entity,
                                in order, it is taught
-  read <file>                  tell every sentence in a text file
+  read <file>                  tell every fact in a text file: the sentences that
+                               are conceptions become proposed ones; questions,
+                               headings, references and the rest are listed
+  classify <file or text>      what each sentence of content is: a fact, context,
+                               a question, an instruction, speech, a heading, a
+                               reference or a fragment, and why
   teach <file>                 tell every lesson in a lesson file: a sentence,
                                then the category of each entity, in order
   rebuild                      empty memory and teach every lesson in
@@ -418,6 +424,24 @@ std::vector<larry::Bytes> categories(std::span<const std::string_view> words) {
     return out;
 }
 
+std::string read_file(const std::filesystem::path& file);
+
+/// The text of a file: a page kept by larry fetch without its header lines,
+/// or any text file as it is.
+std::string content_of(const std::filesystem::path& file) {
+    if (const std::optional<larry::Page> page = larry::Web::read_page(file); page && !page->source.empty()) {
+        return page->text;
+    }
+    return read_file(file);
+}
+
+void print_classes(const larry::ContentTally& classes) {
+    std::println("{} sentences: {} facts, {} context, {} questions, {} instructions, {} speech, {} headings, "
+                 "{} references, {} fragments",
+                 classes.total(), classes.facts, classes.context, classes.questions, classes.instructions,
+                 classes.speech, classes.headings, classes.references, classes.fragments);
+}
+
 std::string read_file(const std::filesystem::path& file) {
     std::ifstream in{file, std::ios::binary};
     if (!in) {
@@ -474,17 +498,41 @@ int run(std::span<const std::string_view> args) {
         if (rest.size() != 1) {
             throw std::runtime_error("read needs one file");
         }
-        const std::string text = read_file(rest[0]);
+        // W2: the facts become proposed conceptions; the rest is listed by class.
+        const std::string text = content_of(rest[0]);
         Tally tally;
+        larry::ContentTally classes;
         const std::string source = "read:" + std::filesystem::path{rest[0]}.filename().string();
-        for (const larry::Sentence& sentence : larry.assimilation.sentences(text)) {
-            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
-            const larry::Stored stored = larry.brain.remember(d, larry::Status::Proposed, source);
+        const larry::Content content{larry.rules};
+        for (const larry::Piece& piece : content.classify(text, larry.brain)) {
+            classes.add(piece.what);
+            if (piece.what != larry::ContentClass::Fact) {
+                std::println("{:<11} {}", larry::name(piece.what), larry.ops.text(piece.sentence));
+                continue;
+            }
+            const larry::Stored stored = larry.brain.remember(piece.description, larry::Status::Proposed, source);
             tally.add(stored);
-            std::println("{:<10} {}{}", stored_name(stored), larry.ops.text(sentence),
-                         open_words(d));
+            std::println("{:<11} {}{}", stored_name(stored), larry.ops.text(piece.sentence),
+                         open_words(piece.description));
         }
+        print_classes(classes);
         tally.print();
+        return 0;
+    }
+    if (command == "classify") {
+        if (rest.empty()) {
+            throw std::runtime_error("classify needs a file or a text");
+        }
+        const std::string text = rest.size() == 1 && std::filesystem::exists(rest[0]) ? content_of(rest[0])
+                                                                                       : join(rest);
+        larry::ContentTally classes;
+        const larry::Content content{larry.rules};
+        for (const larry::Piece& piece : content.classify(text, larry.brain)) {
+            classes.add(piece.what);
+            std::println("{:<11} {}", larry::name(piece.what), larry.ops.text(piece.sentence));
+            std::println("            {}", piece.reason);
+        }
+        print_classes(classes);
         return 0;
     }
     if (command == "teach") {

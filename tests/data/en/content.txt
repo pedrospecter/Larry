@@ -1,0 +1,35 @@
+# W2: sentences of content with their class, against the memory built in
+# tests/test_content.cpp. Fields are separated by " | ": the class and the sentence.
+fact | The sky is blue.
+fact | Birds fly.
+fact | The sea is deep and the sky is blue.
+fact | Water boils at 100 degrees.
+fact | The old dog is slow.
+fact | Mars is a planet.
+context | It is blue.
+context | This is the sea.
+context | However, the sea is deep.
+context | There is a door.
+context | If it rains, the street is wet.
+question | Is the sky blue?
+question | What is the sky?
+instruction | Close the door.
+instruction | Please close the door.
+speech | I like the sea.
+speech | You are late.
+speech | Tom said "the sky is blue".
+speech | I think the sea is deep.
+speech | Hello.
+heading | History
+heading | == Etymology ==
+heading | The sea and the sky
+heading | Contents
+reference | Retrieved 3 May 2024.
+reference | The sky is blue.[1]
+reference | See https://example.org for more.
+reference | Smith, J. (2001). The Sky. ISBN 0-306-40615-2.
+fragment | 12 + 7 = 19.
+fragment | Sky.
+fragment | Blue the is sky.
+fragment | The sky the sea the door the window the cat the dog the car the house the book the tree the road the river the moon the sun the grass the snow the sand the coal the milk the apple the fruit the bird the animal the teacher the doctor the garden the kitchen the table the mat the window.
+fragment | Sky blue sea deep road wide river long.

@@ -65,7 +65,7 @@ set(LARRY_WARNINGS -Wall -Wextra -Wpedantic -Wconversion)
 
 add_library(larry_core)
 target_sources(larry_core PRIVATE src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp
-                                  src/brain.cpp src/cognition.cpp src/connection.cpp
+                                  src/brain.cpp src/cognition.cpp src/connection.cpp src/content.cpp
                                   src/dictionary.cpp src/grammar.cpp src/harness.cpp src/lesson.cpp
                                   src/memory.cpp src/tolerance.cpp src/web.cpp)
 target_compile_definitions(larry_core
@@ -95,7 +95,7 @@ target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 # database test needs a PostgreSQL server (scripts/setup.sh starts one) and
 # reports "skipped" (exit 77) when it cannot connect.
 enable_testing()
-set(LARRY_TESTS assimilation atom_operations base_rules brain cognition connection database dictionary grammar harness lesson memory tolerance web)
+set(LARRY_TESTS assimilation atom_operations base_rules brain cognition connection content database dictionary grammar harness lesson memory tolerance web)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)

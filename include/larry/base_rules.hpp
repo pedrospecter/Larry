@@ -128,6 +128,13 @@ public:
     /// The Grammar class parses them.
     [[nodiscard]] const std::vector<Bytes>& grammar() const noexcept { return grammar_; }
 
+    /// The content markers, from content.txt (W2): "reference", "speech",
+    /// "context", "heading" lists and the "least words" and "most words" of
+    /// a fact. The Content class reads them.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& content() const noexcept {
+        return content_;
+    }
+
     /// The tolerance settings, from tolerance.txt (K3): "words per deviation",
     /// "most deviations", "fill <category>" and "singular <word>" with their
     /// values. The Tolerance class reads them.
@@ -172,6 +179,7 @@ private:
     std::vector<std::pair<Bytes, Bytes>> number_words_;
     std::vector<Bytes> grammar_;
     std::vector<std::pair<Bytes, Bytes>> tolerance_;
+    std::vector<std::pair<Bytes, Bytes>> content_;
 };
 
 }  // namespace larry
