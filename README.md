@@ -88,6 +88,12 @@ sky and the sea", "count the conceptions", "remember that the moon is
 round", "forget that ..." (a validator only). The list is in
 `base_rules/en/commands.txt`.
 
+## What a sentence is
+
+    ./build/larry recognize "Oh great, another meeting."   # statement, sarcasm, by the marker "oh great"
+    ./build/larry recognize "Could you search for the sea?" # request: the command search "the sea"
+    ./build/larry ask "What is two plus three?"            # 5, because: arithmetic: 2 + 3 = 5
+
 ## Ask Larry something
 
     ./build/larry chat                       # a line at a time: questions, statements, "why?", "bye"

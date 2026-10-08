@@ -147,6 +147,19 @@ public:
     /// M1: the calculation a sentence asks for, when it is arithmetic.
     [[nodiscard]] std::optional<Calculation> calculate(const Sentence& sentence) const;
 
+    /// A3b: what a sentence is, in the user's words, with its reasons.
+    struct Recognition {
+        std::string kind;  ///< "statement", "question", "request", "assumption", "expression".
+        std::string kind_reason;
+        Qualification qualification = Qualification::Affirmation;
+        std::string emotion;  ///< "neutral", "sarcasm", "joy", ...
+        std::string emotion_reason;
+        std::optional<Command> command;
+        std::optional<Calculation> calculation;
+        Description description;
+    };
+    [[nodiscard]] Recognition recognize(const Sentence& sentence) const;
+
     /// W3: what Larry can do, as the first pattern of each operation:
     /// "search for *", "define *", ...
     [[nodiscard]] std::vector<std::string> abilities() const;

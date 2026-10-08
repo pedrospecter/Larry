@@ -1,0 +1,27 @@
+# A3b: what a sentence is and its emotion. Fields are separated by " | ": the kind
+# (statement, question, request, assumption, expression), the emotion (neutral,
+# sarcasm, joy, sadness, anger, fear, surprise, disgust), and the sentence. A
+# request is an order, or a command in any form ("could you search for the sea").
+question | neutral | Is the sky blue?
+question | neutral | What is the sky?
+statement | neutral | The sky is blue.
+statement | neutral | Tom has three apples.
+request | neutral | Close the door.
+request | neutral | Search for the sea.
+request | neutral | Could you search for the sea?
+request | neutral | Can you please tell me about the sea?
+request | neutral | I would like you to count the conceptions.
+assumption | neutral | If it rains, the street is wet.
+assumption | neutral | Suppose the sky is green.
+expression | neutral | Hello!
+expression | neutral | Thank you.
+statement | sarcasm | Oh great, another meeting.
+statement | sarcasm | Yeah right, the sky is green.
+statement | sarcasm | Nice job, the door is open.
+question | sarcasm | Oh really, is the sky blue?
+statement | joy | I love the sea.
+statement | anger | I hate rain.
+statement | sadness | Tom is sad.
+statement | fear | The dog is afraid.
+question | surprise | Wow, is the sky green?
+statement | disgust | The milk is disgusting.

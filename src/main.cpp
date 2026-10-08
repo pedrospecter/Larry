@@ -67,6 +67,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                or object of a verb), whether the conceptions
                                know it, find it plausible or never saw it, and
                                what they know instead
+  recognize <text>             what each sentence is (a statement, a question,
+                               a request, an assumption, an expression), its
+                               emotion (sarcasm, joy, anger, ...), the command
+                               it is, the calculation it asks, and its content
+                               class, each with the reason
   qualify <text>               what kind of sentence each one is: an
                                affirmation (a declaration), a question, an
                                order (a command), an assumption or an
@@ -850,6 +855,33 @@ int run(std::span<const std::string_view> args) {
                              as_text(j.relation.kind), as_text(j.relation.head));
                 std::println("             {}{}", j.text(), j.from_cloud ? " (from the cloud)" : "");
             }
+        }
+        return 0;
+    }
+    if (command == "recognize") {
+        if (rest.empty()) {
+            throw std::runtime_error("recognize needs a sentence");
+        }
+        const larry::Content content{larry.rules};
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Brain::Recognition r = larry.brain.recognize(sentence);
+            std::println("{}", larry.ops.text(sentence));
+            std::println("kind       : {} ({}), by {}", r.kind, larry::name(r.qualification), r.kind_reason);
+            std::println("emotion    : {}, by {}", r.emotion, r.emotion_reason);
+            if (r.command && r.command->operation != "request") {
+                std::string arguments;
+                for (const std::string& a : r.command->arguments) {
+                    arguments += " \"" + a + "\"";
+                }
+                std::println("command    : {}{}", r.command->operation, arguments);
+            } else {
+                std::println("command    : none");
+            }
+            if (r.calculation) {
+                std::println("arithmetic : {}", r.calculation->rule());
+            }
+            const larry::Piece piece = content.classify(sentence, larry.brain);
+            std::println("content    : {}, {}", larry::name(piece.what), piece.reason);
         }
         return 0;
     }
