@@ -12,6 +12,7 @@
 #include "larry/harness.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
+#include "larry/study.hpp"
 #include "larry/tolerance.hpp"
 #include "larry/web.hpp"
 
@@ -99,6 +100,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   define <word>                ask Wiktionary what the word is: its parts of
                                speech as categories, with the first meanings,
                                beside what memory and the dictionary say
+  study <file, title or url>   fetch the content when it is not a file, classify
+                               its sentences, propose the facts as conceptions,
+                               gather the words to learn, and write a lesson
+                               draft in lessons/<locale>/drafts/ for you to
+                               correct and teach
   count                        how many conceptions and word uses memory holds
 
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
@@ -468,6 +474,36 @@ std::string open_words(const larry::Description& d) {
     return out;
 }
 
+/// W4: studies a file, a Wikipedia title or a URL: the content is classified,
+/// the facts proposed, the words gathered, and a lesson draft written.
+larry::StudyReport study(Larry& larry, std::string_view what) {
+    std::string text;
+    std::string name;
+    std::string source;
+    if (std::filesystem::exists(what)) {
+        const std::filesystem::path file{what};
+        text = content_of(file);
+        if (const std::optional<larry::Page> page = larry::Web::read_page(file); page && !page->source.empty()) {
+            name = page->title;
+            source = page->source;
+        } else {
+            name = file.stem().string();
+            source = file.string();
+        }
+    } else {
+        const larry::Web web{larry.constellation.language()};
+        const larry::Page page = web.fetch(what);
+        text = page.text;
+        name = page.title;
+        source = page.source;
+        std::println(stderr, "larry: kept \"{}\" in {}", page.title, page.file.string());
+    }
+    const larry::Content content{larry.rules};
+    const larry::Study study{larry.rules, content};
+    return study.study(text, name, source, larry.brain,
+                       larry::Study::drafts_directory(larry.constellation.language()));
+}
+
 /// W3: does a command and gives what it says, one line or several. The
 /// web, the memory and the brain are the Larry struct's.
 std::string execute(Larry& larry, const larry::Command& command) {
@@ -534,7 +570,11 @@ std::string execute(Larry& larry, const larry::Command& command) {
                            classes.total(), classes.facts, stored);
     }
     if (op == "study") {
-        return "study comes next (W4).";
+        const larry::StudyReport report = study(larry, argument(0));
+        for (const std::string& line : report.lines()) {
+            out += (out.empty() ? "" : "\n") + line;
+        }
+        return out;
     }
     if (op == "about") {
         const std::string word = thing(argument(0));
@@ -1137,6 +1177,16 @@ int run(std::span<const std::string_view> args) {
                 listed += as_text(c);
             }
             std::println("dictionary: {}", listed.empty() ? "not listed" : listed);
+        }
+        return 0;
+    }
+    if (command == "study") {
+        if (rest.empty()) {
+            throw std::runtime_error("study needs a file, a Wikipedia title or a url");
+        }
+        const larry::StudyReport report = study(larry, join(rest));
+        for (const std::string& line : report.lines()) {
+            std::println("{}", line);
         }
         return 0;
     }
