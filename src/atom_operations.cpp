@@ -168,6 +168,32 @@ Electrons AtomOperations::electrons(const MetadataElectron& metadata) const {
     return e;
 }
 
+Bytes AtomOperations::identity(const MetadataElectron& metadata) const {
+    const Electrons e = electrons(metadata);
+    Bytes out = e.category.bytes;
+    for (const Entity& entity : e.entities.entities) {
+        out.push_back(0x00);
+        out.insert(out.end(), entity.word.begin(), entity.word.end());
+    }
+    return out;
+}
+
+bool AtomOperations::complete(const MetadataElectron& metadata) const {
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    const Electrons e = electrons(metadata);
+    for (const Entity& entity : e.entities.entities) {
+        if (entity.category.empty()) {
+            return false;
+        }
+        for (const Bytes& type : entity.types) {
+            if (type == guessed) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 Bytes AtomOperations::fold(std::span<const std::uint8_t> word) const {
     Bytes out(word.begin(), word.end());
     for (std::uint8_t& b : out) {

@@ -105,9 +105,20 @@ void Brain::cache(const StoredAtom& atom) const {
 }
 
 Stored Brain::remember(const Description& d, Status status, std::string_view source) {
+    const AtomOperations ops;
     const Stored stored = memory_->store(d.atom, d.metadata, status, source);
+    const bool complete = stored != Stored::New && ops.complete(d.metadata);
+    if (complete) {
+        memory_->redescribe(d.metadata);
+    }
     if (cloud_ != nullptr) {
-        cloud_->store(d.atom, d.metadata, status, source);
+        const Stored in_cloud = cloud_->store(d.atom, d.metadata, status, source);
+        if (in_cloud != Stored::New && ops.complete(d.metadata)) {
+            if (const std::optional<StoredAtom> held = cloud_->find(d.metadata);
+                held && held->description.metadata.bytes != d.metadata.bytes) {
+                cloud_->redescribe(held->id, d.metadata);
+            }
+        }
     }
     return stored;
 }
@@ -164,14 +175,21 @@ bool Brain::set_status(const MetadataElectron& metadata, Status status, std::str
     return any;
 }
 
-std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
+Brain::Synced Brain::sync(std::int64_t pull) {
     if (cloud_ == nullptr) {
         throw std::runtime_error("Brain::sync: there is no cloud; set LARRY_DB");
     }
-    std::int64_t pushed = 0;
+    const AtomOperations ops;
+    Synced out;
+    std::int64_t& pushed = out.pushed;
     for (const StoredAtom& atom : memory_->all()) {
         const Description& d = atom.description;
-        if (cloud_->find(d.metadata)) {
+        if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
+            // The cloud has it: the cache's description wins when it is newer and complete.
+            if (held->description.metadata.bytes != d.metadata.bytes && ops.complete(d.metadata) &&
+                cloud_->redescribe(held->id, d.metadata)) {
+                ++out.redescribed;
+            }
             continue;
         }
         if (atom.sources.empty()) {
@@ -187,15 +205,14 @@ std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
         }
         ++pushed;
     }
-    std::int64_t pulled = 0;
     for (const StoredAtom& atom : cloud_->recent(pull)) {
         if (memory_->find(atom.description.metadata)) {
             continue;
         }
         cache(atom);
-        ++pulled;
+        ++out.pulled;
     }
-    return {pushed, pulled};
+    return out;
 }
 
 std::vector<Bytes> Brain::spellings(const Bytes& word) const {

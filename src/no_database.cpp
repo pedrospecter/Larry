@@ -51,6 +51,10 @@ Stored Database::store(const Sentence& /*atom*/, const MetadataElectron& /*metad
     absent();
 }
 
+bool Database::redescribe(std::int64_t /*id*/, const MetadataElectron& /*metadata*/) {
+    absent();
+}
+
 std::optional<StoredAtom> Database::find(const MetadataElectron& /*metadata*/) {
     absent();
 }

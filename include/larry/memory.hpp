@@ -90,14 +90,21 @@ public:
     /// Forgets everything and empties the file.
     void clear();
 
-    /// Store an atom under its metadata, which is where the neural network
-    /// finds it, index its words, and append it to the file. When it is
-    /// already there, only a new source is added.
+    /// Store an atom under its identity (Q28: its qualification and its words,
+    /// taken from the metadata), index its words, and append it to the file.
+    /// When it is already there, only a new source is added: the stored
+    /// description stays, see redescribe().
     Stored store(const Sentence& atom, const MetadataElectron& metadata,
                  Status status = Status::Proposed, std::string_view source = "");
 
-    /// Changes the status of the atom with this metadata and records who
-    /// decided. False when it is not there.
+    /// Gives the conception with this metadata's identity this metadata as
+    /// its description, when it differs from the stored one: the types or
+    /// roles were corrected. Its words are indexed anew. False when the
+    /// conception is not there or the description is the same.
+    bool redescribe(const MetadataElectron& metadata);
+
+    /// Changes the status of the atom with this metadata's identity and
+    /// records who decided. False when it is not there.
     bool set_status(const MetadataElectron& metadata, Status status, std::string_view by = "");
 
     /// The validators: the only people who validate or withdraw a conception
@@ -111,7 +118,8 @@ public:
     /// The atoms at a status, in the order they were stored.
     [[nodiscard]] std::vector<StoredAtom> with_status(Status status) const;
 
-    /// The atom stored under this metadata.
+    /// The atom stored under this metadata's identity: the same sentence with
+    /// the same qualification, whatever its types.
     [[nodiscard]] std::optional<StoredAtom> find(const MetadataElectron& metadata) const;
 
     /// The atom with this id.
@@ -147,14 +155,19 @@ private:
         Status status;
         std::vector<std::string> sources;
         std::string decided_by;
+        Bytes identity;
     };
 
     void append(const std::string& line);
     void index(std::int64_t id, const MetadataElectron& metadata);
+    void unindex(std::int64_t id);
+    /// Replaces the description of a record, in the maps and the index.
+    void describe(std::int64_t id, const MetadataElectron& metadata);
     [[nodiscard]] StoredAtom read(std::int64_t id) const;
 
     std::filesystem::path file_;
     std::vector<Record> atoms_;  ///< The atom with id n is atoms_[n - 1].
+    std::map<Bytes, std::int64_t> by_identity_;
     std::map<Bytes, std::int64_t> by_metadata_;
     std::map<Bytes, std::vector<WordUse>> words_;
     std::int64_t word_uses_ = 0;

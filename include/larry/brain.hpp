@@ -129,7 +129,9 @@ public:
 
     /// Stores a conception in the cache and, when there is a cloud, in the
     /// cloud. What the cache says about it is the result. It stays proposed:
-    /// only a validator decides (R2, first step, the user's safeguard).
+    /// only a validator decides (R2, first step, the user's safeguard). A
+    /// conception already there takes this description when it differs and
+    /// is complete (Q28): the machine describes, the record follows.
     Stored remember(const Description& d, Status status, std::string_view source);
 
     /// The validators: the names allowed to validate or withdraw, from the
@@ -157,10 +159,19 @@ public:
     /// decided. False when neither has it. decide() is the guarded way.
     bool set_status(const MetadataElectron& metadata, Status status, std::string_view by = "");
 
+    /// What sync did.
+    struct Synced {
+        std::int64_t pushed = 0;       ///< Conceptions the cloud lacked.
+        std::int64_t pulled = 0;       ///< Conceptions the cache lacked.
+        std::int64_t redescribed = 0;  ///< Conceptions the cloud held with an older description.
+        bool operator==(const Synced&) const = default;
+    };
+
     /// N2: pushes every conception of the cache that the cloud does not have,
-    /// and pulls the cloud's most recent ones into the cache. Gives the two
-    /// counts. Throws when there is no cloud.
-    std::pair<std::int64_t, std::int64_t> sync(std::int64_t pull);
+    /// gives the cloud the cache's description where it holds an older one
+    /// (Q28), and pulls the cloud's most recent conceptions into the cache.
+    /// Throws when there is no cloud.
+    Synced sync(std::int64_t pull);
 
     /// R1 (first step): the conceptions that answer a question that opens
     /// with a question word: those whose core has the known words of the

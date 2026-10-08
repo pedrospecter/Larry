@@ -39,7 +39,9 @@ public:
     /// when the server cannot be reached or the database cannot be made.
     [[nodiscard]] static std::unique_ptr<Database> open(const std::string& connection);
 
-    /// Runs sql/schema.sql. Safe to run again.
+    /// Runs sql/schema.sql, then fills the identity of conceptions from
+    /// before it existed, merging rows that are one conception (Q28). Safe
+    /// to run again.
     void apply_schema();
 
     /// Runs SQL as it is, for setup and tests.
@@ -48,11 +50,20 @@ public:
     /// Empties every table and restarts the ids.
     void clear();
 
-    /// Store a conception under its metadata, index its words, and record
-    /// its source. When it is already there, only the source is added.
+    /// Store a conception under its identity (Q28: its qualification and
+    /// its words, from the metadata), index its words, and record its
+    /// source. When it is already there, only the source is added: the
+    /// stored description stays, see redescribe().
     Stored store(const Sentence& atom, const MetadataElectron& metadata, Status status,
                  std::string_view source);
 
+    /// Gives a conception this metadata as its description, when it differs
+    /// from the stored one, and indexes its words anew. False when it is the
+    /// same or the conception is not there.
+    bool redescribe(std::int64_t id, const MetadataElectron& metadata);
+
+    /// The conception with this metadata's identity: the same sentence with
+    /// the same qualification, whatever its types.
     [[nodiscard]] std::optional<StoredAtom> find(const MetadataElectron& metadata);
 
     /// The conception with this id.

@@ -248,8 +248,8 @@ struct Larry {
         // A cloud with nothing in it gets what the cache holds: the first
         // contact of a machine that already learned.
         if (cloud && cloud->count() == 0 && memory.count() > 0) {
-            const auto [pushed, pulled] = brain.sync(0);
-            std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", pushed);
+            const larry::Brain::Synced synced = brain.sync(0);
+            std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", synced.pushed);
         }
     }
 
@@ -823,8 +823,9 @@ int run(std::span<const std::string_view> args) {
         if (!rest.empty()) {
             pull = std::stoll(std::string{rest[0]});
         }
-        const auto [pushed, pulled] = larry.brain.sync(pull);
-        std::println("{} conceptions pushed to the cloud, {} pulled into the cache", pushed, pulled);
+        const larry::Brain::Synced synced = larry.brain.sync(pull);
+        std::println("{} conceptions pushed to the cloud, {} pulled into the cache, {} described anew in the cloud",
+                     synced.pushed, synced.pulled, synced.redescribed);
         std::println("{} conceptions here, {} in the cloud", larry.memory.count(),
                      larry.cloud->count());
         return 0;

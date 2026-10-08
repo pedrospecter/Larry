@@ -118,6 +118,103 @@ TEST(the_same_form_keeps_the_first_atom) {
     CHECK(ops.text(memory.find(second.metadata)->description.atom) == "The sky is blue.");
 }
 
+namespace {
+
+// The same sentence described with types and roles: another metadata, the
+// same identity (Q28).
+Description sky_blue_with_types() {
+    const AtomOperations ops;
+    Description d = sky_blue();
+    d.entities.entities[0].types = {b("subject")};
+    d.entities.entities[1].types = {b("singular"), b("subject")};
+    d.entities.entities[2].types = {b("third person"), b("singular"), b("present"), b("predicate")};
+    d.entities.entities[3].types = {b("positive"), b("attribute")};
+    d.type.bytes = b("subject subject predicate attribute / neutral");
+    d.metadata = ops.metadata(d.category, d.type, d.entities);
+    return d;
+}
+
+}  // namespace
+
+TEST(the_same_words_with_other_types_are_one_conception) {
+    const std::filesystem::path file = fresh("larry_test_identity.atoms");
+    Memory memory{file};
+    const AtomOperations ops;
+    const Description first = sky_blue();
+    const Description second = sky_blue_with_types();
+    CHECK(first.metadata.bytes != second.metadata.bytes);
+    CHECK(ops.identity(first.metadata) == ops.identity(second.metadata));
+    CHECK(ops.identity(first.metadata) != ops.identity(sea_blue().metadata));
+    CHECK(ops.complete(first.metadata));
+    CHECK(ops.complete(second.metadata));
+    {
+        Description guessed = sky_blue();
+        guessed.entities.entities[3].types = {b("guessed")};
+        guessed.metadata = ops.metadata(guessed.category, guessed.type, guessed.entities);
+        CHECK(!ops.complete(guessed.metadata));
+        Description unknown = sky_blue();
+        unknown.entities.entities[3].category.clear();
+        unknown.metadata = ops.metadata(unknown.category, unknown.type, unknown.entities);
+        CHECK(!ops.complete(unknown.metadata));
+    }
+    CHECK(memory.store(first.atom, first.metadata, larry::Status::Proposed, "lesson:1") == Stored::New);
+    CHECK(memory.store(second.atom, second.metadata, larry::Status::Proposed, "user:pedro") == Stored::Same);
+    CHECK(memory.count() == 1);
+    // Found by either description; the stored one is the first, until it is redescribed.
+    CHECK(memory.find(second.metadata).has_value());
+    CHECK(memory.find(second.metadata)->description.metadata.bytes == first.metadata.bytes);
+    CHECK(memory.find(second.metadata)->sources == (std::vector<std::string>{"lesson:1", "user:pedro"}));
+    CHECK(memory.uses(b("sky")).size() == 1);
+    CHECK(memory.redescribe(second.metadata));
+    CHECK(!memory.redescribe(second.metadata));
+    CHECK(!memory.redescribe(sea_blue().metadata));
+    CHECK(memory.count() == 1);
+    CHECK(memory.find(first.metadata)->description.metadata.bytes == second.metadata.bytes);
+    CHECK(memory.find(first.metadata)->description.entities.entities[1].types ==
+          (std::vector<Bytes>{b("singular"), b("subject")}));
+    CHECK(memory.find_prefix(second.metadata.bytes).size() == 1);
+    CHECK(memory.find_prefix(first.metadata.bytes).empty());
+    CHECK(memory.count_words() == 4);
+    CHECK(memory.uses(b("sky")).size() == 1);
+    // The status and a decision follow the conception, not the description.
+    CHECK(memory.set_status(first.metadata, larry::Status::Validated, "pedro"));
+    CHECK(memory.find(second.metadata)->status == larry::Status::Validated);
+    // A restart reads the describe line back.
+    Memory again{file};
+    CHECK(again.count() == 1);
+    CHECK(again.find(first.metadata)->description.metadata.bytes == second.metadata.bytes);
+    CHECK(again.find(first.metadata)->status == larry::Status::Validated);
+    CHECK(again.find(first.metadata)->decided_by == "pedro");
+    CHECK(again.count_words() == 4);
+    CHECK(!again.redescribe(second.metadata));
+}
+
+TEST(two_records_of_one_conception_from_an_old_file_merge) {
+    // Before Q28 the same words with other types were two atoms. They read
+    // as one: the later complete description, every source, the status from
+    // the lines that follow.
+    const std::filesystem::path file = fresh("larry_test_identity_old.atoms");
+    const Description first = sky_blue();
+    const Description second = sky_blue_with_types();
+    {
+        std::ofstream out{file, std::ios::binary};
+        out << "atom\t" << larry::hex::encode(first.metadata.bytes) << "\t"
+            << larry::hex::encode(b("The sky is blue.")) << "\tproposed\t" << larry::hex::encode(b("lesson:1")) << "\n";
+        out << "atom\t" << larry::hex::encode(second.metadata.bytes) << "\t"
+            << larry::hex::encode(b("The sky is blue.")) << "\tproposed\t" << larry::hex::encode(b("user:pedro")) << "\n";
+        out << "status\t" << larry::hex::encode(second.metadata.bytes) << "\tvalidated\t"
+            << larry::hex::encode(b("pedro")) << "\n";
+    }
+    Memory memory{file};
+    CHECK(memory.count() == 1);
+    CHECK(memory.find(first.metadata)->description.metadata.bytes == second.metadata.bytes);
+    CHECK(memory.find(first.metadata)->sources == (std::vector<std::string>{"lesson:1", "user:pedro"}));
+    CHECK(memory.find(first.metadata)->status == larry::Status::Validated);
+    CHECK(memory.find(first.metadata)->decided_by == "pedro");
+    CHECK(memory.count_words() == 4);
+    CHECK(memory.uses(b("sky")).size() == 1);
+}
+
 TEST(find_prefix_gives_the_atoms_that_share_leading_parts) {
     Memory memory{fresh("larry_test_prefix.atoms")};
     const AtomOperations ops;

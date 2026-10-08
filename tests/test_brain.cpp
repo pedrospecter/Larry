@@ -31,6 +31,10 @@ using larry::Verdict;
 
 namespace {
 
+Bytes b(std::string_view text) {
+    return Bytes(text.begin(), text.end());
+}
+
 const larry::BaseRules& rules() {
     static const larry::BaseRules instance{larry::Language::English};
     return instance;
@@ -696,12 +700,39 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
     const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
-    const auto [pushed, pulled] = brain.sync(100);
+    const auto [pushed, pulled, redescribed] = brain.sync(100);
     CHECK(pushed == 1);
     CHECK(pulled == 2);  // the cat and the withdrawn moon
     CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
     CHECK(cache.find(cat.metadata)->status == larry::Status::Validated);
-    CHECK(brain.sync(100) == std::make_pair(std::int64_t{0}, std::int64_t{0}));
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // Q28: the cloud holds an older description of a conception: when the
+    // machine describes it anew, the cloud follows, at remember and at sync.
+    const larry::Description sun = describe("The sun is hot.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    larry::Description older = sun;
+    older.entities.entities[3].types = {b("positive"), b("object")};
+    older.type.bytes = b("subject subject predicate object / neutral");
+    older.metadata = ops.metadata(older.category, older.type, older.entities);
+    CHECK(older.metadata.bytes != sun.metadata.bytes);
+    CHECK(cloud->store(older.atom, older.metadata, larry::Status::Proposed, "pi") == larry::Stored::New);
+    const std::int64_t in_cloud = cloud->count();
+    CHECK(brain.remember(sun, larry::Status::Proposed, "lesson:3") == larry::Stored::New);
+    CHECK(cloud->count() == in_cloud);
+    CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
+    CHECK(cloud->find(sun.metadata)->sources == (std::vector<std::string>{"pi", "lesson:3"}));
+    CHECK(cloud->redescribe(cloud->find(sun.metadata)->id, older.metadata));
+    const larry::Brain::Synced synced = brain.sync(100);
+    CHECK(synced.redescribed == 1);
+    CHECK(synced.pushed == 0);
+    CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // A description that is not complete never replaces one that is.
+    larry::Description guessed = sun;
+    guessed.entities.entities[3].types.push_back(b("guessed"));
+    guessed.metadata = ops.metadata(guessed.category, guessed.type, guessed.entities);
+    CHECK(brain.remember(guessed, larry::Status::Proposed, "user:ana") == larry::Stored::Same);
+    CHECK(cache.find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
+    CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
     cloud->run("drop schema if exists larry_test_brain cascade");
 }
 
