@@ -34,3 +34,26 @@ none | The sky is blue.
 none | Tom has three apples.
 none | 3
 none | Is the door open?
+#
+# Fractions as words (M2).
+3 | What is a third of 9?
+8 | What is two thirds of 12?
+25 | What is a quarter of 100?
+0.5 | What is one half?
+5 | What is 1/2 of 10?
+6 | What is three quarters of 8?
+#
+# Units (M2): a quantity in another unit of the same quantity.
+200 centimetres | What is 2 metres in centimetres?
+180 minutes | How many minutes are there in 3 hours?
+150 minutes | What is 2 hours and 30 minutes in minutes?
+3.106856 miles | Convert 5 km to miles.
+2000 grams | 2 kg in grams
+37.777778 celsius | What is 100 fahrenheit in celsius?
+212 fahrenheit | What is 100 celsius in fahrenheit?
+6 metres | What is 2 times 3 metres?
+1.5 km | What is 1 km plus 500 metres?
+2 | What is 10 metres divided by 5 metres?
+yes | Is 1 km more than 900 metres?
+undefined | What is 2 metres plus 3 kilograms?
+undefined | What is 5 km in grams?

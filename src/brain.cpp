@@ -59,6 +59,8 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
       tolerance_(rules, grammar),
       harness_(rules),
       arithmetic_(rules),
+      calendar_(rules),
+      algebra_(rules),
       cognition_(),
       memory_(&memory),
       cloud_(cloud) {
@@ -920,6 +922,12 @@ std::vector<std::string> Brain::abilities() const {
 
 std::optional<Calculation> Brain::calculate(const Sentence& sentence) const {
     const AtomOperations ops;
+    if (std::optional<Calculation> date = calendar_.calculate(ops.text(sentence))) {
+        return date;
+    }
+    if (std::optional<Calculation> unknown = algebra_.calculate(ops.text(sentence))) {
+        return unknown;
+    }
     return arithmetic_.calculate(ops.text(sentence));
 }
 
