@@ -647,7 +647,6 @@ std::string Brain::Order::text() const {
 }
 
 std::optional<Reply> Brain::order_answer(const Description& question) const {
-    const AtomOperations ops;
     const std::vector<Bytes> words = expanded_words(question);
     if (words.empty() || !in(rules_->question_words(), words.front())) {
         return std::nullopt;
