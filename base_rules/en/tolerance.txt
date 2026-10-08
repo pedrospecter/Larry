@@ -1,0 +1,18 @@
+# Tolerance for non-native English (K3, Q26): each line a key, '=', a value, as hex
+# bytes (scripts/hex.sh). 'words per deviation' and 'most deviations' set the
+# allowance: a sentence of n words may deviate from the nearest grammar pattern
+# ceil(n / words per deviation) times, at most 'most deviations' times, and is
+# read as meant; beyond that it is refused with the reason. 'fill <category>'
+# is the word that stands in for a missing place of that category in the
+# reading ("Sky is blue" reads as "The sky is blue"). 'singular <word>' is the
+# plural form of an auxiliary verb, for agreement with the subject ("The sky
+# are blue" reads as "The sky is blue"; "Birds is animals" as "Birds are
+# animals").
+776f7264732070657220646576696174696f6e=34
+6d6f737420646576696174696f6e73=32
+66696c6c2064657465726d696e6572=746865
+66696c6c20617578696c696172792076657262=6973
+73696e67756c6172206973=617265
+73696e67756c617220776173=77657265
+73696e67756c617220686173=68617665
+73696e67756c617220646f6573=646f

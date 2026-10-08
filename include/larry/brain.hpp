@@ -7,8 +7,11 @@
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
+#include "larry/grammar.hpp"
+#include "larry/harness.hpp"
 #include "larry/memory.hpp"
 #include "larry/sentence.hpp"
+#include "larry/tolerance.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -32,10 +35,45 @@ struct Verdict {
     Truth truth = Truth::Unknown;
     /// The conceptions that decided it: one for true or false.
     std::vector<StoredAtom> because;
+    /// The rules that decided it, as text: "blue and green are both colours,
+    /// and a thing has one colour at a time".
+    std::vector<std::string> rules;
     /// When unknown, the conceptions that share the most words with the concept.
     std::vector<StoredAtom> nearest;
     /// Whether the answer came from the cloud, not from the cache.
     bool from_cloud = false;
+    /// K3: the sentence as Larry read it, when the reading changed what was
+    /// said ("The sky is blue." for "Sky is blue."); empty otherwise.
+    std::string reading;
+    /// K3: the deviations from the grammar, named; and whether they were
+    /// beyond the allowance, so that the claim was not read at all.
+    std::vector<std::string> deviations;
+    bool refused = false;
+    /// K4: what is unusual in the claim against the conceptions: a word
+    /// never used with the word it is used with here, and what is known
+    /// instead.
+    std::vector<std::string> unusual;
+};
+
+/// K5: how a sentence is qualified: by the rules (A3), with the rule that
+/// fired, and by the conceptions of the same structure (C5), with the
+/// examples. When the two disagree, Larry says both.
+struct Qualifying {
+    Qualification by_rules = Qualification::Affirmation;
+    std::string rule;
+    /// What most of the examples are; nothing without examples or on a tie.
+    std::optional<Qualification> by_examples;
+    /// The conceptions of the same structure: the validated ones when there
+    /// are any, else the proposed ones.
+    std::vector<StoredAtom> examples;
+    bool validated = false;
+    bool from_cloud = false;
+
+    [[nodiscard]] bool agree() const noexcept {
+        return !by_examples.has_value() || *by_examples == by_rules;
+    }
+    /// The answer with its reason, as one line.
+    [[nodiscard]] std::string text() const;
 };
 
 /// What Larry says back, with what it used to say it (rule 6).
@@ -62,16 +100,21 @@ struct Core {
 class Brain {
 public:
     /// Without a cloud, the brain has only the cache; without a dictionary,
-    /// only what the conceptions taught.
+    /// only what the conceptions taught; without a grammar, roles by
+    /// position. With a grammar, the validated conceptions of the cache add
+    /// their patterns to it (K2), now and as they are validated.
     Brain(const BaseRules& rules, Memory& memory, Database* cloud = nullptr,
-          const Dictionary* dictionary = nullptr);
+          const Dictionary* dictionary = nullptr, Grammar* grammar = nullptr);
 
-    /// R1 (first step): is this concept true? A concept is true when an
+    /// R1 (first step) and K1: is this concept true? A concept is true when an
     /// affirmation in memory has the same core with the same polarity, false
-    /// when one has the same core with the opposite polarity, and unknown
-    /// otherwise. A yes/no question ("Is the sky blue?") is read as the
-    /// statements it asks about ("the sky is blue"). Larry never produces an
-    /// answer it cannot trace to conceptions.
+    /// when one has the same core with the opposite polarity, and false too
+    /// when one gives the same thing another exclusive attribute ("the sky is
+    /// green" against "the sky is blue": a thing has one colour at a time);
+    /// the negation of such a false concept is true. Unknown otherwise. A
+    /// yes/no question ("Is the sky blue?") is read as the statements it asks
+    /// about ("the sky is blue"). Larry never produces an answer it cannot
+    /// trace to conceptions and rules.
     [[nodiscard]] Verdict truth(const Sentence& claim) const;
     [[nodiscard]] Verdict truth(const Description& claim) const;
 
@@ -125,6 +168,20 @@ public:
     /// [?]"; "Who went to the kitchen?" for "[?] went to the kitchen".
     [[nodiscard]] std::vector<StoredAtom> answers(const Description& question) const;
 
+    /// K3: how the brain reads a described sentence: as said when it fits
+    /// the grammar, else by the nearest pattern within the allowance, with
+    /// the deviations named; refused beyond it.
+    [[nodiscard]] Reading read(const Description& said) const;
+
+    /// K4: the context harness on a described sentence: each relation of
+    /// its words judged against the conceptions, the cache first and the
+    /// cloud when the cache has nothing.
+    [[nodiscard]] Report judge(const Description& d) const;
+
+    /// K5: the qualification of a described sentence by the rules and by the
+    /// conceptions of the same structure, with the reasons.
+    [[nodiscard]] Qualifying qualify(const Description& d) const;
+
     /// The core of a described sentence.
     [[nodiscard]] Core core(const Description& d) const;
 
@@ -138,21 +195,37 @@ public:
     [[nodiscard]] Memory& memory() const noexcept { return *memory_; }
     [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
+    [[nodiscard]] Grammar* grammar() const noexcept { return grammar_; }
+    [[nodiscard]] const Tolerance& tolerance() const noexcept { return tolerance_; }
+    [[nodiscard]] const Harness& harness() const noexcept { return harness_; }
+
+    /// K2: adds the pattern of a validated conception to the grammar: its
+    /// categories with their roles, named after the sentence. False when
+    /// there is no grammar, the conception is not validated, a category or
+    /// role is missing, or the grammar already gives those roles.
+    bool learn_grammar(const StoredAtom& atom);
     [[nodiscard]] const Cognition& cognition() const noexcept { return cognition_; }
 
 private:
     [[nodiscard]] std::vector<Bytes> expanded_words(const Description& d) const;
     [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
+    /// The exclusive group two different words share, or empty: "colour".
+    [[nodiscard]] Bytes exclusive_group(const Bytes& a, const Bytes& b) const;
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;
 
     /// The conceptions of the cache or the cloud that contain the rarest word
     /// of a core, affirmations only.
     [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
+    /// The spellings a core word may have in a stored atom: "3" and "three".
+    [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.
     void cache(const StoredAtom& atom) const;
 
     const BaseRules* rules_;
+    Grammar* grammar_;
     Assimilation assimilation_;
+    Tolerance tolerance_;
+    Harness harness_;
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;

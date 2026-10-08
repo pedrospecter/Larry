@@ -99,6 +99,32 @@ BaseRules::BaseRules(Language language) : language_(language) {
     auxiliaries_ = read_pairs(dir / "auxiliaries.txt");
     emotions_ = read_pairs(dir / "emotions.txt");
     sarcasm_ = read(dir / "sarcasm.txt");
+    for (const Bytes& line : read(dir / "exclusives.txt")) {
+        Exclusive group;
+        std::size_t at = 0;
+        const auto colon = std::ranges::find(line, ':');
+        if (colon != line.end()) {
+            group.name.assign(line.begin(), colon);
+            at = static_cast<std::size_t>(colon - line.begin()) + 1;
+        }
+        Bytes word;
+        for (std::size_t i = at; i <= line.size(); ++i) {
+            if (i == line.size() || line[i] == ';') {
+                if (!word.empty()) {
+                    group.words.push_back(word);
+                }
+                word.clear();
+            } else {
+                word.push_back(line[i]);
+            }
+        }
+        if (group.words.size() >= 2) {
+            exclusives_.push_back(std::move(group));
+        }
+    }
+    number_words_ = read_pairs(dir / "number_words.txt");
+    grammar_ = read(dir / "grammar.txt");
+    tolerance_ = read_pairs(dir / "tolerance.txt");
 }
 
 }  // namespace larry

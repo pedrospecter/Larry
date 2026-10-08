@@ -136,7 +136,7 @@ std::vector<Bytes> split_categories(std::string_view text) {
     return out;
 }
 
-larry::Qualification qualify(std::string_view sentence, std::string_view categories = "") {
+larry::Qualified qualification(std::string_view sentence, std::string_view categories = "") {
     static const larry::Assimilation assimilation{rules()};
     const larry::AtomOperations ops;
     const Cognition cognition;
@@ -145,10 +145,40 @@ larry::Qualification qualify(std::string_view sentence, std::string_view categor
     if (!categories.empty()) {
         cognition.categorize(entities, split_categories(categories), rules());
     }
-    return cognition.qualify(atom, entities, rules());
+    return cognition.qualification(atom, entities, rules());
+}
+
+larry::Qualification qualify(std::string_view sentence, std::string_view categories = "") {
+    return qualification(sentence, categories).qualification;
 }
 
 }  // namespace
+
+TEST(every_qualification_names_its_rule) {
+    using larry::Qualification;
+    CHECK(qualification("Is the sky blue?").rule == "rule 1: a sentence that ends with a question mark is a question");
+    CHECK(qualification("").rule == "rule 2: a sentence without a word is an expression");
+    CHECK(qualification("Hello!").rule == "rule 2: a sentence in the list of expressions is an expression");
+    CHECK(qualification("Oh no.", "interjection, interjection").rule == "rule 2: a sentence made of interjections is an expression");
+    CHECK(qualification("What is the sky").rule == "rule 3: a sentence that opens with a question word is a question");
+    CHECK(qualification("Is the sky blue", "auxiliary verb, determiner, noun, adjective").rule ==
+          "rule 4: a sentence that opens with an auxiliary verb is a question, unless a verb follows");
+    CHECK(qualification("Do not stop", "auxiliary verb, adverb, verb").qualification == Qualification::Order);
+    CHECK(qualification("Do not stop", "auxiliary verb, adverb, verb").rule == "rule 4: an auxiliary verb followed by a verb opens an order");
+    CHECK(qualification("If it rains, the street is wet.").rule ==
+          "rule 5: a sentence that hangs on an assumption word (\"If\") is an assumption");
+    CHECK(qualification("Close the door.", "verb, determiner, noun").rule == "rule 6: a sentence that opens with a verb is an order");
+    CHECK(qualification("The sky is blue.").rule == "rule 7: anything else is an affirmation");
+    // The user's words.
+    CHECK(larry::user_name(Qualification::Affirmation) == "declaration");
+    CHECK(larry::user_name(Qualification::Order) == "command");
+    CHECK(larry::user_name(Qualification::Question) == "question");
+    CHECK(larry::qualification_named("declaration") == Qualification::Affirmation);
+    CHECK(larry::qualification_named("affirmation") == Qualification::Affirmation);
+    CHECK(larry::qualification_named("command") == Qualification::Order);
+    CHECK(larry::qualification_named("assumption") == Qualification::Assumption);
+    CHECK(!larry::qualification_named("statement").has_value());
+}
 
 TEST(qualify_by_the_proposed_rules) {
     using larry::Qualification;

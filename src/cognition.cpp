@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -113,8 +114,34 @@ Bytes Comparison::bytes() const {
     return bytes_of(out);
 }
 
+std::string_view user_name(Qualification qualification) noexcept {
+    switch (qualification) {
+    case Qualification::Affirmation:
+        return "declaration";
+    case Qualification::Order:
+        return "command";
+    default:
+        return name(qualification);
+    }
+}
+
+std::optional<Qualification> qualification_named(std::string_view text) noexcept {
+    for (const Qualification q : {Qualification::Affirmation, Qualification::Question, Qualification::Order,
+                                  Qualification::Assumption, Qualification::Expression}) {
+        if (text == name(q) || text == user_name(q)) {
+            return q;
+        }
+    }
+    return std::nullopt;
+}
+
 Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectron& entities,
                                  const BaseRules& rules) const {
+    return qualification(sentence, entities, rules).qualification;
+}
+
+Qualified Cognition::qualification(const Sentence& sentence, const EntitiesElectron& entities,
+                                   const BaseRules& rules) const {
     static const Bytes interjection = bytes_of("interjection");
     static const Bytes adverb = bytes_of("adverb");
     static const Bytes auxiliary_verb = bytes_of("auxiliary verb");
@@ -125,11 +152,11 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
 
     // 1. A sentence that ends with "?" is a question.
     if (ends_with_question_mark(ops.text(sentence), rules)) {
-        return Qualification::Question;
+        return {Qualification::Question, "rule 1: a sentence that ends with a question mark is a question"};
     }
     const std::vector<Entity>& list = entities.entities;
     if (list.empty()) {
-        return Qualification::Expression;
+        return {Qualification::Expression, "rule 2: a sentence without a word is an expression"};
     }
     // 2. A sentence in the list of expressions, or made of interjections, is
     // an expression.
@@ -142,7 +169,7 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
         whole.insert(whole.end(), word.begin(), word.end());
     }
     if (in(rules.expressions(), whole)) {
-        return Qualification::Expression;
+        return {Qualification::Expression, "rule 2: a sentence in the list of expressions is an expression"};
     }
     // A guessed category (A6) never drives the rules: it counts as unknown here.
     static const Bytes guessed = bytes_of("guessed");
@@ -160,14 +187,14 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
     };
     const std::size_t first = skip(0, {&interjection});
     if (first == list.size()) {
-        return Qualification::Expression;
+        return {Qualification::Expression, "rule 2: a sentence made of interjections is an expression"};
     }
     const Entity& opening = list[first];
     // 3. A sentence that opens with a question word is a question, unless the
     // word is used as a noun ("What is a question word").
     if (in(rules.question_words(), ops.fold(opening.word)) && category_of(opening) != noun &&
         category_of(opening) != proper_noun) {
-        return Qualification::Question;
+        return {Qualification::Question, "rule 3: a sentence that opens with a question word is a question"};
     }
     // 4. A sentence that opens with an auxiliary verb is a question ("Can birds
     // fly"), unless a verb follows it: then it is an order ("Do not stop").
@@ -177,22 +204,26 @@ Qualification Cognition::qualify(const Sentence& sentence, const EntitiesElectro
         if (next < list.size() && category_of(list[next]) == verb) {
             imperative = true;
         } else {
-            return Qualification::Question;
+            return {Qualification::Question,
+                    "rule 4: a sentence that opens with an auxiliary verb is a question, unless a verb follows"};
         }
     }
     // 5. A sentence that hangs on an assumption word is an assumption.
     for (const Entity& e : list) {
         if (in(rules.assumption_words(), ops.fold(e.word))) {
-            return Qualification::Assumption;
+            return {Qualification::Assumption,
+                    std::format("rule 5: a sentence that hangs on an assumption word (\"{}\") is an assumption",
+                                std::string_view{reinterpret_cast<const char*>(e.word.data()), e.word.size()})};
         }
     }
     // 6. A sentence that opens with a verb, after any adverb, is an order.
     const std::size_t head = skip(first, {&interjection, &adverb});
     if (imperative || (head < list.size() && category_of(list[head]) == verb)) {
-        return Qualification::Order;
+        return {Qualification::Order, imperative ? "rule 4: an auxiliary verb followed by a verb opens an order"
+                                                 : "rule 6: a sentence that opens with a verb is an order"};
     }
     // 7. Anything else is an affirmation.
-    return Qualification::Affirmation;
+    return {Qualification::Affirmation, "rule 7: anything else is an affirmation"};
 }
 
 void Cognition::categorize(EntitiesElectron& entities, std::span<const Bytes> categories,

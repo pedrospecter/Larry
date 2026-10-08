@@ -3,6 +3,7 @@
 #include "larry/atom_operations.hpp"
 #include "larry/cognition.hpp"
 #include "larry/dictionary.hpp"
+#include "larry/grammar.hpp"
 #include "larry/memory.hpp"
 #include "larry/utf8.hpp"
 
@@ -78,8 +79,9 @@ bool is_initialism(std::string_view folded) {
 
 }  // namespace
 
-Assimilation::Assimilation(const BaseRules& rules, const Dictionary* dictionary)
-    : rules_(&rules), dictionary_(dictionary), punctuation_(sorted(rules.punctuation())),
+Assimilation::Assimilation(const BaseRules& rules, const Dictionary* dictionary,
+                           const Grammar* grammar)
+    : rules_(&rules), dictionary_(dictionary), grammar_(grammar), punctuation_(sorted(rules.punctuation())),
       sentence_ends_(sorted(rules.sentence_ends())), closers_(sorted(rules.closers())),
       joiners_(sorted(rules.joiners())), number_joiners_(sorted(rules.number_joiners())),
       abbreviations_(sorted(rules.abbreviations())), titles_(sorted(rules.titles())) {}
@@ -450,7 +452,9 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
             }
         }
     }
-    types(d);
+    // A guessed category is marked before the qualification, which does not
+    // count it; the qualification before the types, since the grammar reads
+    // a question by its own patterns (K2).
     for (std::size_t i = 0; i < n; ++i) {
         if (d.notes[i].source == Source::Guess) {
             d.entities.entities[i].types.push_back(Bytes{'g', 'u', 'e', 's', 's', 'e', 'd'});
@@ -458,6 +462,7 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
     }
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
+    types(d);
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);
     d.image.bytes.assign(bytes.begin(), bytes.end());
     d.metadata = ops.metadata(d.category, d.type, d.entities);
@@ -587,7 +592,25 @@ void Assimilation::types(Description& d) const {
         return out;
     };
 
-    // 2. Roles, by position around the first verb.
+    // 2. Roles: from the grammar pattern the categories fit (K2), else by
+    // position around the first verb.
+    d.pattern.clear();
+    std::vector<Bytes> roles(n);
+    bool fitted = false;
+    if (grammar_ != nullptr && n > 0) {
+        std::vector<Bytes> categories;
+        categories.reserve(n);
+        for (const Entity& e : entities) {
+            categories.push_back(e.category);
+        }
+        static const Bytes question = bytes_of("question");
+        Fit fit = grammar_->fit(categories, d.category.bytes == question);
+        if (fit.fits) {
+            fitted = true;
+            roles = std::move(fit.roles);
+            d.pattern = std::move(fit.pattern);
+        }
+    }
     std::size_t predicate = n;
     for (std::size_t i = 0; i < n; ++i) {
         if (entities[i].category == verb || entities[i].category == auxiliary_verb) {
@@ -602,9 +625,8 @@ void Assimilation::types(Description& d) const {
             copula = false;
         }
     }
-    std::vector<Bytes> roles(n);
     bool in_complement = false;
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; !fitted && i < n; ++i) {
         const Bytes& category = entities[i].category;
         if (category == interjection) {
             roles[i] = bytes_of("none");
@@ -651,11 +673,17 @@ void Assimilation::types(Description& d) const {
         }
     }
 
-    // 4. Write the types: the entity's features and its role; the atom's roles and emotion.
+    // 4. Write the types: the entity's features and its role, then the mark of
+    // a guessed category; the atom's roles and emotion.
     Bytes type;
     for (std::size_t i = 0; i < n; ++i) {
+        static const Bytes guessed_mark = bytes_of("guessed");
+        const bool guessed = std::ranges::contains(entities[i].types, guessed_mark);
         entities[i].types = features_of(i);
         entities[i].types.push_back(roles[i]);
+        if (guessed) {
+            entities[i].types.push_back(guessed_mark);
+        }
         if (i > 0) {
             type.push_back(' ');
         }

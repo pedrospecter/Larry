@@ -6,7 +6,7 @@
 The sky is blue.
 determiner, noun, auxiliary verb, adjective
 
-The sea is wide.
+The sea is vast.
 determiner, noun, auxiliary verb, adjective
 
 The grass is tall.

@@ -7,8 +7,11 @@
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
+#include "larry/grammar.hpp"
+#include "larry/harness.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
+#include "larry/tolerance.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -43,8 +46,24 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
   compare <text> <text>        compare two sentences: C1 to C5
+  grammar <text>               which grammar pattern each sentence fits and the
+                               role of each word, or where it breaks and what
+                               was expected there; "grammar" alone lists the
+                               patterns
+  harness <text>               the context harness: for each relation of a
+                               sentence (an attribute of a thing, the subject
+                               or object of a verb), whether the conceptions
+                               know it, find it plausible or never saw it, and
+                               what they know instead
+  qualify <text>               what kind of sentence each one is: an
+                               affirmation (a declaration), a question, an
+                               order (a command), an assumption or an
+                               expression, by the rules and by the conceptions
+                               of the same structure, with the reasons
   ask <text>                   is a concept true, false or unknown, from the
-                               conceptions in memory; a yes/no question works
+                               conceptions in memory; a yes/no question works;
+                               a sentence off the grammar is read as meant
+                               within the tolerance, and the reading shown
   say <text>                   hear one sentence and reply: an affirmation is
                                stored, a question answered, an order refused,
                                an assumption noted, an expression returned
@@ -203,12 +222,13 @@ struct Larry {
     larry::Constellation constellation{larry::Language::English};
     larry::BaseRules rules{constellation.language()};
     std::unique_ptr<larry::Dictionary> dictionary{open_dictionary(constellation.language())};
-    larry::Assimilation assimilation{rules, dictionary.get()};
+    larry::Grammar grammar{rules};
+    larry::Assimilation assimilation{rules, dictionary.get(), &grammar};
     larry::Cognition cognition;
     larry::AtomOperations ops;
     larry::Memory memory{larry::Memory::file_from_environment(constellation.language())};
     std::unique_ptr<larry::Database> cloud;
-    larry::Brain brain{rules, memory, nullptr, dictionary.get()};
+    larry::Brain brain{rules, memory, nullptr, dictionary.get(), &grammar};
 
     Larry() {
         const std::string connection = larry::Database::connection_from_environment();
@@ -219,7 +239,7 @@ struct Larry {
                 std::println(stderr, "larry: no cloud: {}", e.what());
             }
         }
-        brain = larry::Brain{rules, memory, cloud.get(), dictionary.get()};
+        brain = larry::Brain{rules, memory, cloud.get(), dictionary.get(), &grammar};
         if (!std::filesystem::exists(memory.file())) {
             std::println(stderr, "larry: no memory at {}; rebuilding it from the lessons",
                          memory.file().string());
@@ -323,6 +343,24 @@ void print(const Larry& larry, const larry::Description& d) {
     std::println("category      : {} ({} bytes)", as_text(d.category.bytes),
                  d.category.bytes.size());
     std::println("type          : {} ({} bytes)", as_text(d.type.bytes), d.type.bytes.size());
+    std::println("pattern       : {}", d.pattern.empty() ? "none fits; roles by position" : d.pattern);
+    const larry::Reading reading = larry.brain.read(d);
+    std::string tolerance = reading.accepted ? (reading.changed ? std::format("read as \"{}\"", larry.ops.text(reading.meant.atom))
+                                                                : std::string{"as said"})
+                                             : "not read: " + reading.reason;
+    for (const std::string& deviation : reading.deviations) {
+        tolerance += "; " + deviation;
+    }
+    std::println("tolerance     : {} ({} deviation{}, {} counted, {} allowed)", tolerance,
+                 reading.deviations.size(), reading.deviations.size() == 1 ? "" : "s", reading.counted,
+                 reading.allowed);
+    const larry::Report report = larry.brain.judge(reading.changed ? reading.meant : d);
+    const std::vector<std::string> unusual = report.unusual();
+    std::println("harness       : {} relation{}, {} unusual", report.judgements.size(),
+                 report.judgements.size() == 1 ? "" : "s", unusual.size());
+    for (const std::string& line : unusual) {
+        std::println("                {}", line);
+    }
     std::println("entities      : {}", d.entities.entities.size());
     for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
         const larry::Entity& entity = d.entities.entities[i];
@@ -439,6 +477,114 @@ int run(std::span<const std::string_view> args) {
         larry.rebuild(true);
         return 0;
     }
+    if (command == "grammar") {
+        if (rest.empty()) {
+            std::println("{} patterns, {} learned from validated conceptions", larry.grammar.size(),
+                         larry.grammar.learned());
+            for (const larry::Grammar::Pattern& p : larry.grammar.patterns()) {
+                std::println("{}: {}", p.name, p.text);
+            }
+            return 0;
+        }
+        const larry::Grammar& grammar = larry.grammar;
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            std::println("{}", larry.ops.text(sentence));
+            std::vector<larry::Bytes> categories;
+            std::string shown;
+            for (const larry::Entity& e : d.entities.entities) {
+                categories.push_back(e.category);
+                shown += shown.empty() ? "" : ", ";
+                shown += e.category.empty() ? "?" : std::string{as_text(e.category)};
+            }
+            std::println("categories : {}", shown);
+            if (std::ranges::any_of(categories, [](const larry::Bytes& c) { return c.empty(); })) {
+                std::println("no pattern : a word has no category{}", open_words(d));
+                continue;
+            }
+            const bool question = as_text(d.category.bytes) == "question";
+            const larry::Fit fit = grammar.fit(categories, question);
+            if (fit.fits) {
+                std::println("pattern    : {}", fit.pattern);
+                std::println("             {}", grammar.text(fit.pattern));
+                for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+                    std::println("  {:<14} {:<15} {}", as_text(d.entities.entities[i].word),
+                                 as_text(categories[i]), as_text(fit.roles[i]));
+                }
+                continue;
+            }
+            std::string expected;
+            for (const larry::Bytes& e : fit.expected) {
+                expected += expected.empty() ? "" : ", ";
+                expected += as_text(e) == "end" ? "the end of the sentence" : std::string{as_text(e)};
+            }
+            if (fit.breaks_at < d.entities.entities.size()) {
+                std::println("no pattern : breaks at word {} \"{}\" ({}); expected: {}", fit.breaks_at + 1,
+                             as_text(d.entities.entities[fit.breaks_at].word),
+                             as_text(categories[fit.breaks_at]), expected);
+            } else {
+                std::println("no pattern : the sentence ends too early; expected: {}", expected);
+            }
+            std::println("nearest    : {}", fit.pattern);
+            std::println("             {}", grammar.text(fit.pattern));
+        }
+        return 0;
+    }
+    if (command == "harness") {
+        if (rest.empty()) {
+            throw std::runtime_error("harness needs a sentence");
+        }
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description said = larry.assimilation.describe(sentence, &larry.memory);
+            const larry::Reading reading = larry.brain.read(said);
+            const larry::Description& d = reading.changed ? reading.meant : said;
+            std::println("{}", larry.ops.text(sentence));
+            if (reading.changed) {
+                std::println("read as    : {}", larry.ops.text(d.atom));
+            }
+            const larry::Report report = larry.brain.judge(d);
+            if (report.judgements.empty()) {
+                std::println("relations  : none{}", open_words(d));
+                continue;
+            }
+            for (const larry::Judgement& j : report.judgements) {
+                std::println("{:<10} : {}, {} {}", larry::name(j.standing), as_text(j.relation.dependent),
+                             as_text(j.relation.kind), as_text(j.relation.head));
+                std::println("             {}{}", j.text(), j.from_cloud ? " (from the cloud)" : "");
+            }
+        }
+        return 0;
+    }
+    if (command == "qualify") {
+        if (rest.empty()) {
+            throw std::runtime_error("qualify needs a sentence");
+        }
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            const larry::Qualifying q = larry.brain.qualify(d);
+            std::println("{}", larry.ops.text(sentence));
+            std::println("qualification : {} ({})", larry::name(q.by_rules), larry::user_name(q.by_rules));
+            std::println("by the rules  : {}", q.rule);
+            if (q.examples.empty()) {
+                std::println("by example    : no conception has the same structure{}", open_words(d));
+            } else {
+                std::println("by example    : {}{}, from {} {} conception{} of the same structure{}",
+                             q.by_examples ? larry::name(*q.by_examples) : "no majority",
+                             q.by_examples ? std::format(" ({})", larry::user_name(*q.by_examples)) : "",
+                             q.examples.size(), q.validated ? "validated" : "proposed",
+                             q.examples.size() == 1 ? "" : "s", q.from_cloud ? " (from the cloud)" : "");
+                for (std::size_t i = 0; i < q.examples.size() && i < 5; ++i) {
+                    std::println("                {} ({})", larry.ops.text(q.examples[i].description.atom),
+                                 as_text(q.examples[i].description.category.bytes));
+                }
+            }
+            std::println("agreement     : {}", q.examples.empty() ? "the rules alone decide"
+                                                : !q.by_examples   ? "the examples disagree among themselves; the rules decide"
+                                                : q.agree()        ? "the rules and the examples agree"
+                                                                   : "the rules and the examples disagree; Larry says both");
+        }
+        return 0;
+    }
     if (command == "compare") {
         if (rest.size() != 2) {
             throw std::runtime_error("compare needs two sentences");
@@ -519,8 +665,20 @@ int run(std::span<const std::string_view> args) {
                                    ? ""
                                    : std::format(" (validated by {})", atom.decided_by));
         }
+        for (const std::string& rule : verdict.rules) {
+            std::println("rule: {}", rule);
+        }
         for (const larry::StoredAtom& atom : verdict.nearest) {
             std::println("I know: {}", larry.ops.text(atom.description.atom));
+        }
+        if (!verdict.reading.empty()) {
+            std::println("read as: {}", verdict.reading);
+        }
+        for (const std::string& deviation : verdict.deviations) {
+            std::println("{}: {}", verdict.refused ? "not read" : "deviation", deviation);
+        }
+        for (const std::string& line : verdict.unusual) {
+            std::println("unusual: {}", line);
         }
         return 0;
     }
@@ -739,8 +897,12 @@ int run(std::span<const std::string_view> args) {
         std::println("{} conceptions, {} word uses, in {}", larry.memory.count(),
                      larry.memory.count_words(), larry.memory.file().string());
         if (larry.cloud) {
-            std::println("{} conceptions, {} word uses, in the cloud", larry.cloud->count(),
+            const std::int64_t in_cloud = larry.cloud->count();
+            std::println("{} conceptions, {} word uses, in the cloud", in_cloud,
                          larry.cloud->count_words());
+            if (in_cloud < larry.memory.count()) {
+                std::println("the cloud may lack some of the cache's conceptions: larry sync pushes them");
+            }
         } else {
             std::println("no cloud: set LARRY_DB to reach one");
         }

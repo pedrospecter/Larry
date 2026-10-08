@@ -1,0 +1,58 @@
+# K1: claims against a fixed memory, and what Larry says of them. Fields are separated
+# by " | ": the answer (true, false, unknown), then the claim. The memory is the lesson
+# in test_brain.cpp, truth_suite: the sky is blue, the door is closed, the water is hot,
+# Tom has three apples, it is Monday, the car is red, Tom is tall, the cat is asleep,
+# the cup is full, the sea is deep, penguins do not fly, birds fly.
+true | the sky is blue
+true | The sky is blue.
+true | Is the sky blue?
+false | the sky is not blue
+false | the sky is green
+false | The sky is red.
+false | Is the sky green?
+true | the sky is not green
+false | Isn't the sky green?
+unknown | the sky is big
+unknown | the sky is wide
+true | the door is closed
+false | the door is open
+true | the door is not open
+unknown | the door is shut
+unknown | the door is wooden
+true | the water is hot
+false | the water is cold
+unknown | the water is warm
+true | the water is not cold
+unknown | the water is deep
+true | Tom has three apples
+false | Tom has five apples
+true | Tom has 3 apples
+false | Tom has 4 apples
+# "does not have" against "has" waits for word forms (A4): unknown for now.
+unknown | Tom does not have five apples
+unknown | Tom has three pears
+unknown | Ana has three apples
+true | it is Monday
+false | it is Tuesday
+false | Is it Sunday?
+true | it is not Friday
+true | the car is red
+false | the car is blue
+unknown | the car is fast
+true | Tom is tall
+false | Tom is short
+unknown | Tom is old
+true | the cat is asleep
+false | the cat is awake
+true | the cup is full
+false | the cup is empty
+true | the sea is deep
+false | the sea is shallow
+unknown | the sea is wide
+true | penguins do not fly
+false | penguins fly
+true | birds fly
+false | birds do not fly
+unknown | the moon is made of cheese
+unknown | the sky
+unknown | green

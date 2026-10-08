@@ -1,6 +1,7 @@
 #include "larry/brain.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/grammar.hpp"
 
 #include <algorithm>
 #include <format>
@@ -50,8 +51,45 @@ const std::vector<Bytes> do_support = {bytes_of("do"), bytes_of("does"), bytes_o
 
 }  // namespace
 
-Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dictionary* dictionary)
-    : rules_(&rules), assimilation_(rules, dictionary), cognition_(), memory_(&memory), cloud_(cloud) {}
+Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dictionary* dictionary,
+             Grammar* grammar)
+    : rules_(&rules),
+      grammar_(grammar),
+      assimilation_(rules, dictionary, grammar),
+      tolerance_(rules, grammar),
+      harness_(rules),
+      cognition_(),
+      memory_(&memory),
+      cloud_(cloud) {
+    if (grammar_ != nullptr) {
+        for (const StoredAtom& atom : memory_->with_status(Status::Validated)) {
+            learn_grammar(atom);
+        }
+    }
+}
+
+bool Brain::learn_grammar(const StoredAtom& atom) {
+    if (grammar_ == nullptr || atom.status != Status::Validated) {
+        return false;
+    }
+    std::vector<Bytes> categories;
+    std::vector<Bytes> roles;
+    for (const Entity& e : atom.description.entities.entities) {
+        // The role is the last type that is one; after it may come "guessed".
+        const auto role = std::ranges::find_if(e.types.rbegin(), e.types.rend(), [](const Bytes& t) {
+            return std::ranges::contains(Grammar::roles(), t);
+        });
+        if (e.category.empty() || role == e.types.rend()) {
+            return false;
+        }
+        categories.push_back(e.category);
+        roles.push_back(*role);
+    }
+    const AtomOperations ops;
+    static const Bytes question = bytes_of("question");
+    return grammar_->learn("example: " + std::string{ops.text(atom.description.atom)}, categories,
+                           roles, atom.description.category.bytes == question);
+}
 
 void Brain::cache(const StoredAtom& atom) const {
     const Description& d = atom.description;
@@ -118,6 +156,11 @@ bool Brain::set_status(const MetadataElectron& metadata, Status status, std::str
             any = true;
         }
     }
+    if (any && status == Status::Validated && grammar_ != nullptr) {
+        if (const std::optional<StoredAtom> held = memory_->find(metadata)) {
+            learn_grammar(*held);
+        }
+    }
     return any;
 }
 
@@ -155,24 +198,47 @@ std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
     return {pushed, pulled};
 }
 
+std::vector<Bytes> Brain::spellings(const Bytes& word) const {
+    // A core word in digits was stored as "three" or as "3": both are looked up.
+    std::vector<Bytes> out{word};
+    for (const auto& [number, digits] : rules_->number_words()) {
+        if (digits == word && !in(out, number)) {
+            out.push_back(number);
+        }
+    }
+    return out;
+}
+
 std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
     std::vector<StoredAtom> out;
     if (form.words.empty() || (cloud && cloud_ == nullptr)) {
         return out;
     }
+    const auto uses_of = [&](const Bytes& word) {
+        std::size_t uses = 0;
+        for (const Bytes& spelling : spellings(word)) {
+            uses += memory_->uses(spelling).size();
+        }
+        return uses;
+    };
     const Bytes* rarest = &form.words.front();
-    std::size_t fewest = memory_->uses(*rarest).size();
+    std::size_t fewest = uses_of(*rarest);
     for (const Bytes& word : form.words) {
-        const std::size_t uses = memory_->uses(word).size();
+        const std::size_t uses = uses_of(word);
         if (uses < fewest) {
             fewest = uses;
             rarest = &word;
         }
     }
-    std::vector<StoredAtom> found = cloud ? cloud_->containing(*rarest) : memory_->containing(*rarest);
-    for (StoredAtom& atom : found) {
-        if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn) {
-            out.push_back(std::move(atom));
+    std::vector<std::int64_t> ids;
+    for (const Bytes& spelling : spellings(*rarest)) {
+        std::vector<StoredAtom> found = cloud ? cloud_->containing(spelling) : memory_->containing(spelling);
+        for (StoredAtom& atom : found) {
+            if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn &&
+                std::ranges::find(ids, atom.id) == ids.end()) {
+                ids.push_back(atom.id);
+                out.push_back(std::move(atom));
+            }
         }
     }
     return out;
@@ -215,10 +281,40 @@ Core Brain::core_of(std::vector<Bytes> words) const {
         if (in(do_support, word)) {
             continue;
         }
+        // A number word reads as its digits: "three" is "3".
+        for (const auto& [number, digits] : rules_->number_words()) {
+            if (number == word) {
+                word = digits;
+                break;
+            }
+        }
         out.words.push_back(std::move(word));
     }
     out.negated = negations % 2 == 1;
     return out;
+}
+
+namespace {
+
+bool is_digits(const Bytes& word) {
+    return !word.empty() && std::ranges::all_of(word, [](std::uint8_t c) { return c >= '0' && c <= '9'; });
+}
+
+}  // namespace
+
+Bytes Brain::exclusive_group(const Bytes& a, const Bytes& b) const {
+    if (a == b) {
+        return {};
+    }
+    if (is_digits(a) && is_digits(b)) {
+        return bytes_of("number");
+    }
+    for (const BaseRules::Exclusive& group : rules_->exclusives()) {
+        if (in(group.words, a) && in(group.words, b)) {
+            return group.name.empty() ? bytes_of("exclusive") : group.name;
+        }
+    }
+    return {};
 }
 
 Core Brain::core(const Description& d) const {
@@ -275,8 +371,109 @@ std::vector<Core> Brain::statements(const Description& question) const {
     return out;
 }
 
+Reading Brain::read(const Description& said) const {
+    return tolerance_.read(said, assimilation_, memory_);
+}
+
+Report Brain::judge(const Description& d) const {
+    return harness_.judge(d, memory_, cloud_);
+}
+
+std::string Qualifying::text() const {
+    const AtomOperations ops;
+    const auto named = [](Qualification q) {
+        return std::format("{} ({})", name(q), user_name(q));
+    };
+    std::string out = std::format("{}, by the {}", named(by_rules), rule);
+    if (examples.empty()) {
+        return out + "; no conception has the same structure";
+    }
+    std::string list;
+    for (std::size_t i = 0; i < examples.size() && i < 3; ++i) {
+        list += i == 0 ? "" : ", ";
+        list += ops.text(examples[i].description.atom);
+    }
+    if (examples.size() > 3) {
+        list += std::format(" and {} more", examples.size() - 3);
+    }
+    const std::string which = std::format("{} {} conception{} of the same structure{}: {}", examples.size(),
+                                          validated ? "validated" : "proposed", examples.size() == 1 ? "" : "s",
+                                          from_cloud ? " (from the cloud)" : "", list);
+    if (!by_examples) {
+        return out + "; the " + which + " disagree among themselves";
+    }
+    if (*by_examples == by_rules) {
+        return out + ", and by the " + which;
+    }
+    return out + "; but " + named(*by_examples) + " by the " + which;
+}
+
+Qualifying Brain::qualify(const Description& d) const {
+    Qualifying out;
+    const Qualified by_rules = cognition_.qualification(d.atom, d.entities, *rules_);
+    out.by_rules = by_rules.qualification;
+    out.rule = by_rules.rule;
+    // The conceptions with a word of the sentence that have its structure (C5).
+    const AtomOperations ops;
+    std::vector<StoredAtom> validated;
+    std::vector<StoredAtom> proposed;
+    for (const bool cloud : {false, true}) {
+        if (cloud && (cloud_ == nullptr || !validated.empty() || !proposed.empty())) {
+            break;
+        }
+        std::vector<std::int64_t> seen;
+        for (const Entity& e : d.entities.entities) {
+            const Bytes word = ops.fold(e.word);
+            for (StoredAtom& atom : cloud ? cloud_->containing(word) : memory_->containing(word)) {
+                if (std::ranges::contains(seen, atom.id) || atom.status == Status::Withdrawn) {
+                    continue;
+                }
+                seen.push_back(atom.id);
+                if (!cognition_.same_structure(d, atom.description).holds) {
+                    continue;
+                }
+                (atom.status == Status::Validated ? validated : proposed).push_back(std::move(atom));
+            }
+        }
+        out.from_cloud = cloud && (!validated.empty() || !proposed.empty());
+    }
+    out.validated = !validated.empty();
+    out.examples = out.validated ? std::move(validated) : std::move(proposed);
+    if (out.examples.empty()) {
+        return out;
+    }
+    std::map<Bytes, std::size_t> votes;
+    for (const StoredAtom& atom : out.examples) {
+        ++votes[atom.description.category.bytes];
+    }
+    const auto most = std::ranges::max_element(votes, [](const auto& a, const auto& b) { return a.second < b.second; });
+    const bool tie = std::ranges::count_if(votes, [&](const auto& v) { return v.second == most->second; }) > 1;
+    if (!tie) {
+        const std::string_view category{reinterpret_cast<const char*>(most->first.data()), most->first.size()};
+        out.by_examples = qualification_named(category);
+    }
+    return out;
+}
+
 Verdict Brain::truth(const Sentence& claim) const {
-    return truth(assimilation_.describe(claim, memory_));
+    const Description said = assimilation_.describe(claim, memory_);
+    const Reading reading = read(said);
+    if (!reading.accepted) {
+        Verdict verdict;
+        verdict.refused = true;
+        verdict.deviations = reading.deviations;
+        verdict.deviations.push_back(reading.reason);
+        return verdict;
+    }
+    const Description& meant = reading.changed ? reading.meant : said;
+    Verdict verdict = truth(meant);
+    verdict.deviations = reading.deviations;
+    if (reading.changed) {
+        const AtomOperations ops;
+        verdict.reading = std::string{ops.text(reading.meant.atom)};
+    }
+    verdict.unusual = judge(meant).unusual();
+    return verdict;
 }
 
 Verdict Brain::truth(const Description& claim) const {
@@ -321,6 +518,53 @@ Verdict Brain::truth(const Description& claim) const {
             }
             verdict.because.push_back(std::move(false_because));
             return verdict;
+        }
+    }
+    // K1: a conception that gives the same thing another exclusive attribute
+    // makes the claim false, and its negation true. The cache first.
+    for (const bool cloud : {false, true}) {
+        for (const Core& form : forms) {
+            std::map<std::int64_t, StoredAtom> seen;
+            for (const Bytes& word : form.words) {
+                for (StoredAtom& atom : candidates(Core{{word}, false}, cloud)) {
+                    seen.try_emplace(atom.id, std::move(atom));
+                }
+            }
+            for (auto& [id, atom] : seen) {
+                const Core stored = core(atom.description);
+                if (stored.negated || stored.words.size() != form.words.size()) {
+                    continue;
+                }
+                std::size_t differing = form.words.size();
+                std::size_t count = 0;
+                for (std::size_t i = 0; i < form.words.size(); ++i) {
+                    if (form.words[i] != stored.words[i]) {
+                        differing = i;
+                        ++count;
+                    }
+                }
+                if (count != 1) {
+                    continue;
+                }
+                const Bytes group = exclusive_group(form.words[differing], stored.words[differing]);
+                if (group.empty()) {
+                    continue;
+                }
+                const auto text_of = [](const Bytes& b) {
+                    return std::string(b.begin(), b.end());
+                };
+                verdict.truth = form.negated ? Truth::True : Truth::False;
+                verdict.from_cloud = cloud;
+                verdict.rules.push_back(std::format(
+                    "{} and {} are both of the kind {}, and a thing has one at a time",
+                    text_of(form.words[differing]), text_of(stored.words[differing]),
+                    text_of(group)));
+                if (cloud) {
+                    cache(atom);
+                }
+                verdict.because.push_back(std::move(atom));
+                return verdict;
+            }
         }
     }
     // Unknown: the affirmations that share the most content words with the
@@ -430,27 +674,52 @@ std::vector<StoredAtom> Brain::answers(const Description& question) const {
 
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     const AtomOperations ops;
-    const Description d = assimilation_.describe(sentence, memory_);
+    // What was said is what gets stored; what was meant, by the reading
+    // within the tolerance (K3), is what Larry thinks with.
+    const Description said = assimilation_.describe(sentence, memory_);
+    const Reading reading = read(said);
+    Reply reply;
+    if (!reading.accepted) {
+        reply.text = "I cannot read that";
+        for (std::size_t i = 0; i < reading.deviations.size(); ++i) {
+            reply.text += (i == 0 ? ": " : "; ") + reading.deviations[i];
+        }
+        reply.text += ".";
+        reply.because.push_back("rule: " + reading.reason);
+        return reply;
+    }
+    const Description& d = reading.changed ? reading.meant : said;
+    for (const std::string& deviation : reading.deviations) {
+        reply.because.push_back("deviation: " + deviation);
+    }
+    if (reading.changed) {
+        reply.text = std::format("I read it as \"{}\". ", ops.text(d.atom));
+        reply.because.push_back(std::format("read as: {}", ops.text(d.atom)));
+    }
+    // K4: what is unusual goes into the reasons; a stored affirmation says it too.
+    const std::vector<std::string> unusual = judge(d).unusual();
+    for (const std::string& line : unusual) {
+        reply.because.push_back("unusual: " + line);
+    }
     const std::string_view qualification{reinterpret_cast<const char*>(d.category.bytes.data()),
                                          d.category.bytes.size()};
     const auto text_of = [&](const StoredAtom& atom) {
         return std::string{ops.text(atom.description.atom)};
     };
-    Reply reply;
     if (qualification == "expression") {
-        reply.text = std::string{ops.text(sentence)};
+        reply.text += std::string{ops.text(sentence)};
         reply.because.emplace_back("rule: an expression is answered in kind");
         return reply;
     }
     if (qualification == "order") {
-        reply.text = "I cannot do that yet.";
+        reply.text += "I cannot do that yet.";
         reply.because.emplace_back("rule: orders wait for S1");
         return reply;
     }
     if (qualification == "assumption") {
-        remember(d, Status::Proposed, source);
+        remember(said, Status::Proposed, source);
         reply.stored = true;
-        reply.text = "Noted as an assumption, not as a truth.";
+        reply.text += "Noted as an assumption, not as a truth.";
         reply.because.emplace_back("rule: an assumption is kept apart from the truths");
         return reply;
     }
@@ -469,17 +738,20 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         const Verdict verdict = truth(d);
         switch (verdict.truth) {
         case Truth::True:
-            reply.text = "Yes.";
+            reply.text += "Yes.";
             break;
         case Truth::False:
-            reply.text = "No.";
+            reply.text += "No.";
             break;
         case Truth::Unknown:
-            reply.text = "I don't know.";
+            reply.text += "I don't know.";
             break;
         }
         for (const StoredAtom& atom : verdict.because) {
             reply.because.push_back((verdict.from_cloud ? "cloud: " : "") + text_of(atom));
+        }
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
         }
         for (const StoredAtom& atom : verdict.nearest) {
             reply.because.push_back("nearest: " + text_of(atom));
@@ -491,23 +763,29 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     // An affirmation: what does memory hold already? (C16, first step)
     const Verdict verdict = truth(d);
-    const Stored stored = remember(d, Status::Proposed, source);
+    const Stored stored = remember(said, Status::Proposed, source);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {
-        reply.text = stored == Stored::New ? "I know. " + text_of(verdict.because.front())
-                                          : "I already know that.";
+        reply.text += stored == Stored::New ? "I know. " + text_of(verdict.because.front())
+                                           : "I already know that.";
         reply.because.push_back(text_of(verdict.because.front()));
         return reply;
     }
     if (verdict.truth == Truth::False) {
-        reply.text = "That conflicts with what I know: " + text_of(verdict.because.front()) +
+        reply.text += "That conflicts with what I know: " + text_of(verdict.because.front()) +
                      " I keep both and note the conflict.";
         reply.because.push_back(text_of(verdict.because.front()));
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
+        }
         reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
         return reply;
     }
-    reply.text = "Noted.";
+    reply.text += "Noted.";
     reply.because.emplace_back("rule: an affirmation is stored as a conception");
+    for (const std::string& line : unusual) {
+        reply.text += " " + line + ".";
+    }
     bool asked = false;
     for (std::size_t i = 0; i < d.notes.size(); ++i) {
         const Entity& entity = d.entities.entities[i];

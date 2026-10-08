@@ -4,6 +4,7 @@
 #include "larry/sentence.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace larry {
@@ -44,6 +45,10 @@ struct Description {
     MetadataElectron metadata;
     /// One note per entity. Empty for an atom read back from the database.
     std::vector<EntityNote> notes;
+    /// The name of the grammar pattern the sentence fits, which gave the
+    /// roles (K2); empty when none fits or there is no grammar, and the
+    /// roles came from the position heuristic. Not part of the metadata.
+    std::string pattern;
 };
 
 }  // namespace larry
