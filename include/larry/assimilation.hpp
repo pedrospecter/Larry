@@ -51,6 +51,11 @@ public:
     [[nodiscard]] Description describe(const Sentence& atom, Memory* memory,
                                        std::span<const Bytes> taught = {}) const;
 
+    /// A5: describes a sentence again from its entities as they are, after a
+    /// category was taught or corrected: the qualification, the types (the
+    /// "guessed" marks kept), the image and the metadata are made anew.
+    void redescribe(Description& d) const;
+
     /// A7 (first step, Q1 and Q2 as proposed, with emotion): fill the types.
     /// Each entity gets its grammatical features, from its form and category
     /// (number, tense, person, degree, from the endings, forms, pronouns and

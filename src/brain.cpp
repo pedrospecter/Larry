@@ -164,6 +164,67 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
     return stored;
 }
 
+std::vector<Brain::Question> Brain::questions(const Description& d) const {
+    const AtomOperations ops;
+    std::vector<Question> out;
+    const std::string sentence{ops.text(d.atom)};
+    for (std::size_t i = 0; i < d.notes.size() && i < d.entities.entities.size(); ++i) {
+        const EntityNote& note = d.notes[i];
+        if (note.source != Source::Unknown && note.source != Source::Open && note.source != Source::Guess) {
+            continue;
+        }
+        const Entity& entity = d.entities.entities[i];
+        const std::string word{reinterpret_cast<const char*>(entity.word.data()), entity.word.size()};
+        Question q{ops.fold(entity.word), sentence, std::format("what category is \"{}\" in \"{}\"?", word, sentence), {}};
+        if (note.source == Source::Guess) {
+            q.guess = "I take it as " + std::string(entity.category.begin(), entity.category.end()) +
+                      (note.form.empty() ? ", from the words around it" : ", because " + note.form);
+        } else if (note.source == Source::Open) {
+            q.guess = "one of:";
+            for (const Bytes& c : note.candidates) {
+                q.guess += " " + std::string(c.begin(), c.end());
+            }
+        } else if (!note.near.empty()) {
+            q.guess = "did you mean \"" + std::string(note.near.front().begin(), note.near.front().end()) + "\"?";
+        }
+        out.push_back(std::move(q));
+    }
+    return out;
+}
+
+std::optional<Stored> Brain::teach(const Sentence& sentence, std::string_view word, std::string_view category,
+                                   std::string_view source) {
+    const AtomOperations ops;
+    const Bytes wanted = ops.fold(std::span{reinterpret_cast<const std::uint8_t*>(word.data()), word.size()});
+    const Bytes given(category.begin(), category.end());
+    if (!std::ranges::contains(rules_->categories(), given)) {
+        return std::nullopt;
+    }
+    Description d = assimilation_.describe(sentence, memory_);
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    bool found = false;
+    for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+        Entity& entity = d.entities.entities[i];
+        if (ops.fold(entity.word) != wanted) {
+            continue;
+        }
+        found = true;
+        entity.category = given;
+        std::erase(entity.types, guessed);
+        if (i < d.notes.size()) {
+            d.notes[i].source = Source::Taught;
+            d.notes[i].candidates.clear();
+            d.notes[i].near.clear();
+            d.notes[i].form.clear();
+        }
+    }
+    if (!found) {
+        return std::nullopt;
+    }
+    assimilation_.redescribe(d);
+    return remember(d, Status::Proposed, source);
+}
+
 std::vector<Neighbour> Brain::near(const Description& d, int steps, std::size_t limit) const {
     const AtomOperations ops;
     std::vector<BondEnd> from;

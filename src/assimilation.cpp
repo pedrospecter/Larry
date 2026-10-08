@@ -506,6 +506,25 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
     return d;
 }
 
+void Assimilation::redescribe(Description& d) const {
+    const AtomOperations ops;
+    const Cognition cognition;
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    for (Entity& entity : d.entities.entities) {
+        const bool was_guessed = std::ranges::contains(entity.types, guessed);
+        entity.types.clear();
+        if (was_guessed) {
+            entity.types.push_back(guessed);
+        }
+    }
+    const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
+    d.category.bytes.assign(qualification.begin(), qualification.end());
+    types(d);
+    const std::span<const std::uint8_t> bytes = ops.bytes(d.atom);
+    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.metadata = ops.metadata(d.category, d.type, d.entities);
+}
+
 namespace {
 
 Bytes bytes_of(std::string_view text) {

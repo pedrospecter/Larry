@@ -51,6 +51,9 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   read <file>                  tell every fact in a text file: the sentences that
                                are conceptions become proposed ones; questions,
                                headings, references and the rest are listed
+  answer <sentence> <word> <category>
+                               A5: answer a question read left: the word's
+                               category in that sentence, taught and stored
   classify <file or text>      what each sentence of content is: a fact, context,
                                a question, an instruction, speech, a heading, a
                                reference or a fragment, and why
@@ -777,6 +780,7 @@ int run(std::span<const std::string_view> args) {
         const std::string molecule = source + ":" + larry::Brain::now();
         larry.brain.molecule(larry::Bytes(molecule.begin(), molecule.end()));
         const larry::Content content{larry.rules};
+        std::vector<larry::Brain::Question> questions;  // A5: one per word, the first sentence it is in
         for (const larry::Piece& piece : content.classify(text, larry.brain)) {
             classes.add(piece.what);
             if (piece.what != larry::ContentClass::Fact) {
@@ -787,13 +791,37 @@ int run(std::span<const std::string_view> args) {
             tally.add(stored);
             std::println("{:<11} {}{}", stored_name(stored), larry.ops.text(piece.sentence),
                          open_words(piece.description));
+            for (larry::Brain::Question& q : larry.brain.questions(piece.description)) {
+                if (std::ranges::none_of(questions, [&](const larry::Brain::Question& held) { return held.word == q.word; })) {
+                    questions.push_back(std::move(q));
+                }
+            }
         }
         print_classes(classes);
         tally.print();
+        if (!questions.empty()) {
+            std::println("questions     : {} (answer with: larry answer \"<sentence>\" <word> <category>)", questions.size());
+            for (const larry::Brain::Question& q : questions) {
+                std::println("  {}{}", q.text, q.guess.empty() ? "" : "  (" + q.guess + ")");
+            }
+        }
         if (const std::optional<larry::Molecule> m = larry.memory.molecule(larry.brain.molecule())) {
             std::println("molecule      : {} ({} conceptions, in order)", molecule, m->members.size());
         }
         larry.brain.molecule({});
+        return 0;
+    }
+    if (command == "answer") {
+        if (rest.size() != 3) {
+            throw std::runtime_error("answer needs \"<sentence>\" <word> <category>");
+        }
+        const std::optional<larry::Stored> stored =
+            larry.brain.teach(larry.ops.from_text(rest[0]), rest[1], rest[2], "user:" + larry.user);
+        if (!stored) {
+            throw std::runtime_error(std::format("\"{}\" is not in the sentence, or \"{}\" is not a category I know",
+                                                 rest[1], rest[2]));
+        }
+        std::println("{} is {} in \"{}\": {}", rest[1], rest[2], rest[0], stored_name(*stored));
         return 0;
     }
     if (command == "classify") {

@@ -242,6 +242,25 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// A5: a question Larry asks about a word it cannot describe from
+    /// memory: unknown, open between categories, or guessed.
+    struct Question {
+        Bytes word;            ///< As the index keys it: "azure".
+        std::string sentence;  ///< The sentence it is in, as said.
+        std::string text;      ///< "what category is \"azure\" in \"The sky is azure.\"?"
+        std::string guess;     ///< What Larry would take it as, with why; empty when it has nothing.
+    };
+    /// The questions a described sentence leaves, one per such word, in order.
+    [[nodiscard]] std::vector<Question> questions(const Description& d) const;
+
+    /// A5: the answer to one: the word's category in that sentence, taught.
+    /// The sentence is described again with it and stored as a conception
+    /// from `source`, so that the word is known from memory from now on.
+    /// Nothing when the word is not in the sentence or the category is not
+    /// one of the base rules; else what store did.
+    std::optional<Stored> teach(const Sentence& sentence, std::string_view word, std::string_view category,
+                                std::string_view source);
+
     /// N6: working memory, the atoms now in play, newest first: what was
     /// heard and stored, and the conceptions that answered or came nearest.
     /// Bounded; the candidates for an answer are looked for here before

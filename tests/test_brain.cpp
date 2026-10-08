@@ -893,6 +893,67 @@ TEST(what_is_heard_joins_the_molecule) {
     CHECK(cache.molecule(chat)->members.size() == 3);
 }
 
+TEST(questions_are_asked_once_per_unknown_word_and_answers_teach) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_questions.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Birds fly high.", {"noun", "verb", "adverb"});
+    // A text of thirty words, three of them unknown ("zorp", "blim", "klop").
+    const std::vector<std::string> text = {"The zorp is blue.", "The sea is blim.", "The sky is wide.",
+                                           "Birds klop high.", "The zorp is wide.", "The sea is blue.",
+                                           "Birds fly high.", "The sky is blim."};
+    const auto ask = [&] {
+        std::vector<larry::Brain::Question> all;
+        for (const std::string& sentence : text) {
+            for (larry::Brain::Question& q : brain.questions(assimilation.describe(ops.from_text(sentence), &cache))) {
+                if (std::ranges::none_of(all, [&](const larry::Brain::Question& held) { return held.word == q.word; })) {
+                    all.push_back(std::move(q));
+                }
+            }
+        }
+        return all;
+    };
+    const std::vector<larry::Brain::Question> questions = ask();
+    CHECK(questions.size() == 3);
+    if (questions.size() == 3) {
+        CHECK(questions[0].word == b("zorp"));
+        CHECK(questions[0].sentence == "The zorp is blue.");
+        CHECK(questions[0].text == "what category is \"zorp\" in \"The zorp is blue.\"?");
+        CHECK(questions[0].guess.starts_with("I take it as noun"));  // the words around it say so
+        CHECK(questions[1].word == b("blim"));
+        CHECK(questions[2].word == b("klop"));
+        CHECK(questions[2].guess.starts_with("I take it as verb"));
+    }
+    // The answers teach: the word is known from memory, as taught, not as a guess.
+    CHECK(brain.teach(ops.from_text("The zorp is blue."), "zorp", "noun", "user:pedro") == larry::Stored::New);
+    CHECK(brain.teach(ops.from_text("The sea is blim."), "blim", "adjective", "user:pedro") == larry::Stored::New);
+    CHECK(brain.teach(ops.from_text("Birds klop high."), "klop", "verb", "user:pedro") == larry::Stored::New);
+    CHECK(cache.categories_of(b("zorp")).size() == 1);
+    CHECK(cache.categories_of(b("zorp")).front().category == b("noun"));
+    const larry::Description again = assimilation.describe(ops.from_text("The zorp is wide."), &cache);
+    CHECK(again.notes[1].source == larry::Source::Memory);
+    CHECK(ask().empty());
+    // A word not in the sentence, or a category that is none, teaches nothing.
+    CHECK(!brain.teach(ops.from_text("The sky is blue."), "zorp", "noun", "user:pedro").has_value());
+    CHECK(!brain.teach(ops.from_text("The sky is blue."), "sky", "colour", "user:pedro").has_value());
+    // The taught conception is stored: the same sentence again is the same.
+    CHECK(brain.teach(ops.from_text("The zorp is blue."), "zorp", "noun", "user:pedro") == larry::Stored::Same);
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";
