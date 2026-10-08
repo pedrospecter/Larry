@@ -2,6 +2,7 @@
 #include "larry/atom_operations.hpp"
 #include "larry/base_rules.hpp"
 #include "larry/bench.hpp"
+#include "larry/measure.hpp"
 #include "larry/brain.hpp"
 #include "larry/cognition.hpp"
 #include "larry/constellation.hpp"
@@ -28,6 +29,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <print>
@@ -138,6 +140,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                sentence Larry holds as a conception
   count                        how many conceptions, word uses, bonds and
                                molecules memory holds
+  measure [n ...]              A6: the accuracy of Larry's categories on the
+                               Universal Dependencies English test set, taught
+                               n training sentences (100 300 1000 3000 all),
+                               from memory alone and with the dictionary; the
+                               treebank comes from scripts/ud.sh
   bench [n]                    measure Larry with n generated atoms (10000) in a
                                scratch file: sentences stored and described per
                                second, lookups per second, the time to answer,
@@ -732,6 +739,41 @@ int run(std::span<const std::string_view> args) {
     }
     const std::string_view command = args[0];
     const std::span<const std::string_view> rest = args.subspan(1);
+    if (command == "measure") {
+        // A6: its own rules, a scratch file, the treebank under content/ud/.
+        const std::filesystem::path dir = std::filesystem::path{LARRY_CONTENT_DIR} / "ud";
+        const std::filesystem::path train = dir / "en_ewt-ud-train.conllu";
+        const std::filesystem::path test = dir / "en_ewt-ud-test.conllu";
+        if (!std::filesystem::exists(train) || !std::filesystem::exists(test)) {
+            throw std::runtime_error("measure needs the treebank: run scripts/ud.sh first");
+        }
+        std::vector<std::int64_t> counts;
+        for (const std::string_view given : rest) {
+            counts.push_back(given == "all" ? std::numeric_limits<std::int64_t>::max() : std::stoll(std::string{given}));
+        }
+        if (counts.empty()) {
+            counts = {100, 300, 1000, 3000, std::numeric_limits<std::int64_t>::max()};
+        }
+        const larry::BaseRules rules{larry::Language::English};
+        const std::vector<larry::UdSentence> training = larry::read_conllu(train);
+        const std::vector<larry::UdSentence> testing = larry::read_conllu(test);
+        std::println("{} training sentences, {} test sentences", training.size(), testing.size());
+        const std::unique_ptr<larry::Dictionary> dictionary = open_dictionary(larry::Language::English);
+        for (const bool with_dictionary : {false, true}) {
+            if (with_dictionary && !dictionary) {
+                break;
+            }
+            std::println("{}", with_dictionary ? "with the dictionary:" : "from memory alone:");
+            const std::vector<larry::Score> curve =
+                larry::measure(rules, training, testing, counts, std::filesystem::temp_directory_path() / "larry_measure.atoms",
+                               with_dictionary ? dictionary.get() : nullptr,
+                               [](std::string_view what) { std::println(stderr, "larry: {}", what); });
+            for (const larry::Score& score : curve) {
+                std::println("  {}", score.text());
+            }
+        }
+        return 0;
+    }
     if (command == "bench") {
         // F8: its own rules and scratch file; the user's memory and the cloud stay out of it.
         std::int64_t atoms = 10000;

@@ -124,3 +124,4 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
     ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
+    scripts/ud.sh && ./build/larry measure    # A6: accuracy on the Universal Dependencies English test set
