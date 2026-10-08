@@ -966,12 +966,70 @@ Brain::Attention Brain::attention() const {
             out.proposals.push_back(atom);
         }
     }
+    // S6: the words nobody could categorize, by the place they sit in; two
+    // or more in one place where the context votes for nothing are a
+    // category Larry does not have.
+    std::map<std::pair<Bytes, Bytes>, std::vector<Bytes>> places;
+    for (const Question& q : out.questions) {
+        if (!q.guess.empty()) {
+            continue;  // guessed, open, or a slip of a known word
+        }
+        for (const WordUse& use : memory_->uses(q.word)) {
+            if (!use.category.empty()) {
+                continue;
+            }
+            // The context votes for nothing: no known word sits after the
+            // same category before, nor before the same category after.
+            bool votes = false;
+            for (const WordUse& other : memory_->uses(use.before)) {
+                if (!use.before.empty() && !other.after_category.empty()) {
+                    votes = true;
+                }
+            }
+            for (const WordUse& other : memory_->uses(use.after)) {
+                if (!use.after.empty() && !other.before_category.empty()) {
+                    votes = true;
+                }
+            }
+            if (votes) {
+                continue;
+            }
+            std::vector<Bytes>& words = places[{use.before_category, use.after_category}];
+            if (!std::ranges::contains(words, q.word)) {
+                words.push_back(q.word);
+            }
+        }
+    }
+    for (auto& [place, words] : places) {
+        if (words.size() >= 2) {
+            out.new_categories.push_back({std::move(words), place.first, place.second});
+        }
+    }
     return out;
 }
 
+std::string Brain::proposal_text(const NewCategory& category) const {
+    std::string words;
+    for (std::size_t i = 0; i < category.words.size(); ++i) {
+        words += (i == 0 ? "" : i + 1 == category.words.size() ? " " + say("and") + " " : ", ") + "\"" +
+                 std::string(category.words[i].begin(), category.words[i].end()) + "\"";
+    }
+    const std::string before(category.before.begin(), category.before.end());
+    const std::string after(category.after.begin(), category.after.end());
+    std::string place;
+    if (!before.empty() && !after.empty()) {
+        place = std::vformat(say("between"), std::make_format_args(before, after));
+    } else if (before.empty()) {
+        place = std::vformat(say("at the start"), std::make_format_args(after));
+    } else {
+        place = std::vformat(say("at the end"), std::make_format_args(before));
+    }
+    return std::vformat(say("new category"), std::make_format_args(words, place));
+}
+
 std::string Brain::Attention::text() const {
-    return std::format("{} words to ask about, {} conflicts to settle, {} proposals waiting", questions.size(),
-                       conflicts.size(), proposals.size());
+    return std::format("{} words to ask about, {} conflicts to settle, {} proposals waiting, {} new categories to propose",
+                       questions.size(), conflicts.size(), proposals.size(), new_categories.size());
 }
 
 Brain::Thought Brain::think(double seconds) {

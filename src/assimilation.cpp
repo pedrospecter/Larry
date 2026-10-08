@@ -1508,4 +1508,52 @@ std::vector<std::size_t> Assimilation::attachments(const Description& d) const {
     return out;
 }
 
+ImageElectron Assimilation::translate(const ImageElectron& image, const std::vector<std::pair<Bytes, Bytes>>& pairs,
+                                      std::vector<Bytes>* missing) const {
+    const std::string text(image.bytes.begin(), image.bytes.end());
+    std::string out;
+    std::size_t from = 0;
+    bool first = true;
+    while (from <= text.size()) {
+        const std::size_t at = text.find(" | ", from);
+        const std::string part = text.substr(from, at == std::string::npos ? std::string::npos : at - from);
+        std::string translated = part;
+        const std::size_t colon = part.find(": ");
+        if (!first && part != "not" && colon != std::string::npos) {
+            translated = part.substr(0, colon + 2);
+            bool space = false;
+            for (const Bytes& token : split(bytes_of(part.substr(colon + 2)), ' ')) {
+                Bytes word = token;
+                const bool mark = token.size() > 2 && token.front() == '(' && token.back() == ')';
+                const bool number = !token.empty() && std::ranges::all_of(token, [](std::uint8_t c) { return c >= '0' && c <= '9'; });
+                const bool capital = !token.empty() && token.front() >= 'A' && token.front() <= 'Z';
+                if (!mark && !number && !capital) {
+                    bool found = false;
+                    for (const auto& [here, there] : pairs) {
+                        if (here == token) {
+                            word = there;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found && missing != nullptr && !std::ranges::contains(*missing, token)) {
+                        missing->push_back(token);
+                    }
+                }
+                translated += (space ? " " : "") + std::string(word.begin(), word.end());
+                space = true;
+            }
+        }
+        out += (first ? "" : " | ") + translated;
+        first = false;
+        if (at == std::string::npos) {
+            break;
+        }
+        from = at + 3;
+    }
+    ImageElectron result;
+    result.bytes.assign(out.begin(), out.end());
+    return result;
+}
+
 }  // namespace larry

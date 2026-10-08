@@ -150,4 +150,18 @@ BaseRules::BaseRules(Language language) : language_(language) {
     algebra_ = read_pairs(dir / "algebra.txt");
 }
 
+const std::vector<std::pair<Bytes, Bytes>>& BaseRules::translations(std::string_view locale) const {
+    const std::string key{locale};
+    const auto found = translations_.find(key);
+    if (found != translations_.end()) {
+        return found->second;
+    }
+    const std::filesystem::path file = directory() / ("to_" + key + ".txt");
+    std::vector<std::pair<Bytes, Bytes>> pairs;
+    if (std::filesystem::exists(file)) {
+        pairs = read_pairs(file);
+    }
+    return translations_.emplace(key, std::move(pairs)).first->second;
+}
+
 }  // namespace larry

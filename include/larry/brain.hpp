@@ -420,12 +420,23 @@ public:
     /// S3 (first step): what Larry would think about, in order: the words it
     /// could not describe (A5), the conflicts nobody settled (R2), and the
     /// proposals waiting for the user (R5).
+    /// S6 (first step): words nobody could categorize that sit in the same
+    /// place (the categories before and after them), where the context
+    /// votes for no category: a new category to propose to the user.
+    struct NewCategory {
+        std::vector<Bytes> words;
+        Bytes before;  ///< The category before, or empty at the start.
+        Bytes after;   ///< The category after, or empty at the end.
+    };
     struct Attention {
         std::vector<Question> questions;
         std::vector<Bond> conflicts;
         std::vector<StoredAtom> proposals;
+        std::vector<NewCategory> new_categories;
         [[nodiscard]] std::string text() const;
     };
+    /// S6: what Larry would say to propose a new category, in the language.
+    [[nodiscard]] std::string proposal_text(const NewCategory& category) const;
     [[nodiscard]] Attention attention() const;
 
     /// S7 (first step): what Larry does with no input, within a budget of

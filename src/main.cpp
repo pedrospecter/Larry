@@ -70,6 +70,8 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                is so already, and the plan to reach it (S2)
   explain <observation>        R6: the assumption that would explain it, from
                                the rules Larry holds ("If it rains, ...", R9)
+  translate <text> <locale>    G7: the sentence said in the other constellation
+                               (en, pt), word by word on its image
   grammar <text>               which grammar pattern each sentence fits and the
                                role of each word, or where it breaks and what
                                was expected there; "grammar" alone lists the
@@ -1039,6 +1041,38 @@ int run(std::span<const std::string_view> args) {
         }
         return 0;
     }
+    if (command == "translate") {
+        if (rest.size() < 2) {
+            throw std::runtime_error("translate needs a sentence and a locale (en, pt)");
+        }
+        // G7: the image here, its words by to_<locale>.txt, said there with
+        // the other constellation's rules and memory.
+        const std::string_view locale = rest.back();
+        const std::optional<larry::Language> named = larry::language_named(locale);
+        if (!named) {
+            throw std::runtime_error(std::format("translate: no constellation named {} (en, pt)", locale));
+        }
+        const larry::Language target = *named;
+        const larry::BaseRules there{target};
+        const std::unique_ptr<larry::Dictionary> dictionary = open_dictionary(target);
+        const larry::Grammar grammar{there};
+        const larry::Assimilation other{there, dictionary.get(), &grammar};
+        larry::Memory memory_there{larry::Memory::file_from_environment(target)};
+        const std::string text = join(rest.subspan(0, rest.size() - 1));
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(text)) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            std::vector<larry::Bytes> missing;
+            const larry::ImageElectron image = larry.assimilation.translate(d.image, larry.rules.translations(locale), &missing);
+            const std::string said = other.sentence_of(image, &memory_there);
+            std::println("{}", said.empty() ? std::string{"?"} : said);
+            std::println("  image: {}", as_text(image.bytes));
+            for (const larry::Bytes& word : missing) {
+                const std::string w(word.begin(), word.end());
+                std::println("  {}", std::vformat(larry.brain.say("no translation"), std::make_format_args(w)));
+            }
+        }
+        return 0;
+    }
     if (command == "explain") {
         if (rest.empty()) {
             throw std::runtime_error("explain needs an observation");
@@ -1645,6 +1679,9 @@ int run(std::span<const std::string_view> args) {
         }
         for (const larry::StoredAtom& atom : a.proposals) {
             std::println("  decide: \"{}\" ({})", larry.ops.text(atom.description.atom), atom.sources.empty() ? "" : atom.sources.front());
+        }
+        for (const larry::Brain::NewCategory& c : a.new_categories) {
+            std::println("  category: {}", larry.brain.proposal_text(c));  // S6
         }
         return 0;
     }

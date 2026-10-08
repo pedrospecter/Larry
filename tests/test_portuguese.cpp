@@ -252,6 +252,25 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     // S1: the goal of an order from the Portuguese goals.txt.
     CHECK(brain.goal_of(assimilation().describe(ops.from_text("Fecha a porta."), &cache)) ==
           std::optional<std::string>{"A porta está fechada."});
+    // G7 (first step): word by word on the image, said by the other constellation.
+    const larry::BaseRules english{larry::Language::English};
+    const larry::Assimilation en{english};
+    const std::filesystem::path en_file = std::filesystem::temp_directory_path() / "larry_test_pt_en.atoms";
+    std::filesystem::remove(en_file);
+    larry::Memory en_cache{en_file};
+    {
+        const std::vector<Bytes> taught = {b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")};
+        const larry::Description d = en.describe(ops.from_text("The sky is blue."), &en_cache, taught);
+        en_cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+    }
+    const larry::ImageElectron to_pt = en.translate(en.describe(ops.from_text("The sky is blue."), &en_cache).image,
+                                                    english.translations("pt"));
+    CHECK(std::string(to_pt.bytes.begin(), to_pt.bytes.end()) == "affirmation | subject: céu | predicate: ser | attribute: azul");
+    CHECK(assimilation().sentence_of(to_pt, &cache) == "O céu é azul.");
+    std::vector<Bytes> missing;
+    const larry::ImageElectron to_en = assimilation().translate(azul.image, rules().translations("en"), &missing);
+    CHECK(en.sentence_of(to_en, &en_cache) == "The sky is blue.");
+    CHECK(missing.empty());
 }
 
 int main() {

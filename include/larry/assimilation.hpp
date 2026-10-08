@@ -128,6 +128,13 @@ public:
     /// to what holds the sentence; a conjunction to the group after it, whose
     /// head attaches to the group before.
     [[nodiscard]] std::vector<std::size_t> attachments(const Description& d) const;
+
+    /// G7 (first step): the image with each base word that has a pair in
+    /// `pairs` replaced by its other word, the marks, the roles, the numbers
+    /// and the proper nouns kept; the words with no pair are listed in
+    /// `missing` when given. The other constellation says it (sentence_of).
+    [[nodiscard]] ImageElectron translate(const ImageElectron& image, const std::vector<std::pair<Bytes, Bytes>>& pairs,
+                                          std::vector<Bytes>* missing = nullptr) const;
     static constexpr std::size_t root = static_cast<std::size_t>(-1);
 
 

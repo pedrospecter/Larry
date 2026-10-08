@@ -1650,6 +1650,43 @@ TEST(an_order_is_a_goal_and_a_rule_is_an_atom) {
     }
 }
 
+TEST(words_in_a_place_no_category_fits_propose_a_new_one) {
+    // S6 (first step): two words nobody could categorize, in the same place,
+    // where the context votes for no category: a new category to propose.
+    const larry::AtomOperations ops;
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_new_category.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.attention().new_categories.empty());
+    // Two unknown words in a place nothing known sits in: before "the" at the start.
+    (void)brain.hear(ops.from_text("Zorp the sky is blue."), "user:pedro");
+    (void)brain.hear(ops.from_text("Blick the sea is wide."), "user:pedro");
+    const larry::Brain::Attention a = brain.attention();
+    CHECK(a.new_categories.size() == 1);
+    if (!a.new_categories.empty()) {
+        CHECK(a.new_categories.front().words.size() == 2);
+        CHECK(a.new_categories.front().before.empty());
+        CHECK(a.new_categories.front().after == b("determiner"));
+        const std::string proposal = brain.proposal_text(a.new_categories.front());
+        CHECK(proposal.starts_with("The words \"") && proposal.find("\"zorp\"") != std::string::npos &&
+              proposal.find("\"blick\"") != std::string::npos);
+        CHECK(proposal.ends_with(" sit at the start, before determiner, where no category I know fits. Is this a new category?"));
+    }
+    CHECK(a.text().ends_with("1 new categories to propose"));
+}
+
 int main() {
     return larry::test::run();
 }
