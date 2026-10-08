@@ -2,7 +2,7 @@
 
 This file is the working plan for Larry. It is written for the cloud sessions that will build Larry one piece at a time, and for the user who directs them. A cloud session starts with nothing but this repository, so everything a session needs to know is here or in the code.
 
-Last updated: 2026-10-07.
+Last updated: 2026-10-08.
 
 ## How to use this file
 
@@ -47,6 +47,11 @@ These names are the user's. Use them as they are and do not rename them.
 | Guess | A category an unknown word takes from the known words seen in the same context. Marked, and never evidence. | `Source::Guess` |
 | Dictionary | The words of a language with their categories, always on the machine: the English one is the public-domain Moby Part-of-Speech list, 192,960 words. A fallback for a word no conception has taught, and the spell checker's list. | `Dictionary`, `dictionary/en/words.txt` |
 | Validator | One of the people allowed to validate or withdraw a conception. The user's safeguard: Larry rejects a decision from anyone else, and records who decided. | `validators`, `Brain::decide` |
+| Declaration | The user's word for an affirmation. Orders are also called commands. | `Qualification::Affirmation`, `Qualification::Order` |
+| Exclusive attributes | Values a thing has one of at a time: colours, open and closed, hot and cold. A conception with one makes a claim with another false (K1). | `base_rules/en/exclusives.txt` |
+| Grammar | The rules of where the words go in an English sentence: patterns of categories with the role each place has (K2). | `base_rules/en/grammar.txt` |
+| Tolerance | How far a sentence may stray from the grammar and still be understood, for non-native English (K3). | `base_rules/en/tolerance.txt` |
+| Harness | The user's word for the context check: whether an entity is used with the words it is known with, from the conceptions (K4). "The sea is wide" is unusual when the sea is known as deep and blue. | `Cognition::harness` |
 | Neural network | What finds an atom by its metadata. Today: the metadata order and the word index in memory. The spreading lookup is N5 (Q4). | `Memory::find`, `find_prefix`, `uses` |
 | Brain | The loop that takes input, uses memory and cognition, and replies (Q4, proposed answer in use). | `Brain` |
 | Conception | An atom Larry holds: what it has been told, stored in memory with its electrons. The user's term. | `StoredAtom`, `Memory::store` |
@@ -157,6 +162,15 @@ Milestone 1: after one lesson, `larry show "the grass is green"` fills in every 
 - [x] A6a Vocabulary: guesses from context, `larry words` (first step of A6)
 - [x] A2b The dictionary on the machine: fallback categories and spelling (new item, see section 7)
 - [x] R2b Validation by the user only: validators, `LARRY_USER`, who decided (the user's safeguard)
+
+**Stage 2d — Cognition, the user's five asks (2026-10-08)**
+- [ ] K1 True, false or I don't know: a claim is false when a conception gives the thing another exclusive attribute ("the sky is green" is false because the sky is blue). First step of C9.
+- [ ] K2 The grammar of English as data: patterns of categories with roles, why the words sit where they sit; `larry grammar`. First step of A8.
+- [ ] K3 Tolerance for non-native English: the nearest pattern within a threshold, the sentence read as meant, the deviation named.
+- [ ] K4 The context harness: is each entity used with the words it is known with, from the conceptions; what is known of it instead. First step of A10 and C16.
+- [ ] K5 Qualification as a cognitive process: by the rules and by the nearest validated conceptions, with the reason; `larry qualify`.
+
+Milestone 2d: `larry ask "the sky is green"` answers false and says why; `larry grammar "sky is blue"` names the missing determiner and reads the sentence as "the sky is blue"; `larry harness "the sea is wide"` says the sea is known as blue and deep; `larry qualify` gives its reason.
 
 **Stage 3 — Memory**
 - [ ] F8 Benchmarks
@@ -359,6 +373,25 @@ Build them in four groups:
 
 Done when, for each comparison: its suite passes, it reports which entities matched, and its result can be stored and read back as a bond. C1 to C5 done except the bond, which waits for N3; their results are bytes (`Comparison::bytes`) ready to be stored.
 
+### Track K — Cognition, as the user framed it (2026-10-08)
+
+The user's five asks after the first prototype, each a first step of a later item. They keep every rule of section 3: no weights, data in files, every answer traceable.
+
+**K1 · True, false or I don't know.** `larry ask` already says true or false when a conception has the same core with the same or the opposite polarity, and I don't know otherwise. Now a claim is also false when a conception gives the same thing another value of an exclusive attribute: "the sky is green" is false because "the sky is blue" is held and blue and green are both colours, of which a thing has one at a time. The exclusive groups are data in `base_rules/en/exclusives.txt` (colours, open and closed, hot and cold, and so on; two different numerals in the same place are exclusive too). The negation of a false claim is true. The answer names the conception and the rule. Withdrawn conceptions count for nothing; proposed ones are marked.
+Done when: a suite of claims against a fixed memory passes (true, false, I don't know), and `larry ask "the sky is green"` prints false, the conception and the rule.
+
+**K2 · The grammar of English.** Why the words sit where they sit: patterns of categories with the role of each place, as data in `base_rules/en/grammar.txt`, one pattern per line, with optional and repeated parts ("determiner? adjective* noun auxiliary_verb adjective"). A matcher says which pattern a sentence fits and gives the roles, which replace the position heuristic of A7a when a pattern fits; when none fits it says where the sentence breaks and what was expected there. Validated conceptions add their category sequences as patterns of their own (grammar from examples, the start of A8). `larry grammar <text>` shows it.
+Done when: every lesson sentence fits a pattern, a suite of well-formed and ill-formed sentences passes, and the roles agree with A7a's on the lessons.
+
+**K3 · Tolerance for non-native English.** When no pattern fits, the nearest pattern is found by lining up the categories (C3), and the sentence is accepted when the deviation is within the threshold in `base_rules/en/tolerance.txt` (proposed: one deviation per four words, at most two). The deviation is named (a missing determiner, an extra word, "are" where "is" fits), the sentence is read as meant for truth and answers, and stored as said with the reading noted. Spelling slips already go through the dictionary (A2b).
+Done when: a suite of non-native sentences is read as meant within the threshold, and sentences beyond it are refused with the reason.
+
+**K4 · The context harness.** For each entity of a sentence, whether it is used with the words it is known with: known (this neighbour was seen, in a conception), plausible (a neighbour of the same category was seen), unusual (never seen). For an unusual attribute of a thing, what is known of the thing instead ("of the sea I know: blue, deep") and what the attribute is known of ("wide is said of: road, river"). Validated conceptions are the standard; proposed ones count less. `say`, `ask` and `show` report what is unusual; `larry harness <text>` shows it all. This is the user's point about "the sea is wide": Larry cannot know that "vast" fits better until a conception says so, but it can say that "wide" was never said of the sea.
+Done when: a suite against a fixed memory passes, and `larry harness "the sea is wide"` reports the known attributes of the sea.
+
+**K5 · Qualification as a cognitive process.** A3 qualifies by rules. Now the nearest validated conceptions with the same structure (C5) give their qualification too, and the answer names its reason: the rule that fired, or the conceptions it resembles. When the rules and the examples disagree, Larry says both. The user's words, declaration for affirmation and command for order, are accepted in the output. `larry qualify <text>` shows it.
+Done when: the A3 suite still passes, a suite of sentences qualified by example passes, and every answer names its reason.
+
 ### Track R — Reasoning (goal 3)
 
 **R1 · Answering from memory.** Take a question atom, find the affirmations that answer it (C10) and reply with the best one. When nothing answers, the reply is "I don't know". Larry never produces an answer it cannot trace to atoms.
@@ -496,6 +529,9 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q22 | How many recent conceptions does the cache keep, and when does it forget? Today it keeps everything it has met; `larry sync` pulls the 100 most recent. | Keep everything until the benchmarks (F8) say otherwise. | N2 |
 | Q23 | Should a dictionary category count as evidence when the sentence is stored (it does now), or only a validator's word? | Evidence: the list was made by people, like a lesson (Q8). | A2b |
 | Q24 | Should the sessions that build Larry ever be validators? Today they are not, unless the user adds them. | No. | R2b |
+| Q25 | Which attributes are exclusive? `exclusives.txt` proposes colours, open and closed, hot and cold, wet and dry, alive and dead, on and off, full and empty, sizes, days, months, seasons, and different numerals in the same place. | That list, grown as cases come up. | K1 |
+| Q26 | How much deviation does tolerance allow? | One deviation per four words, at most two; a spelling slip counts as one. | K3 |
+| Q27 | Does the harness judge by validated conceptions only, or by proposed ones too? | Validated ones are the standard; proposed ones are mentioned as such. | K4 |
 
 ## 11. Earlier work worth reading
 

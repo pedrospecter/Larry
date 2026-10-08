@@ -739,8 +739,12 @@ int run(std::span<const std::string_view> args) {
         std::println("{} conceptions, {} word uses, in {}", larry.memory.count(),
                      larry.memory.count_words(), larry.memory.file().string());
         if (larry.cloud) {
-            std::println("{} conceptions, {} word uses, in the cloud", larry.cloud->count(),
+            const std::int64_t in_cloud = larry.cloud->count();
+            std::println("{} conceptions, {} word uses, in the cloud", in_cloud,
                          larry.cloud->count_words());
+            if (in_cloud < larry.memory.count()) {
+                std::println("the cloud may lack some of the cache's conceptions: larry sync pushes them");
+            }
         } else {
             std::println("no cloud: set LARRY_DB to reach one");
         }
