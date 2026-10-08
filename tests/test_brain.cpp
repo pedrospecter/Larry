@@ -1253,6 +1253,69 @@ TEST(rules_from_examples_and_idle_thinking) {
     CHECK(brain.think(0.0).out_of_time);
 }
 
+TEST(a_guess_by_analogy_when_nothing_answers) {
+    const larry::AtomOperations ops;
+    std::ifstream in{std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "analogy.txt"};
+    CHECK(in.good());
+    int cases = 0;
+    int right = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (line.empty() || line.starts_with('#')) {
+            continue;
+        }
+        std::vector<std::string> fields;
+        std::string_view rest = line;
+        while (true) {
+            const std::size_t at = rest.find(" | ");
+            fields.emplace_back(rest.substr(0, at));
+            if (at == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(at + 3);
+        }
+        if (fields.size() != 3) {
+            continue;
+        }
+        ++cases;
+        const std::filesystem::path file =
+            std::filesystem::temp_directory_path() / std::format("larry_test_brain_analogy_{}.atoms", number);
+        std::filesystem::remove(file);
+        larry::Memory cache{file};
+        larry::Brain brain{rules(), cache};
+        const larry::Assimilation assimilation{rules()};
+        for (const larry::Sentence& before : assimilation.sentences(fields[0])) {
+            (void)brain.hear(before, "user:pedro");
+        }
+        const larry::Reply reply = brain.answer(ops.from_text(fields[1]));
+        const std::string got = reply.text.starts_with("Probably yes") || reply.text == "probably true" ? "yes"
+                                : reply.text.starts_with("Probably no") || reply.text == "probably false" ? "no"
+                                                                                                           : "none";
+        if (got == fields[2]) {
+            ++right;
+        } else {
+            std::println("analogy.txt line {}: \"{}\" expected {}, got {} ({})", number, fields[1], fields[2], got, reply.text);
+        }
+    }
+    std::println("analogy: {} of {} guesses as expected", right, cases);
+    CHECK(cases >= 8);
+    CHECK(right == cases);
+    // The reason names the analogy, and a guess is no truth.
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_analogy.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    for (const char* text : {"A sparrow is a bird.", "A robin is a bird.", "Sparrows fly."}) {
+        (void)brain.hear(ops.from_text(text), "user:pedro");
+    }
+    const larry::Reply guess = brain.answer(ops.from_text("Do robins fly?"));
+    CHECK(guess.text == "Probably yes.");
+    CHECK(std::ranges::any_of(guess.because, [](const std::string& x) { return x == "analogy: robins and sparrows are both kinds of bird, and Sparrows fly. (R8)"; }));
+    CHECK(brain.truth(ops.from_text("robins fly")).truth == Truth::Unknown);
+    CHECK(brain.answer(ops.from_text("Robins fly.")).text == "probably true");
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";

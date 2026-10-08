@@ -241,7 +241,7 @@ Milestone 3: Larry answers questions about what it was told, says "I don't know"
 - [ ] R5 Rules from examples (Q7): first step done (R5a), "Birds fly." proposed as an assumption from two kinds of bird that fly, withdrawn by a counter-example; done when the held-out suite and bAbI task 16 are measured (Q36).
 - [ ] R6 Best explanation
 - [ ] R7 Numbers, sets and space
-- [ ] R8 Analogy as a step, with C13
+- [ ] R8 Analogy as a step, with C13: first step done (R8a), a guess carried from the nearest conception that differs in one word of the same kind; the share on the suite is in the log.
 - [ ] R9 Rules as atoms
 
 Milestone 4: the bAbI scores for tasks 1 to 18 are on record. Tasks 19 and 20 come with planning (S2).
@@ -261,7 +261,7 @@ Milestone 5: `larry chat` holds a conversation and answers "why?" after any repl
 - [ ] S2 Planning
 - [x] S3 Attention: first step, `larry attention` lists what Larry would think about; the CPU budget is `think`'s.
 - [x] S4 Knowing what it knows: `larry know <word>`, `Brain::knowledge`.
-- [ ] S5 Reading on its own
+- [ ] S5 Reading on its own: the first step exists (`larry read`, `larry study`: level 2, novelty, the questions left); done when MCTest is measured.
 - [ ] S6 New categories
 - [x] S7 Idle thinking: `larry think [seconds]` finds conflicts, proposes general atoms and reports what waits.
 - [ ] A12 Second constellation (Q15)
@@ -510,6 +510,7 @@ Done when: bAbI tasks 7, 8, 17 and 18 are measured. Needs C14.
 
 **R8 · Analogy as a step.** When no rule applies, find the nearest stored atom with the same structure (C5, C13), carry over what it concluded, and mark the result as a guess. This is what keeps Larry useful on input it has no rule for.
 Done when: on a suite of cases that no stored rule covers, the measured share of correct guesses is recorded.
+First step done (R8a): when neither a conception nor a chain answers a question or a claim, `Brain::analogy` looks for the conceptions with the same words but one, where the two words are kinds of the same thing by the bonds of A10 ("a robin" and "a sparrow", both birds) or forms of one word (A4), and carries the answer over: "Probably yes." or "Probably no.", with the analogy as the reason and the rule that a guess is no truth. Suite: `tests/data/en/analogy.txt`, the share in the log. Not yet: C13 (the four-atom comparison), several differing words, and a guess stored as a guess.
 
 **R9 · Rules as atoms.** Reasoning rules are stored as atoms (assumptions and conditions), so Larry can be taught how to reason in plain sentences and can inspect and revise its own rules.
 Done when: a rule taught in one sentence changes Larry's answers with no change to the code.
@@ -559,6 +560,7 @@ Done (S4): `Brain::knowledge(word)` and `larry know <word>`: the conceptions tha
 
 **S5 · Reading on its own.** Given a text, Larry reads at level 2, keeps what passes novelty, and lists its questions. Teaching sentence by sentence cannot reach the amount of knowledge Larry needs, so the project depends on this item more than any other.
 Done when: after reading a set of texts unaided, Larry answers questions about them, measured on MCTest (short children's stories with multiple-choice questions).
+First step (S5a): `larry read` reads a text at level 2 (the categories from memory, the dictionary, the forms and the context, as guesses), keeps what passes novelty (a conflict is kept and bonded, the same conception is counted), and lists the questions it leaves (A5); `larry study` adds the lesson draft. MCTest is not on the machine; Q38 asks for it.
 
 **S6 · New categories.** Larry notices words that behave alike and fit no category well, and proposes a new category to the user.
 
@@ -645,6 +647,7 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q35 | The emotion of an atom comes from its first emotion word (A7a), so "She loves him." is joy and "I hate waiting." is anger, though both are plain facts about someone else's feeling. Should the emotion mark the speaker's feeling only (first person, interjections, markers) and leave a reported feeling to the words? | Proposed: yes; a reported feeling stays in the words and the harness, and the atom's emotion is the speaker's. | A7, A3b |
 | Q36 | The bAbI tasks 2 to 20 are not reachable from this machine: the original tarball (tasks_1-20_v1-2.tar.gz) is gone from its hosts, and Hugging Face serves the rows of task 1 alone. Can the user put the original files under `content/babi/en/` (the `en/` folder of the tarball)? `larry babi` reads them as they are. | Proposed: yes; then R1, R2, R3 and A11 are measured as the plan asks. | R1, R2, R3, A11 |
 | Q37 | "he" and "she" both take the latest name (A11a), since Larry knows no gender of names. Should a base rule file list common first names with a gender (`names.txt`), or should gender come from the lessons ("Mary is a woman")? | Proposed: the lessons, through A10's "is a kind of" bonds (woman, man), with a names file only for the bAbI measurement. | A11 |
+| Q38 | S5 is measured on MCTest (160 and 500 children's stories with questions), which is not on this machine. Can the user put the MCTest files under `content/mctest/`? The runner would read them as `larry babi` reads the bAbI stories. | Proposed: yes, when S5 is next. | S5 |
 
 ## 11. Earlier work worth reading
 

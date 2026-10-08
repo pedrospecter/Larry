@@ -8,6 +8,7 @@
 #include <chrono>
 #include <ctime>
 #include <format>
+#include <limits>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -243,7 +244,7 @@ std::optional<Brain::Relation> Brain::relation_in(const Core& form, const Descri
         }
         return {};
     };
-    const auto head_of = [&](std::vector<Bytes> side) -> std::optional<Bytes> {
+    const auto head_of = [&](std::vector<Bytes> side, bool plural_phrase) -> std::optional<Bytes> {
         while (!side.empty() && (std::ranges::contains(articles, side.front()) || category_of(side.front()) == determiner)) {
             side.erase(side.begin());
         }
@@ -260,7 +261,8 @@ std::optional<Brain::Relation> Brain::relation_in(const Core& form, const Descri
             singular && singular->category == noun && singular->base != head) {
             return singular->base;
         }
-        if (category.empty() && !std::ranges::contains(articles, head)) {
+        if (plural_phrase && category.empty() && !std::ranges::contains(articles, head)) {
+            // "Robins are birds": the plural undone by the ending, the base unknown.
             const std::vector<Form> by_ending = assimilation_.forms().candidates(head);
             if (!by_ending.empty() && by_ending.front().category == noun && by_ending.front().feature == bytes_of("plural")) {
                 return by_ending.front().base;
@@ -290,8 +292,9 @@ std::optional<Brain::Relation> Brain::relation_in(const Core& form, const Descri
                     continue;
                 }
             }
-            const std::optional<Bytes> from = head_of(left);
-            const std::optional<Bytes> to = head_of(right);
+            const bool plural_phrase = parts.front() == bytes_of("are");
+            const std::optional<Bytes> from = head_of(left, plural_phrase);
+            const std::optional<Bytes> to = head_of(right, plural_phrase);
             if (!from || !to || *from == *to) {
                 continue;
             }
@@ -324,6 +327,125 @@ std::vector<Bytes> Brain::chain(const Bytes& from, const Bytes& to, int steps) c
         paths = std::move(next);
     }
     return {};
+}
+
+std::string Brain::Guess::reason() const {
+    const std::string a(word.begin(), word.end());
+    const std::string b(other.begin(), other.end());
+    const AtomOperations ops;
+    if (shared == bytes_of("form")) {
+        return std::format("analogy: \"{}\" is a form of \"{}\", and {} (R8)", a, b, ops.text(like.description.atom));
+    }
+    return std::format("analogy: {} and {} are both kinds of {}, and {} (R8)", a, b,
+                       std::string(shared.begin(), shared.end()), ops.text(like.description.atom));
+}
+
+std::optional<Brain::Guess> Brain::analogy(const Description& question) const {
+    static const Bytes kind_of = bytes_of("is a kind of");
+    static const Bytes form_of = bytes_of("form of");
+    std::vector<Core> forms;
+    if (question.category.bytes == bytes_of("question")) {
+        forms = statements(question);
+    }
+    if (forms.empty()) {
+        forms.push_back(core(question));
+    }
+    // What a word is a kind of, one step; and the base it is a form of.
+    const auto kinds_of = [&](const Bytes& word) {
+        std::vector<Bytes> out;
+        for (const Bond& bond : memory_->bonds_from(BondEnd{BondEnd::Kind::Entity, word})) {
+            if (bond.kind == kind_of && bond.to.kind == BondEnd::Kind::Entity) {
+                out.push_back(bond.to.bytes);
+            }
+        }
+        return out;
+    };
+    // The base a word is a form of: by the "form of" bonds, else by the endings (A4).
+    const auto base_of = [&](const Bytes& word) -> Bytes {
+        for (const Bond& bond : memory_->bonds_from(BondEnd{BondEnd::Kind::Entity, word})) {
+            if (bond.kind == form_of && bond.to.kind == BondEnd::Kind::Entity) {
+                return bond.to.bytes;
+            }
+        }
+        if (const std::optional<Form> form = assimilation_.form_of(word, memory_)) {
+            return form->base;
+        }
+        const std::vector<Form> by_ending = assimilation_.forms().candidates(word);
+        return by_ending.empty() ? word : by_ending.front().base;
+    };
+    // The kinds of a word, or of its base ("robins": the kinds of "robin").
+    const auto kinds_of_either = [&](const Bytes& word) {
+        std::vector<Bytes> kinds = kinds_of(word);
+        if (kinds.empty()) {
+            kinds = kinds_of(base_of(word));
+        }
+        return kinds;
+    };
+    const auto same_word = [&](const Bytes& a, const Bytes& b) {
+        return a == b || base_of(a) == base_of(b) || base_of(a) == b || a == base_of(b);
+    };
+    for (const Core& form : forms) {
+        if (form.words.size() < 2) {
+            continue;
+        }
+        std::optional<Guess> found;
+        for (std::size_t i = 0; i < form.words.size() && !found; ++i) {
+            const Bytes& word = form.words[i];
+            const std::vector<Bytes> my_kinds = kinds_of_either(word);
+            if (my_kinds.empty()) {
+                continue;
+            }
+            // The conceptions with the same words but this one, forms of one word
+            // counted the same: found through the rarest of the other words that
+            // memory holds at all.
+            Bytes key;
+            std::int64_t fewest = std::numeric_limits<std::int64_t>::max();
+            for (std::size_t j = 0; j < form.words.size(); ++j) {
+                if (j == i) {
+                    continue;
+                }
+                for (const Bytes& spelling : {form.words[j], base_of(form.words[j])}) {
+                    const std::int64_t uses = memory_->count_uses(spelling);
+                    if (uses > 0 && uses < fewest) {
+                        fewest = uses;
+                        key = spelling;
+                    }
+                }
+            }
+            if (key.empty()) {
+                continue;
+            }
+            for (const StoredAtom& atom : candidates(Core{{key}, false}, false)) {
+                const Core stored = thinking_core(atom);
+                if (stored.words.size() != form.words.size()) {
+                    continue;
+                }
+                bool same = true;
+                for (std::size_t j = 0; j < form.words.size() && same; ++j) {
+                    same = j == i || same_word(form.words[j], stored.words[j]);
+                }
+                if (!same || same_word(stored.words[i], word)) {
+                    continue;
+                }
+                const Bytes& other = stored.words[i];
+                Bytes shared;
+                for (const Bytes& kind : kinds_of_either(other)) {
+                    if (std::ranges::contains(my_kinds, kind)) {
+                        shared = kind;
+                        break;
+                    }
+                }
+                if (shared.empty()) {
+                    continue;
+                }
+                found = Guess{stored.negated == form.negated, atom, word, other, shared};
+            }
+        }
+        if (found) {
+            return found;
+        }
+    }
+    return std::nullopt;
 }
 
 std::vector<Brain::Proposal> Brain::propose() {
@@ -2081,6 +2203,14 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
             return reply;
         }
         const Verdict verdict = truth(d);
+        if (verdict.truth == Truth::Unknown) {
+            if (const std::optional<Guess> guess = analogy(d)) {
+                reply.text += guess->yes ? "Probably yes." : "Probably no.";
+                reply.because.push_back(guess->reason());
+                reply.because.emplace_back("rule: a guess by analogy is a guess, not a truth (R8)");
+                return reply;
+            }
+        }
         switch (verdict.truth) {
         case Truth::True:
             reply.text += "Yes.";
@@ -2110,6 +2240,14 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     // with the conception, its standing, the rule and the nearest conceptions.
     const Verdict verdict = truth(d);
     if (!store) {
+        if (verdict.truth == Truth::Unknown) {
+            if (const std::optional<Guess> guess = analogy(d)) {  // R8
+                reply.text += guess->yes ? "probably true" : "probably false";
+                reply.because.push_back(guess->reason());
+                reply.because.emplace_back("rule: a guess by analogy is a guess, not a truth (R8)");
+                return reply;
+            }
+        }
         switch (verdict.truth) {
         case Truth::True:
             reply.text += "true";

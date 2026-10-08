@@ -261,6 +261,21 @@ public:
     /// "animal"); empty when there is none.
     [[nodiscard]] std::vector<Bytes> chain(const Bytes& from, const Bytes& to, int steps = 4) const;
 
+    /// R8 (first step): a guess by analogy when no conception and no rule
+    /// answers: the nearest conception of the same structure that differs
+    /// in one word, where the two words are kinds of the same thing ("a
+    /// robin" and "a sparrow", both birds) or forms of one word; its answer
+    /// is carried over as a guess, never as a truth.
+    struct Guess {
+        bool yes = true;
+        StoredAtom like;        ///< The conception the guess is carried from.
+        Bytes word;             ///< The word of the question.
+        Bytes other;            ///< The word of the conception.
+        Bytes shared;           ///< What both are kinds of, or "form" for forms of one word.
+        [[nodiscard]] std::string reason() const;
+    };
+    [[nodiscard]] std::optional<Guess> analogy(const Description& question) const;
+
     /// A11 (first step): the sentence with its third-person pronouns replaced
     /// by what they refer to in the conceptions heard before (the molecule
     /// being heard newest first, then the atoms in play, then the cache):
