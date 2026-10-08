@@ -1,0 +1,23 @@
+# M2: questions about dates with their answers. Fields are separated by " | ": the
+# answer ("none" when the text is not about dates), and the question. Nothing here
+# asks about today, which moves.
+Thursday | What day is 2026-10-08?
+Thursday | What day of the week is 8 October 2026?
+Saturday | What day of the week was January 1, 2000?
+Sunday | What day was 2000-01-02?
+Monday | What day is 1 January 2024?
+Wednesday | Which day of the week does 7 October 2026 fall on?
+280 days | How many days are there between 2026-01-01 and 2026-10-08?
+280 days | How many days between 1 January 2026 and 8 October 2026?
+366 days | How many days between 2024-01-01 and 2025-01-01?
+Sunday, 18 October 2026 | What date is 10 days after 2026-10-08?
+Monday, 28 September 2026 | What date is 10 days before 2026-10-08?
+Thursday, 22 October 2026 | What date is two weeks after 8 October 2026?
+Thursday, 8 October 2026 | What is 2026-10-08?
+Thursday, 8 October 2026 | What date is October 8, 2026?
+yes | Is 2026-10-08 after 2026-01-01?
+no | Is 2026-10-08 before 2026-01-01?
+none | What day is the sky?
+none | The sky is blue.
+none | What is 1+1?
+none | Is the sky blue?

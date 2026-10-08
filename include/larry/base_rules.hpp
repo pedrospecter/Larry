@@ -135,6 +135,14 @@ public:
         return arithmetic_;
     }
 
+    /// The units, from units.txt (M2): "unit=quantity:factor[:offset]". The
+    /// Arithmetic class reads them.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& units() const noexcept { return units_; }
+
+    /// The dates, from dates.txt (M2): months, days of the week, frame words
+    /// and units of days. The Calendar class reads them.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& dates() const noexcept { return dates_; }
+
     /// The commands, from commands.txt (W3): each a pattern of words with '*'
     /// for an argument, and the operation it is. The Brain matches them.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& commands() const noexcept {
@@ -195,6 +203,8 @@ private:
     std::vector<std::pair<Bytes, Bytes>> content_;
     std::vector<std::pair<Bytes, Bytes>> commands_;
     std::vector<std::pair<Bytes, Bytes>> arithmetic_;
+    std::vector<std::pair<Bytes, Bytes>> units_;
+    std::vector<std::pair<Bytes, Bytes>> dates_;
 };
 
 }  // namespace larry

@@ -3,6 +3,7 @@
 #include "larry/arithmetic.hpp"
 #include "larry/assimilation.hpp"
 #include "larry/base_rules.hpp"
+#include "larry/calendar.hpp"
 #include "larry/cognition.hpp"
 #include "larry/database.hpp"
 #include "larry/description.hpp"
@@ -144,7 +145,8 @@ public:
     /// "please", match a pattern in commands.txt; nothing otherwise.
     [[nodiscard]] std::optional<Command> command(const Description& d) const;
 
-    /// M1: the calculation a sentence asks for, when it is arithmetic.
+    /// M1, M2: the calculation a sentence asks for, when it is arithmetic
+    /// or about dates.
     [[nodiscard]] std::optional<Calculation> calculate(const Sentence& sentence) const;
 
     /// A3b: what a sentence is, in the user's words, with its reasons.
@@ -315,6 +317,7 @@ private:
     Tolerance tolerance_;
     Harness harness_;
     Arithmetic arithmetic_;
+    Calendar calendar_;
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;

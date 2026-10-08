@@ -66,7 +66,7 @@ std::vector<std::string> words_of(std::string_view text) {
             out.emplace_back(1, static_cast<char>(c));
             continue;
         }
-        // "×" and "÷" as UTF-8.
+        // "×" and "÷" as UTF-8; "°" stays with its letter ("°c").
         if (c == 0xC3 && i + 1 < text.size() && (static_cast<unsigned char>(text[i + 1]) == 0x97 ||
                                                    static_cast<unsigned char>(text[i + 1]) == 0xB7)) {
             flush();
@@ -103,31 +103,55 @@ long double number_of(std::string word) {
     return std::strtold(word.c_str(), nullptr);
 }
 
+/// A value under evaluation: a number, with the quantity it measures when it
+/// came with a unit, in the base unit of that quantity.
+struct Value {
+    long double number = 0;
+    std::string quantity;      ///< Empty for a plain number.
+    std::optional<Unit> unit;  ///< The first unit it was given in.
+};
+
 }  // namespace
 
 std::string Calculation::rule() const {
+    const std::string prefix = expression.starts_with("calendar: ") ? "" : "arithmetic: ";
     if (!defined) {
-        return "arithmetic: " + expression + " is " + result;
+        return prefix + expression + " is " + result;
     }
     if (comparison) {
-        return "arithmetic: " + expression + (holds ? " holds" : " does not hold");
+        return prefix + expression + (holds ? " holds" : " does not hold");
     }
-    return "arithmetic: " + expression + " = " + result;
+    return prefix + expression + " = " + result;
 }
 
 Arithmetic::Arithmetic(const BaseRules& rules) : rules_(&rules) {
     for (const auto& [word, symbol] : rules.arithmetic()) {
-        if (word == Bytes{'f', 'r', 'a', 'm', 'e'}) {
+        const std::string key = text_of(word);
+        if (key == "frame") {
             for (const std::string& f : split(text_of(symbol), ';')) {
                 frame_.push_back(f);
             }
+        } else if (key.starts_with("fraction ")) {
+            fractions_.emplace_back(key.substr(9), number_of(text_of(symbol)));
         } else {
-            words_.emplace_back(text_of(word), text_of(symbol));
+            words_.emplace_back(key, text_of(symbol));
         }
     }
     std::ranges::stable_sort(words_, [](const auto& a, const auto& b) {
         return std::ranges::count(a.first, ' ') > std::ranges::count(b.first, ' ');
     });
+    for (const auto& [name, definition] : rules.units()) {
+        const std::vector<std::string> parts = split(text_of(definition), ':');
+        if (parts.size() < 2) {
+            continue;
+        }
+        Unit u;
+        u.name = text_of(name);
+        u.quantity = parts[0];
+        u.factor = number_of(parts[1]);
+        u.offset = parts.size() > 2 ? std::strtold(parts[2].c_str(), nullptr) : 0;
+        units_.push_back(std::move(u));
+    }
 }
 
 std::string Arithmetic::number(long double value) {
@@ -147,6 +171,15 @@ std::string Arithmetic::number(long double value) {
     return out;
 }
 
+std::optional<Unit> Arithmetic::unit(std::string_view word) const {
+    for (const Unit& u : units_) {
+        if (u.name == word) {
+            return u;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_view text) const {
     const std::vector<std::string> words = words_of(text);
     std::vector<Token> out;
@@ -159,11 +192,24 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
         }
         return std::nullopt;
     };
+    const auto fraction = [&](const std::string& word) -> std::optional<long double> {
+        for (const auto& [name, denominator] : fractions_) {
+            if (name == word) {
+                return 1 / denominator;
+            }
+        }
+        return std::nullopt;
+    };
+    const auto last_is_number = [&] { return !out.empty() && out.back().kind == Token::Kind::Number; };
+    const auto starts_number = [&](std::size_t i) {
+        return i < words.size() && (is_number(words[i]) || number_word(words[i]) || fraction(words[i]) ||
+                                    words[i] == "(" || words[i] == "a" || words[i] == "an");
+    };
     for (std::size_t i = 0; i < words.size();) {
         const std::string& word = words[i];
         // A number, or number words that compose: "one thousand two hundred thirty".
         if (is_number(word)) {
-            out.push_back({Token::Kind::Number, number_of(word), {}});
+            out.push_back({Token::Kind::Number, number_of(word), {}, std::nullopt});
             ++i;
             continue;
         }
@@ -185,7 +231,38 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
                 }
                 ++i;
             }
-            out.push_back({Token::Kind::Number, total + current, {}});
+            out.push_back({Token::Kind::Number, total + current, {}, std::nullopt});
+            continue;
+        }
+        // A fraction word: "a third" is 1/3, "two thirds" 2/3; "of" after it multiplies.
+        if (const std::optional<long double> f = fraction(word)) {
+            if (last_is_number()) {
+                out.back().value *= *f;
+            } else {
+                out.push_back({Token::Kind::Number, *f, {}, std::nullopt});
+            }
+            ++i;
+            continue;
+        }
+        if ((word == "a" || word == "an") && i + 1 < words.size() && fraction(words[i + 1])) {
+            ++i;  // "a third": the article counts as one, the fraction follows
+            out.push_back({Token::Kind::Number, 1, {}, std::nullopt});
+            continue;
+        }
+        // A unit after a number makes a quantity; a unit on its own is the unit asked for.
+        if (const std::optional<Unit> u = unit(word)) {
+            if (last_is_number() && !out.back().unit) {
+                out.back().unit = *u;
+            } else {
+                out.push_back({Token::Kind::Target, 0, {}, *u});
+            }
+            ++i;
+            continue;
+        }
+        // "of" between two numbers multiplies: "a third of 9", "20 percent of 50" aside.
+        if (word == "of" && last_is_number() && starts_number(i + 1)) {
+            out.push_back({Token::Kind::Operator, 0, "*", std::nullopt});
+            ++i;
             continue;
         }
         // An operator phrase, longest first.
@@ -202,12 +279,10 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
             if (!same) {
                 continue;
             }
-            // "is" is a comparison only between two numbers; "and" a plus only
-            // between two numbers, so that "what is 2 and 3" reads as 2 + 3.
             if (symbol == ">" || symbol == "<" || symbol == "=") {
-                out.push_back({Token::Kind::Compare, 0, symbol});
+                out.push_back({Token::Kind::Compare, 0, symbol, std::nullopt});
             } else {
-                out.push_back({Token::Kind::Operator, 0, symbol});
+                out.push_back({Token::Kind::Operator, 0, symbol, std::nullopt});
             }
             i += parts.size();
             matched = true;
@@ -217,13 +292,13 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
             continue;
         }
         if (word == "(") {
-            out.push_back({Token::Kind::Open, 0, {}});
+            out.push_back({Token::Kind::Open, 0, {}, std::nullopt});
         } else if (word == ")") {
-            out.push_back({Token::Kind::Close, 0, {}});
+            out.push_back({Token::Kind::Close, 0, {}, std::nullopt});
         } else if (word == "+" || word == "-" || word == "*" || word == "/" || word == "^" || word == "%") {
-            out.push_back({Token::Kind::Operator, 0, word});
+            out.push_back({Token::Kind::Operator, 0, word, std::nullopt});
         } else if (word == "=" || word == "<" || word == ">") {
-            out.push_back({Token::Kind::Compare, 0, word});
+            out.push_back({Token::Kind::Compare, 0, word, std::nullopt});
         } else if (std::ranges::contains(frame_, word)) {
             framed = true;
         } else {
@@ -231,8 +306,7 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
         }
         ++i;
     }
-    // A comparison word that reads "is" with nothing to compare is frame: drop
-    // leading and trailing comparisons without two sides.
+    // A comparison word with nothing to compare is frame.
     while (!out.empty() && out.front().kind == Token::Kind::Compare) {
         out.erase(out.begin());
         framed = true;
@@ -242,9 +316,12 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
         framed = true;
     }
     const bool has_operator = std::ranges::any_of(out, [](const Token& t) {
-        return t.kind == Token::Kind::Operator || t.kind == Token::Kind::Compare;
+        return t.kind == Token::Kind::Operator || t.kind == Token::Kind::Compare || t.kind == Token::Kind::Target;
     });
-    if (out.empty() || (!has_operator && !(framed && out.size() == 1))) {
+    const bool has_quantity = std::ranges::any_of(out, [](const Token& t) {
+        return t.kind == Token::Kind::Number && t.unit.has_value();
+    });
+    if (out.empty() || (!has_operator && !has_quantity && !(framed && out.size() == 1))) {
         return std::nullopt;
     }
     return out;
@@ -253,13 +330,14 @@ std::optional<std::vector<Arithmetic::Token>> Arithmetic::tokens(std::string_vie
 namespace {
 
 // A recursive-descent evaluator over the tokens: comparison, then sum,
-// product, power, and the unary functions.
+// product, power, and the unary functions, over values with quantities.
 struct Evaluator {
     using Token = Arithmetic::Token;
     const std::vector<Token>& tokens;
     std::size_t at = 0;
     bool bad = false;
     bool undefined = false;
+    std::string why;    ///< Why it is undefined.
     std::string shown;  ///< The expression in symbols, as read.
 
     explicit Evaluator(const std::vector<Token>& list) : tokens(list) {}
@@ -273,8 +351,54 @@ struct Evaluator {
         shown += piece;
     }
 
-    long double sum() {
-        long double left = product();
+    void fail(std::string reason) {
+        if (!undefined) {
+            undefined = true;
+            why = std::move(reason);
+        }
+    }
+
+    Value combine(Value left, const Value& right, char op) {
+        if (op == '+' || op == '-') {
+            if (left.quantity != right.quantity) {
+                fail(std::format("undefined: {} and {} do not add", left.quantity.empty() ? "a number" : left.quantity,
+                                 right.quantity.empty() ? "a number" : right.quantity));
+                return left;
+            }
+            left.number = op == '+' ? left.number + right.number : left.number - right.number;
+            return left;
+        }
+        if (op == '*') {
+            if (!left.quantity.empty() && !right.quantity.empty()) {
+                fail("undefined: a product of two quantities");
+                return left;
+            }
+            if (left.quantity.empty()) {
+                left.quantity = right.quantity;
+                left.unit = right.unit;
+            }
+            left.number *= right.number;
+            return left;
+        }
+        // Division.
+        if (right.number == 0) {
+            fail("undefined: division by zero");
+            return left;
+        }
+        if (!right.quantity.empty()) {
+            if (left.quantity != right.quantity) {
+                fail("undefined: a quantity divided by another kind of quantity");
+                return left;
+            }
+            left.quantity.clear();  // a ratio
+            left.unit.reset();
+        }
+        left.number /= right.number;
+        return left;
+    }
+
+    Value sum() {
+        Value left = product();
         while (const Token* t = peek()) {
             if (t->kind != Token::Kind::Operator || (t->symbol != "+" && t->symbol != "-")) {
                 break;
@@ -282,14 +406,14 @@ struct Evaluator {
             const std::string op = t->symbol;
             ++at;
             show(op);
-            const long double right = product();
-            left = op == "+" ? left + right : left - right;
+            const Value right = product();
+            left = combine(std::move(left), right, op.front());
         }
         return left;
     }
 
-    long double product() {
-        long double left = power();
+    Value product() {
+        Value left = power();
         while (const Token* t = peek()) {
             if (t->kind != Token::Kind::Operator || (t->symbol != "*" && t->symbol != "/" && t->symbol != "%of")) {
                 break;
@@ -297,98 +421,144 @@ struct Evaluator {
             const std::string op = t->symbol;
             ++at;
             show(op == "%of" ? "% of" : op);
-            const long double right = power();
-            if (op == "*") {
-                left *= right;
-            } else if (op == "/") {
-                if (right == 0) {
-                    undefined = true;
-                } else {
-                    left /= right;
-                }
+            Value right = power();
+            if (op == "%of") {
+                left.number /= 100;
+                left = combine(std::move(left), right, '*');
             } else {
-                left = left / 100 * right;
+                left = combine(std::move(left), right, op.front());
             }
         }
         return left;
     }
 
-    long double power() {
-        long double base = unary();
+    Value power() {
+        Value base = unary();
         while (const Token* t = peek()) {
             if (t->kind != Token::Kind::Operator || (t->symbol != "^" && t->symbol != "^2" && t->symbol != "^3")) {
                 break;
             }
             const std::string op = t->symbol;
             ++at;
+            if (!base.quantity.empty()) {
+                fail("undefined: a power of a quantity");
+            }
             if (op == "^") {
                 show("^");
-                const long double exponent = unary();
-                base = std::pow(base, exponent);
+                const Value exponent = unary();
+                base.number = std::pow(base.number, exponent.number);
             } else {
                 show(op == "^2" ? "^ 2" : "^ 3");
-                base = std::pow(base, op == "^2" ? 2 : 3);
+                base.number = std::pow(base.number, op == "^2" ? 2 : 3);
             }
         }
         return base;
     }
 
-    long double unary() {
+    Value unary() {
         const Token* t = peek();
         if (t == nullptr) {
             bad = true;
-            return 0;
+            return {};
         }
         if (t->kind == Token::Kind::Operator && t->symbol == "-") {
             ++at;
             show("-");
-            return -unary();
+            Value v = unary();
+            v.number = -v.number;
+            return v;
         }
         if (t->kind == Token::Kind::Operator && (t->symbol == "sqrt" || t->symbol == "half" || t->symbol == "double")) {
             const std::string op = t->symbol;
             ++at;
             show(op == "sqrt" ? "sqrt" : op == "half" ? "half of" : "double");
-            const long double value = unary();
+            Value v = unary();
             if (op == "sqrt") {
-                if (value < 0) {
-                    undefined = true;
-                    return 0;
+                if (v.number < 0 || !v.quantity.empty()) {
+                    fail(v.quantity.empty() ? "undefined: the square root of a negative number"
+                                            : "undefined: the square root of a quantity");
+                    return v;
                 }
-                return std::sqrt(value);
+                v.number = std::sqrt(v.number);
+                return v;
             }
-            return op == "half" ? value / 2 : value * 2;
+            v.number = op == "half" ? v.number / 2 : v.number * 2;
+            return v;
         }
         if (t->kind == Token::Kind::Open) {
             ++at;
             show("(");
-            const long double value = sum();
+            const Value v = sum();
             if (const Token* close = peek(); close != nullptr && close->kind == Token::Kind::Close) {
                 ++at;
                 show(")");
             } else {
                 bad = true;
             }
-            return value;
+            return v;
         }
         if (t->kind == Token::Kind::Number) {
             ++at;
-            show(Arithmetic::number(t->value));
-            return t->value;
+            Value v;
+            if (t->unit) {
+                v.quantity = t->unit->quantity;
+                v.unit = t->unit;
+                v.number = t->unit->to_base(t->value);
+                show(Arithmetic::number(t->value) + " " + t->unit->name);
+            } else {
+                v.number = t->value;
+                show(Arithmetic::number(t->value));
+            }
+            return v;
         }
         bad = true;
-        return 0;
+        return {};
     }
 };
+
+// A value as Larry says it: in the unit asked for, or in its own.
+std::string written(const Value& v, const std::optional<Unit>& target, std::string& error) {
+    if (v.quantity.empty()) {
+        if (target) {
+            error = "undefined: a number has no " + target->name;
+            return {};
+        }
+        return Arithmetic::number(v.number);
+    }
+    const Unit& out = target ? *target : *v.unit;
+    if (out.quantity != v.quantity) {
+        error = std::format("undefined: {} in {}", v.quantity, out.name);
+        return {};
+    }
+    return Arithmetic::number(out.from_base(v.number)) + " " + out.name;
+}
 
 }  // namespace
 
 std::optional<Calculation> Arithmetic::calculate(std::string_view text) const {
-    const std::optional<std::vector<Token>> list = tokens(text);
+    std::optional<std::vector<Token>> list = tokens(text);
     if (!list) {
         return std::nullopt;
     }
+    // The unit asked for: a target anywhere ("how many minutes in 3 hours",
+    // "3 hours in minutes"); at most one.
+    std::optional<Unit> target;
+    for (auto it = list->begin(); it != list->end();) {
+        if (it->kind == Token::Kind::Target) {
+            if (target) {
+                return std::nullopt;
+            }
+            target = it->unit;
+            it = list->erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (list->empty()) {
+        return std::nullopt;
+    }
     Evaluator left{*list};
-    const long double a = left.sum();
+    const Value a = left.sum();
     Calculation out;
     if (left.bad) {
         return std::nullopt;
@@ -402,7 +572,7 @@ std::optional<Calculation> Arithmetic::calculate(std::string_view text) const {
             ++left.at;
         }
         left.show(op);
-        const long double b = left.sum();
+        const Value b = left.sum();
         if (left.bad || left.peek() != nullptr) {
             return std::nullopt;
         }
@@ -410,23 +580,33 @@ std::optional<Calculation> Arithmetic::calculate(std::string_view text) const {
         out.expression = left.shown;
         if (left.undefined) {
             out.defined = false;
-            out.result = "undefined: division by zero";
+            out.result = left.why;
             return out;
         }
-        out.holds = op == "=" ? std::fabs(a - b) < 1e-9L : op == ">" ? a > b : a < b;
+        if (a.quantity != b.quantity) {
+            out.defined = false;
+            out.result = "undefined: two kinds of quantity compared";
+            return out;
+        }
+        out.holds = op == "=" ? std::fabs(a.number - b.number) < 1e-9L : op == ">" ? a.number > b.number : a.number < b.number;
         out.result = out.holds ? "yes" : "no";
         return out;
     }
     if (left.peek() != nullptr) {
         return std::nullopt;
     }
-    out.expression = left.shown;
+    out.expression = left.shown + (target ? " in " + target->name : "");
     if (left.undefined) {
         out.defined = false;
-        out.result = "undefined: division by zero";
+        out.result = left.why;
         return out;
     }
-    out.result = number(a);
+    std::string error;
+    out.result = written(a, target, error);
+    if (!error.empty()) {
+        out.defined = false;
+        out.result = error;
+    }
     return out;
 }
 
