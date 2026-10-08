@@ -12,6 +12,7 @@
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
 #include "larry/tolerance.hpp"
+#include "larry/web.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -81,6 +82,14 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                (anyone adds the first, then only a validator)
   words [word]                 the vocabulary: every word with its categories
                                and uses, or one word with its types and contexts
+  search <words>               ask Wikipedia for the pages about these words:
+                               titles and snippets
+  fetch <title or url>         keep a Wikipedia article, or any web page, as
+                               plain text under content/<locale>/, with its
+                               source and date
+  define <word>                ask Wiktionary what the word is: its parts of
+                               speech as categories, with the first meanings,
+                               beside what memory and the dictionary say
   count                        how many conceptions and word uses memory holds
 
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
@@ -876,6 +885,65 @@ int run(std::span<const std::string_view> args) {
                 break;
             }
             std::println("  in: {}", larry.ops.text(atom.description.atom));
+        }
+        return 0;
+    }
+    if (command == "search") {
+        if (rest.empty()) {
+            throw std::runtime_error("search needs words");
+        }
+        const larry::Web web{larry.constellation.language()};
+        const std::vector<larry::Hit> hits = web.search(join(rest));
+        if (hits.empty()) {
+            std::println("nothing found for \"{}\"", join(rest));
+            return 0;
+        }
+        for (const larry::Hit& hit : hits) {
+            std::println("{}\n  {}\n  {}", hit.title, hit.snippet, hit.url);
+        }
+        return 0;
+    }
+    if (command == "fetch") {
+        if (rest.empty()) {
+            throw std::runtime_error("fetch needs a title or a url");
+        }
+        const larry::Web web{larry.constellation.language()};
+        const larry::Page page = web.fetch(join(rest));
+        const std::vector<larry::Sentence> sentences = larry.assimilation.sentences(page.text);
+        std::println("{}: {} bytes, {} sentences, kept in {}", page.title, page.text.size(), sentences.size(),
+                     page.file.string());
+        std::println("source: {}", page.source);
+        return 0;
+    }
+    if (command == "define") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("define needs one word");
+        }
+        const larry::Web web{larry.constellation.language()};
+        const std::vector<larry::Meaning> meanings = web.define(rest[0]);
+        if (meanings.empty()) {
+            std::println("Wiktionary has no English entry for \"{}\"", rest[0]);
+        }
+        for (const larry::Meaning& m : meanings) {
+            std::println("{}", as_text(m.category));
+            for (const std::string& d : m.definitions) {
+                std::println("  {}", d);
+            }
+        }
+        const larry::Bytes folded = larry.ops.fold(larry::Bytes(rest[0].begin(), rest[0].end()));
+        std::string known;
+        for (const larry::CategoryCount& c : larry.memory.categories_of(folded)) {
+            known += known.empty() ? "" : ", ";
+            known += std::format("{} ({})", as_text(c.category), c.count);
+        }
+        std::println("memory: {}", known.empty() ? "no use of the word" : known);
+        if (larry.dictionary) {
+            std::string listed;
+            for (const larry::Bytes& c : larry.dictionary->categories(folded)) {
+                listed += listed.empty() ? "" : ", ";
+                listed += as_text(c);
+            }
+            std::println("dictionary: {}", listed.empty() ? "not listed" : listed);
         }
         return 0;
     }
