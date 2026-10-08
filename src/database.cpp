@@ -628,6 +628,107 @@ void Database::set_reading(std::int64_t id, std::string_view reading) {
     (void)exec("update conceptions set reading = $2 where id = $1", {number(id), text(reading)});
 }
 
+namespace {
+
+std::string as_string(const Bytes& b) {
+    return {b.begin(), b.end()};
+}
+
+const char* const select_lessons =
+    "select name, text, status, to_char(written at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), "
+    "coalesce(to_char(taught at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), '') from lessons";
+
+}  // namespace
+
+void Database::store_page(std::string_view locale, const Page& page) {
+    const std::string name = Web::slug(page.title);
+    (void)exec("insert into pages (locale, name, title, source, text) values ($1, $2, $3, $4, $5) "
+               "on conflict (locale, name) do update set title = excluded.title, source = excluded.source, "
+               "text = excluded.text, fetched = now()",
+               {text(locale), binary(Bytes(name.begin(), name.end())), binary(Bytes(page.title.begin(), page.title.end())),
+                binary(Bytes(page.source.begin(), page.source.end())), binary(Bytes(page.text.begin(), page.text.end()))});
+}
+
+std::optional<Page> Database::page(std::string_view locale, std::string_view name) {
+    const std::string slug = Web::slug(name);
+    const Result rows = exec("select title, source, text from pages where locale = $1 and name = $2",
+                             {text(locale), binary(Bytes(slug.begin(), slug.end()))});
+    if (rows.rows() == 0) {
+        return std::nullopt;
+    }
+    Page page;
+    page.title = as_string(rows.bytes(0, 0));
+    page.source = as_string(rows.bytes(0, 1));
+    page.text = as_string(rows.bytes(0, 2));
+    return page;
+}
+
+std::vector<Page> Database::pages(std::string_view locale) {
+    const Result rows = exec("select title, source, text from pages where locale = $1 order by fetched desc, id desc",
+                             {text(locale)});
+    std::vector<Page> out;
+    for (int row = 0; row < rows.rows(); ++row) {
+        Page page;
+        page.title = as_string(rows.bytes(row, 0));
+        page.source = as_string(rows.bytes(row, 1));
+        page.text = as_string(rows.bytes(row, 2));
+        out.push_back(std::move(page));
+    }
+    return out;
+}
+
+void Database::store_lesson(std::string_view locale, std::string_view name, std::string_view lesson_text,
+                            std::string_view status) {
+    (void)exec("insert into lessons (locale, name, text, status, taught) "
+               "values ($1, $2, $3, $4, case when $4 = 'taught'::bytea then now() end) "
+               "on conflict (locale, name) do update set text = excluded.text, status = excluded.status, written = now(), "
+               "taught = case when excluded.status = 'taught'::bytea then now() else lessons.taught end",
+               {text(locale), binary(Bytes(name.begin(), name.end())), binary(Bytes(lesson_text.begin(), lesson_text.end())),
+                text(status)});
+}
+
+namespace {
+
+template <typename Rows>
+std::vector<Database::CloudLesson> lessons_of(const Rows& rows) {
+    std::vector<Database::CloudLesson> out;
+    for (int row = 0; row < rows.rows(); ++row) {
+        Database::CloudLesson lesson;
+        lesson.name = as_string(rows.bytes(row, 0));
+        lesson.text = as_string(rows.bytes(row, 1));
+        lesson.status = as_string(rows.bytes(row, 2));
+        lesson.written = as_string(rows.bytes(row, 3));
+        lesson.taught = as_string(rows.bytes(row, 4));
+        out.push_back(std::move(lesson));
+    }
+    return out;
+}
+
+}  // namespace
+
+std::optional<Database::CloudLesson> Database::lesson(std::string_view locale, std::string_view name) {
+    const std::string sql = std::string{select_lessons} + " where locale = $1 and name = $2";
+    const Result rows = exec(sql.c_str(), {text(locale), binary(Bytes(name.begin(), name.end()))});
+    std::vector<CloudLesson> found = lessons_of(rows);
+    if (found.empty()) {
+        return std::nullopt;
+    }
+    return found.front();
+}
+
+std::vector<Database::CloudLesson> Database::lessons(std::string_view locale) {
+    const std::string sql =
+        std::string{select_lessons} + " where locale = $1 order by (taught is null), coalesce(taught, written), id";
+    const Result rows = exec(sql.c_str(), {text(locale)});
+    return lessons_of(rows);
+}
+
+void Database::set_lesson_status(std::string_view locale, std::string_view name, std::string_view status) {
+    (void)exec("update lessons set status = $3, taught = case when $3 = 'taught'::bytea then now() else taught end "
+               "where locale = $1 and name = $2",
+               {text(locale), binary(Bytes(name.begin(), name.end())), text(status)});
+}
+
 std::vector<std::string> Database::validators() {
     const Result rows = exec("select name from validators order by id");
     std::vector<std::string> out;

@@ -22,7 +22,9 @@ their categories, types and contexts, the dictionary of each language
 (`dictionary/en/words.txt`, 192,960 words from Moby; `dictionary/pt/words.txt`,
 21,391 words from the Bosque treebank; always there), and a cache of
 recent conceptions in `memory/en.atoms`. The cloud, where the conceptions
-live for good, is the PostgreSQL server `LARRY_DB` names. A language model
+live for good, is the PostgreSQL server `LARRY_DB` names; with a cloud the
+pages Larry fetches and the lessons it drafts and is taught go there too, and
+no file is written on the machine (N2f). A language model
 (`larry consult`, `larry extract`) is a source like the web: it proposes, the
 user validates. Its key is `ANTHROPIC_API_KEY` in `.env` (never printed), the
 model `LARRY_LLM_MODEL` (claude-opus-5-5 by default). A question is
@@ -145,6 +147,8 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry understand "Summarise the 2019 paper \"X\"."   # command:about; theme: science; "X" unknown (P1)
     ./build/larry chat ana                    # the chat for a person: what goes against memory is denied, what is new waits for the validator
     ./build/larry ask "Who is the second youngest?"   # after "Ana is older than Bruno. ...": Carla, from the order of the bonds (C14)
+    ./build/larry lessons                     # the lesson files here and the lessons in the cloud: drafts of study, taught ones (N2f)
+    ./build/larry lessons pull sea            # a cloud draft written out to correct; then larry teach sea teaches it from the cloud
     ./build/larry plan "open the door"        # S2: the steps, from "To open the door, turn the key." and the like
     LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"   # 5: the second constellation, Portuguese (A12)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left

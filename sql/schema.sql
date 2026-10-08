@@ -102,3 +102,32 @@ create table if not exists molecule_members (
     unique (molecule, position)
 );
 create index if not exists molecule_members_identity on molecule_members (identity);
+
+-- Pages (W1, N2f): the content fetched from the web, kept in the cloud when
+-- there is one instead of content/<locale>/ on the machine: the record of
+-- what Larry read. name is the slug of the title ("the-sky").
+create table if not exists pages (
+    id      bigint      generated always as identity primary key,
+    locale  bytea       not null,
+    name    bytea       not null,
+    title   bytea       not null,
+    source  bytea       not null,
+    text    bytea       not null,
+    fetched timestamptz not null default now(),
+    unique (locale, name)
+);
+
+-- Lessons (F7, W4, N2f): the lesson files and the drafts of study, in the
+-- cloud: status is "draft" (written by study, for the user to correct) or
+-- "taught" (taught by larry teach, part of a rebuild). A clear keeps them,
+-- like the validators: a rebuild forgets atoms, not what teaches them.
+create table if not exists lessons (
+    id      bigint      generated always as identity primary key,
+    locale  bytea       not null,
+    name    bytea       not null,
+    text    bytea       not null,
+    status  bytea       not null default 'draft',
+    written timestamptz not null default now(),
+    taught  timestamptz,
+    unique (locale, name)
+);

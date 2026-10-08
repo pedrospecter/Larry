@@ -2,6 +2,7 @@
 
 #include "larry/electron.hpp"
 #include "larry/memory.hpp"
+#include "larry/web.hpp"
 #include "larry/sentence.hpp"
 
 #include <cstdint>
@@ -95,6 +96,32 @@ public:
 
     /// Notes how a conception was read when it was stored (Q29).
     void set_reading(std::int64_t id, std::string_view reading);
+
+    /// N2f: a page fetched from the web, kept in the cloud under its locale
+    /// and the slug of its title; the same name again replaces it.
+    void store_page(std::string_view locale, const Page& page);
+    /// The page under a name (a slug, or a title, which is slugged), or nothing.
+    [[nodiscard]] std::optional<Page> page(std::string_view locale, std::string_view name);
+    /// The pages of a locale, newest first, with their text.
+    [[nodiscard]] std::vector<Page> pages(std::string_view locale);
+
+    /// N2f: a lesson in the cloud: its name, its text in the lesson format,
+    /// its status ("draft" or "taught") and when it was written and taught
+    /// (ISO 8601 in UTC; empty when never taught).
+    struct CloudLesson {
+        std::string name;
+        std::string text;
+        std::string status;
+        std::string written;
+        std::string taught;
+    };
+    /// Keeps a lesson under its locale and name; the same name again replaces
+    /// its text and status, and "taught" notes when.
+    void store_lesson(std::string_view locale, std::string_view name, std::string_view text, std::string_view status);
+    [[nodiscard]] std::optional<CloudLesson> lesson(std::string_view locale, std::string_view name);
+    /// The lessons of a locale, in the order they were taught, the drafts last by when written.
+    [[nodiscard]] std::vector<CloudLesson> lessons(std::string_view locale);
+    void set_lesson_status(std::string_view locale, std::string_view name, std::string_view status);
 
     /// The validators: the only people who validate or withdraw a conception.
     [[nodiscard]] std::vector<std::string> validators();

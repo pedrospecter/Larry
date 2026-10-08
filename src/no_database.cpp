@@ -164,4 +164,33 @@ std::int64_t Database::count_molecules() {
     absent();
 }
 
+void Database::store_page(std::string_view /*locale*/, const Page& /*page*/) {
+    absent();
+}
+
+std::optional<Page> Database::page(std::string_view /*locale*/, std::string_view /*name*/) {
+    absent();
+}
+
+std::vector<Page> Database::pages(std::string_view /*locale*/) {
+    absent();
+}
+
+void Database::store_lesson(std::string_view /*locale*/, std::string_view /*name*/, std::string_view /*text*/,
+                            std::string_view /*status*/) {
+    absent();
+}
+
+std::optional<Database::CloudLesson> Database::lesson(std::string_view /*locale*/, std::string_view /*name*/) {
+    absent();
+}
+
+std::vector<Database::CloudLesson> Database::lessons(std::string_view /*locale*/) {
+    absent();
+}
+
+void Database::set_lesson_status(std::string_view /*locale*/, std::string_view /*name*/, std::string_view /*status*/) {
+    absent();
+}
+
 }  // namespace larry

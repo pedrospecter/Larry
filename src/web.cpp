@@ -431,7 +431,7 @@ std::string Web::text_of(std::string_view title_or_url) const {
     return parse_extract(transport_(url));
 }
 
-Page Web::fetch(std::string_view title_or_url) const {
+Page Web::fetch(std::string_view title_or_url, bool keep_file) const {
     Page page;
     page.text = text_of(title_or_url);
     if (is_url(title_or_url)) {
@@ -449,6 +449,9 @@ Page Web::fetch(std::string_view title_or_url) const {
     }
     if (trim(page.text).empty()) {
         throw std::runtime_error(std::format("Web: nothing to read at \"{}\"", title_or_url));
+    }
+    if (!keep_file) {
+        return page;
     }
     std::filesystem::create_directories(directory_);
     page.file = directory_ / (slug(page.title) + ".txt");

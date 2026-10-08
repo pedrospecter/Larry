@@ -388,6 +388,56 @@ TEST(bytes_that_are_not_metadata_are_rejected) {
     CHECK(db().count() == 0);
 }
 
+TEST(pages_and_lessons_live_in_the_cloud) {
+    // N2f: a fetched page and a lesson draft are kept in the cloud, by locale and name.
+    db().run("truncate pages, lessons restart identity");
+    larry::Page page;
+    page.title = "The Sea";
+    page.source = "https://en.wikipedia.org/wiki/Sea";
+    page.text = "The sea is wide.\nIt is salty: 3.5% salt, written \\u like this.\n";
+    db().store_page("en", page);
+    CHECK(db().pages("en").size() == 1);
+    CHECK(db().pages("pt").empty());
+    const std::optional<larry::Page> held = db().page("en", "the-sea");
+    CHECK(held.has_value());
+    if (held) {
+        CHECK(held->title == "The Sea");
+        CHECK(held->source == page.source);
+        CHECK(held->text == page.text);
+    }
+    CHECK(db().page("en", "The Sea").has_value());  // a title is slugged
+    page.text = "The sea is wide and deep.\n";
+    db().store_page("en", page);  // the same name again replaces it
+    CHECK(db().pages("en").size() == 1);
+    CHECK(db().page("en", "the-sea")->text == page.text);
+    // Lessons: a draft, then taught; the order is by when taught, drafts last.
+    db().store_lesson("en", "sea", "The sea is wide.\ndeterminer, noun, auxiliary verb, adjective\n", "draft");
+    db().store_lesson("en", "sky", "The sky is blue.\ndeterminer, noun, auxiliary verb, adjective\n", "taught");
+    const std::optional<Database::CloudLesson> sea = db().lesson("en", "sea");
+    CHECK(sea.has_value());
+    if (sea) {
+        CHECK(sea->status == "draft");
+        CHECK(sea->text.starts_with("The sea is wide."));
+        CHECK(sea->written.size() == 20 && sea->written.ends_with("Z"));
+        CHECK(sea->taught.empty());
+    }
+    std::vector<Database::CloudLesson> all = db().lessons("en");
+    CHECK(all.size() == 2);
+    CHECK(all.size() == 2 && all.front().name == "sky" && all.back().name == "sea");  // taught first, drafts last
+    db().set_lesson_status("en", "sea", "taught");
+    CHECK(db().lesson("en", "sea")->status == "taught");
+    CHECK(!db().lesson("en", "sea")->taught.empty());
+    all = db().lessons("en");
+    CHECK(all.size() == 2 && all.front().name == "sky" && all.back().name == "sea");  // sky was taught first
+    CHECK(!db().lesson("en", "moon").has_value());
+    CHECK(db().lessons("pt").empty());
+    // A clear keeps them, like the validators and the bonds.
+    db().clear();
+    CHECK(db().lessons("en").size() == 2);
+    CHECK(db().pages("en").size() == 1);
+    db().run("truncate pages, lessons restart identity");
+}
+
 int main() {
     std::string connection;
     for (const char* variable : {"LARRY_TEST_DB", "LARRY_DB"}) {

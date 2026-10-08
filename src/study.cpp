@@ -9,6 +9,7 @@
 #include <ctime>
 #include <format>
 #include <fstream>
+#include <sstream>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -54,7 +55,10 @@ std::vector<std::string> StudyReport::lines() const {
         list += std::format(" and {} more", words.size() - 12);
     }
     out.push_back(std::format("words to learn: {}{}", words.size(), words.empty() ? "" : ": " + list));
-    if (!draft.empty()) {
+    if (!draft_in_cloud.empty()) {
+        out.push_back(std::format("draft lesson in the cloud: {} (larry lessons pull {} to correct it, then larry teach {})",
+                                  draft_in_cloud, draft_in_cloud, draft_in_cloud));
+    } else if (!draft.empty()) {
         out.push_back(std::format("draft lesson: {} (correct it, then: larry teach {})", draft.string(),
                                   draft.string()));
     }
@@ -160,12 +164,8 @@ StudyReport Study::study(std::string_view text, std::string_view name, std::stri
 
     // The draft, in the lesson format, with the words to check above each sentence.
     if (!draft_lines.empty()) {
-        std::filesystem::create_directories(drafts);
-        report.draft = drafts / (Web::slug(name) + ".txt");
-        std::ofstream out{report.draft, std::ios::binary | std::ios::trunc};
-        if (!out) {
-            throw std::runtime_error(std::format("Study: cannot write {}", report.draft.string()));
-        }
+        report.draft_name = Web::slug(name);
+        std::ostringstream out;
         out << "# Draft lesson from \"" << name << "\"";
         if (!source.empty()) {
             out << " (" << source << ")";
@@ -200,6 +200,16 @@ StudyReport Study::study(std::string_view text, std::string_view name, std::stri
                 out << (i == 0 ? "" : ", ") << line.categories[i];
             }
             out << "\n";
+        }
+        report.draft_text = out.str();
+        if (!drafts.empty()) {
+            std::filesystem::create_directories(drafts);
+            report.draft = drafts / (report.draft_name + ".txt");
+            std::ofstream file{report.draft, std::ios::binary | std::ios::trunc};
+            if (!file) {
+                throw std::runtime_error(std::format("Study: cannot write {}", report.draft.string()));
+            }
+            file << report.draft_text;
         }
     }
     return report;
