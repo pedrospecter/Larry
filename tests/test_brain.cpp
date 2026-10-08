@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -308,7 +309,8 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(say("The sea is blue.").text == "Noted. I take \"sea\" as noun.");
     CHECK(say("Zorp.").text == "Noted. What is \"Zorp\"?");
     const larry::Reply conflict = say("The sky is not blue.");
-    CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
+    // N6: the paraphrase "the sky is blue", said last, is in play and answers first.
+    CHECK(conflict.text.starts_with("That conflicts with what I know: the sky is blue"));
     CHECK(conflict.stored);
     const larry::Reply unknown = say("The sky is azure.");
     CHECK(unknown.text.starts_with("Noted. \"azure\" was never attribute of sky; of sky I know as attribute of: blue (proposed)"));
@@ -796,6 +798,207 @@ std::unique_ptr<larry::Database> cloud_database() {
 
 }  // namespace
 
+TEST(a_conflict_is_a_bond_between_the_two_conceptions) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_bonds.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto say = [&](std::string_view text, std::vector<std::string_view> categories = {}) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        if (!taught.empty()) {
+            const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+            cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+            return larry::Reply{};
+        }
+        return brain.hear(ops.from_text(text), "user:pedro");
+    };
+    say("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    say("The door is closed.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    // A4 bonds the forms ("is" to "be") too: count the conflicts alone.
+    const auto conflicts = [&] {
+        return std::ranges::count_if(cache.bonds(), [](const larry::Bond& bond) { return bond.kind == b("conflicts with"); });
+    };
+    CHECK(conflicts() == 0);
+    const larry::Reply conflict = say("The sky is not blue.");
+    CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
+    CHECK(std::ranges::contains(conflict.because, std::string{"bond: conflicts with, recorded (N3)"}));
+    CHECK(conflicts() == 1);
+    const larry::Description said = assimilation.describe(ops.from_text("The sky is not blue."), &cache);
+    const std::vector<larry::Bond> from_said = brain.bonds_of(larry::BondEnd::atom(said.metadata));
+    CHECK(from_said.size() == 1);
+    if (!from_said.empty()) {
+        CHECK(from_said.front().kind == b("conflicts with"));
+        CHECK(from_said.front().from == larry::BondEnd::atom(said.metadata));
+        CHECK(brain.conception_at(from_said.front().to).has_value());
+        CHECK(brain.conception_at(from_said.front().to)->description.image.bytes == b("The sky is blue."));
+        CHECK(from_said.front().origins.size() == 1);
+        CHECK(!from_said.front().origins.empty() && from_said.front().origins.front().starts_with("comparison: "));
+    }
+    // The other way round too, and the rule's conflict names the rule.
+    const larry::Description blue = assimilation.describe(ops.from_text("The sky is blue."), &cache);
+    CHECK(cache.bonds_to(larry::BondEnd::atom(blue.metadata)).size() == 1);
+    const larry::Reply open = say("The door is open.");
+    CHECK(open.text.starts_with("That conflicts with what I know: The door is closed."));
+    CHECK(conflicts() == 2);
+    CHECK(cache.bonds().back().origins.front().starts_with("rule: open and closed"));
+    // The same conflict heard again is the same bond.
+    (void)say("The sky is not blue.");
+    CHECK(conflicts() == 2);
+    CHECK(brain.conception_at(larry::BondEnd::entity("sky")) == std::nullopt);
+}
+
+TEST(what_is_heard_joins_the_molecule) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_molecule.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const larry::Description taught = assimilation.describe(ops.from_text("The sky is blue."), &cache,
+        std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")});
+    cache.store(taught.atom, taught.metadata, larry::Status::Proposed, "lesson:test");
+    CHECK(brain.molecule().empty());
+    CHECK(brain.hear(ops.from_text("The sea is blue."), "user:pedro").stored);
+    CHECK(cache.count_molecules() == 0);  // nothing joins before a molecule is named
+    const Bytes chat = b("chat:pedro:2026-10-08T08:00:00Z");
+    brain.molecule(chat);
+    CHECK(brain.hear(ops.from_text("The grass is blue."), "user:pedro").stored);
+    (void)brain.hear(ops.from_text("Is the sky blue?"), "user:pedro");  // a question is not stored
+    (void)brain.hear(ops.from_text("The sea is blue."), "user:pedro");  // said again: a member again
+    (void)brain.hear(ops.from_text("Suppose the sky is green."), "user:pedro");  // an assumption is stored
+    const std::optional<larry::Molecule> m = cache.molecule(chat);
+    CHECK(m.has_value());
+    if (m) {
+        CHECK(m->members.size() == 3);
+        CHECK(m->members[0].identity == ops.identity(assimilation.describe(ops.from_text("The grass is blue."), &cache).metadata));
+        CHECK(m->members[1].identity == ops.identity(assimilation.describe(ops.from_text("The sea is blue."), &cache).metadata));
+        CHECK(m->members[0].who == "user:pedro");
+        CHECK(m->members[0].when.size() == 20);
+        CHECK(m->members[0].when.ends_with("Z"));
+        CHECK(m->members[0].when.substr(0, 4) == larry::Brain::now().substr(0, 4));
+    }
+    CHECK(cache.molecules_of(ops.identity(assimilation.describe(ops.from_text("The sea is blue."), &cache).metadata)) ==
+          std::vector<Bytes>{chat});
+    CHECK(brain.molecule_named(chat).has_value());
+    CHECK(!brain.molecule_named(b("nobody")).has_value());
+    brain.molecule({});
+    (void)brain.hear(ops.from_text("The hill is blue."), "user:pedro");
+    CHECK(cache.molecule(chat)->members.size() == 3);
+}
+
+TEST(questions_are_asked_once_per_unknown_word_and_answers_teach) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_questions.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Birds fly high.", {"noun", "verb", "adverb"});
+    // A text of thirty words, three of them unknown ("zorp", "blim", "klop").
+    const std::vector<std::string> text = {"The zorp is blue.", "The sea is blim.", "The sky is wide.",
+                                           "Birds klop high.", "The zorp is wide.", "The sea is blue.",
+                                           "Birds fly high.", "The sky is blim."};
+    const auto ask = [&] {
+        std::vector<larry::Brain::Question> all;
+        for (const std::string& sentence : text) {
+            for (larry::Brain::Question& q : brain.questions(assimilation.describe(ops.from_text(sentence), &cache))) {
+                if (std::ranges::none_of(all, [&](const larry::Brain::Question& held) { return held.word == q.word; })) {
+                    all.push_back(std::move(q));
+                }
+            }
+        }
+        return all;
+    };
+    const std::vector<larry::Brain::Question> questions = ask();
+    CHECK(questions.size() == 3);
+    if (questions.size() == 3) {
+        CHECK(questions[0].word == b("zorp"));
+        CHECK(questions[0].sentence == "The zorp is blue.");
+        CHECK(questions[0].text == "what category is \"zorp\" in \"The zorp is blue.\"?");
+        CHECK(questions[0].guess.starts_with("I take it as noun"));  // the words around it say so
+        CHECK(questions[1].word == b("blim"));
+        CHECK(questions[2].word == b("klop"));
+        CHECK(questions[2].guess.starts_with("I take it as verb"));
+    }
+    // The answers teach: the word is known from memory, as taught, not as a guess.
+    CHECK(brain.teach(ops.from_text("The zorp is blue."), "zorp", "noun", "user:pedro") == larry::Stored::New);
+    CHECK(brain.teach(ops.from_text("The sea is blim."), "blim", "adjective", "user:pedro") == larry::Stored::New);
+    CHECK(brain.teach(ops.from_text("Birds klop high."), "klop", "verb", "user:pedro") == larry::Stored::New);
+    CHECK(cache.categories_of(b("zorp")).size() == 1);
+    CHECK(cache.categories_of(b("zorp")).front().category == b("noun"));
+    const larry::Description again = assimilation.describe(ops.from_text("The zorp is wide."), &cache);
+    CHECK(again.notes[1].source == larry::Source::Memory);
+    CHECK(ask().empty());
+    // A word not in the sentence, or a category that is none, teaches nothing.
+    CHECK(!brain.teach(ops.from_text("The sky is blue."), "zorp", "noun", "user:pedro").has_value());
+    CHECK(!brain.teach(ops.from_text("The sky is blue."), "sky", "colour", "user:pedro").has_value());
+    // The taught conception is stored: the same sentence again is the same.
+    CHECK(brain.teach(ops.from_text("The zorp is blue."), "zorp", "noun", "user:pedro") == larry::Stored::Same);
+}
+
+TEST(working_memory_holds_what_is_in_play) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+        return d;
+    };
+    const larry::Description sky = teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.working().empty());  // a lesson taught straight into the cache is not in play
+    // What was heard and stored is in play, newest first.
+    CHECK(brain.hear(ops.from_text("The grass is green."), "user:pedro").stored);
+    CHECK(brain.working().size() == 1);
+    CHECK(brain.working().front().description.image.bytes == b("The grass is green."));
+    // What answered a question is in play.
+    CHECK(brain.answer(ops.from_text("Is the sky blue?")).text == "Yes.");
+    CHECK(brain.working().size() == 2);
+    CHECK(brain.working().front().description.metadata.bytes == sky.metadata.bytes);
+    // The same atom again moves to the front, not in twice.
+    (void)brain.hear(ops.from_text("The grass is green."), "user:pedro");
+    CHECK(brain.working().size() == 2);
+    CHECK(brain.working().front().description.image.bytes == b("The grass is green."));
+    // What is in play answers first: a question about the sky finds the sky's conception among the candidates first.
+    const larry::Verdict verdict = brain.truth(ops.from_text("the sky is blue"));
+    CHECK(verdict.truth == Truth::True);
+    // The bound holds.
+    for (int i = 0; i < 40; ++i) {
+        (void)brain.hear(ops.from_text(std::format("Thing{} is here.", i)), "user:pedro");
+    }
+    CHECK(brain.working().size() == larry::Brain::working_limit);
+    CHECK(brain.working().front().description.image.bytes == b("Thing39 is here."));
+    brain.forget_working();
+    CHECK(brain.working().empty());
+}
+
 TEST(the_cache_answers_first_and_the_cloud_second) {
     std::unique_ptr<larry::Database> cloud = cloud_database();
     if (!cloud) {
@@ -870,12 +1073,49 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
     const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
-    const auto [pushed, pulled, redescribed, refreshed] = brain.sync(100);
-    CHECK(pushed == 1);
-    CHECK(pulled == 2);  // the cat and the withdrawn moon
+    const larry::Brain::Synced synced_first = brain.sync(100);
+    CHECK(synced_first.pushed == 1);
+    CHECK(synced_first.pulled == 2);  // the cat and the withdrawn moon
     CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
     CHECK(cache.find(cat.metadata)->status == larry::Status::Validated);
     CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // N3: a bond goes to the cloud at once, and the cloud's bonds come to the cache at sync.
+    cloud->run("truncate bonds, bond_origins restart identity cascade");
+    const std::int64_t forms_held = cache.count_bonds();  // A4: "is" is a form of "be", bonded at remember
+    CHECK(brain.bond(larry::Bond{b("form of"), larry::BondEnd::entity("cats"), larry::BondEnd::entity("cat"), {"user:pedro"}}));
+    CHECK(cloud->count_bonds() == 1);
+    CHECK(cloud->bond(larry::Bond{b("conflicts with"), larry::BondEnd::atom(sky.metadata), larry::BondEnd::atom(moon.metadata), {"pi"}}));
+    const larry::Brain::Synced bonded = brain.sync(100);
+    CHECK(bonded.bonds_pushed == forms_held);  // the cloud lacked the form bonds since the truncate
+    CHECK(bonded.bonds_pulled == 1);
+    CHECK(cache.count_bonds() == forms_held + 2);
+    CHECK(brain.bonds_of(larry::BondEnd::atom(moon.metadata)).size() == 1);
+    CHECK(brain.conception_at(larry::BondEnd::atom(moon.metadata))->description.metadata.bytes == moon.metadata.bytes);
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    cloud->run("truncate bonds, bond_origins restart identity cascade");
+    // N4: what is remembered joins the molecule in the cache and the cloud at
+    // once; a molecule the cloud alone has comes at sync, member by member.
+    cloud->run("truncate molecules, molecule_members restart identity cascade");
+    const Bytes text = b("read:t.txt:2026-10-08T07:58:00Z");
+    brain.molecule(text);
+    const larry::Description hill = describe("The hill is green.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.remember(hill, larry::Status::Proposed, "read:t.txt") == larry::Stored::New);
+    brain.molecule({});
+    CHECK(cache.molecule(text)->members.size() == 1);
+    CHECK(cloud->molecule(text)->members.size() == 1);
+    CHECK(cloud->molecule(text)->members[0].who == "read:t.txt");
+    CHECK(cloud->molecule(text)->members[0].when == cache.molecule(text)->members[0].when);
+    const Bytes chat_ana = b("chat:ana:2026-10-08T08:00:00Z");
+    CHECK(cloud->join(chat_ana, ops.identity(cat.metadata), "user:ana", "2026-10-08T08:00:01Z") == 0);
+    CHECK(cloud->join(text, ops.identity(cat.metadata), "read:t.txt", "2026-10-08T08:00:02Z") == 1);
+    const larry::Brain::Synced grouped = brain.sync(100);
+    CHECK(grouped.members_pushed == 0);
+    CHECK(grouped.members_pulled == 2);
+    CHECK(cache.molecule(chat_ana)->members.size() == 1);
+    CHECK(cache.molecule(text)->members.size() == 2);
+    CHECK(brain.molecule_named(chat_ana)->members[0].who == "user:ana");
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    cloud->run("truncate molecules, molecule_members restart identity cascade");
     // Q28: the cloud holds an older description of a conception: when the
     // machine describes it anew, the cloud follows, at remember and at sync.
     const larry::Description sun = describe("The sun is hot.", {"determiner", "noun", "auxiliary verb", "adjective"});

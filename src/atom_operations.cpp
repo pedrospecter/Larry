@@ -169,7 +169,10 @@ Electrons AtomOperations::electrons(const MetadataElectron& metadata) const {
 }
 
 Bytes AtomOperations::identity(const MetadataElectron& metadata) const {
-    const Electrons e = electrons(metadata);
+    return identity(electrons(metadata));
+}
+
+Bytes AtomOperations::identity(const Electrons& e) const {
     Bytes out = e.category.bytes;
     for (const Entity& entity : e.entities.entities) {
         out.push_back(0x00);
@@ -179,8 +182,11 @@ Bytes AtomOperations::identity(const MetadataElectron& metadata) const {
 }
 
 bool AtomOperations::complete(const MetadataElectron& metadata) const {
+    return complete(electrons(metadata));
+}
+
+bool AtomOperations::complete(const Electrons& e) const {
     static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
-    const Electrons e = electrons(metadata);
     for (const Entity& entity : e.entities.entities) {
         if (entity.category.empty()) {
             return false;

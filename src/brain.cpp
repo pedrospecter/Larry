@@ -4,6 +4,8 @@
 #include "larry/grammar.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <format>
 #include <map>
 #include <optional>
@@ -135,7 +137,134 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
             }
         }
     }
+    // N6: what was just remembered is in play.
+    if (const std::optional<StoredAtom> held = memory_->find(d.metadata)) {
+        bring_into_play(*held);
+    }
+    // A4: each word that is a form of a known word is bonded to it, "form of".
+    if (stored == Stored::New) {
+        static const Bytes form_of{'f', 'o', 'r', 'm', ' ', 'o', 'f'};
+        for (const Entity& entity : d.entities.entities) {
+            if (const std::optional<Form> form = assimilation_.form_of(entity.word, memory_)) {
+                (void)bond(Bond{form_of, BondEnd::entity(std::string_view{reinterpret_cast<const char*>(form->word.data()), form->word.size()}),
+                                BondEnd::entity(std::string_view{reinterpret_cast<const char*>(form->base.data()), form->base.size()}),
+                                {"rule: " + form->rule}});
+            }
+        }
+    }
+    // N4: the conception joins the molecule being heard, said again or not.
+    if (!molecule_.empty()) {
+        const Bytes identity = ops.identity(d.metadata);
+        const std::string when = now();
+        memory_->join(molecule_, identity, source, when);
+        if (cloud_ != nullptr) {
+            cloud_->join(molecule_, identity, source, when);
+        }
+    }
     return stored;
+}
+
+std::vector<Brain::Question> Brain::questions(const Description& d) const {
+    const AtomOperations ops;
+    std::vector<Question> out;
+    const std::string sentence{ops.text(d.atom)};
+    for (std::size_t i = 0; i < d.notes.size() && i < d.entities.entities.size(); ++i) {
+        const EntityNote& note = d.notes[i];
+        if (note.source != Source::Unknown && note.source != Source::Open && note.source != Source::Guess) {
+            continue;
+        }
+        const Entity& entity = d.entities.entities[i];
+        const std::string word{reinterpret_cast<const char*>(entity.word.data()), entity.word.size()};
+        Question q{ops.fold(entity.word), sentence, std::format("what category is \"{}\" in \"{}\"?", word, sentence), {}};
+        if (note.source == Source::Guess) {
+            q.guess = "I take it as " + std::string(entity.category.begin(), entity.category.end()) +
+                      (note.form.empty() ? ", from the words around it" : ", because " + note.form);
+        } else if (note.source == Source::Open) {
+            q.guess = "one of:";
+            for (const Bytes& c : note.candidates) {
+                q.guess += " " + std::string(c.begin(), c.end());
+            }
+        } else if (!note.near.empty()) {
+            q.guess = "did you mean \"" + std::string(note.near.front().begin(), note.near.front().end()) + "\"?";
+        }
+        out.push_back(std::move(q));
+    }
+    return out;
+}
+
+std::optional<Stored> Brain::teach(const Sentence& sentence, std::string_view word, std::string_view category,
+                                   std::string_view source) {
+    const AtomOperations ops;
+    const Bytes wanted = ops.fold(std::span{reinterpret_cast<const std::uint8_t*>(word.data()), word.size()});
+    const Bytes given(category.begin(), category.end());
+    if (!std::ranges::contains(rules_->categories(), given)) {
+        return std::nullopt;
+    }
+    Description d = assimilation_.describe(sentence, memory_);
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    bool found = false;
+    for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+        Entity& entity = d.entities.entities[i];
+        if (ops.fold(entity.word) != wanted) {
+            continue;
+        }
+        found = true;
+        entity.category = given;
+        std::erase(entity.types, guessed);
+        if (i < d.notes.size()) {
+            d.notes[i].source = Source::Taught;
+            d.notes[i].candidates.clear();
+            d.notes[i].near.clear();
+            d.notes[i].form.clear();
+        }
+    }
+    if (!found) {
+        return std::nullopt;
+    }
+    assimilation_.redescribe(d);
+    return remember(d, Status::Proposed, source);
+}
+
+std::vector<Neighbour> Brain::near(const Description& d, int steps, std::size_t limit) const {
+    const AtomOperations ops;
+    std::vector<BondEnd> from;
+    if (memory_->find(d.metadata)) {
+        from.push_back(BondEnd::atom(d.metadata));
+    } else {
+        // A sentence not held: its words are the start.
+        for (const Entity& e : d.entities.entities) {
+            from.push_back(BondEnd{BondEnd::Kind::Entity, ops.fold(e.word)});
+        }
+    }
+    return memory_->spread(from, steps, limit);
+}
+
+std::vector<Neighbour> Brain::near(std::string_view word, int steps, std::size_t limit) const {
+    return memory_->spread({BondEnd::entity(word)}, steps, limit);
+}
+
+std::string Brain::now() {
+    const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc{};
+#ifdef _WIN32
+    gmtime_s(&utc, &t);
+#else
+    gmtime_r(&t, &utc);
+#endif
+    char out[32];
+    const std::size_t n = std::strftime(out, sizeof out, "%Y-%m-%dT%H:%M:%SZ", &utc);
+    return std::string(out, n);
+}
+
+std::optional<Molecule> Brain::molecule_named(const Bytes& name) const {
+    if (const std::optional<Molecule> held = memory_->molecule(name)) {
+        return held;
+    }
+    if (cloud_ != nullptr) {
+        tell("searching the cloud for the molecule");
+        return cloud_->molecule(name);
+    }
+    return std::nullopt;
 }
 
 std::vector<std::string> Brain::validators() const {
@@ -236,7 +365,73 @@ Brain::Synced Brain::sync(std::int64_t pull) {
         ++out.pulled;
     }
     out.refreshed = refresh();
+    // N3: the bonds, both ways.
+    for (const Bond& bond : memory_->bonds()) {
+        if (cloud_->bond(bond)) {
+            ++out.bonds_pushed;
+        }
+    }
+    for (const Bond& bond : cloud_->bonds()) {
+        if (memory_->bond(bond)) {
+            ++out.bonds_pulled;
+        }
+    }
+    // N4: the molecules, both ways: each side appends the members it lacks,
+    // by position.
+    for (const Bytes& name : memory_->molecules()) {
+        const std::optional<Molecule> mine = memory_->molecule(name);
+        const std::optional<Molecule> theirs = cloud_->molecule(name);
+        const std::size_t held = theirs ? theirs->members.size() : 0;
+        for (std::size_t i = held; mine && i < mine->members.size(); ++i) {
+            const Member& m = mine->members[i];
+            cloud_->join(name, m.identity, m.who, m.when);
+            ++out.members_pushed;
+        }
+    }
+    for (const Bytes& name : cloud_->molecules()) {
+        const std::optional<Molecule> theirs = cloud_->molecule(name);
+        const std::optional<Molecule> mine = memory_->molecule(name);
+        const std::size_t held = mine ? mine->members.size() : 0;
+        for (std::size_t i = held; theirs && i < theirs->members.size(); ++i) {
+            const Member& m = theirs->members[i];
+            memory_->join(name, m.identity, m.who, m.when);
+            ++out.members_pulled;
+        }
+    }
     return out;
+}
+
+bool Brain::bond(const Bond& bond) {
+    const bool fresh = memory_->bond(bond);
+    if (cloud_ != nullptr) {
+        (void)cloud_->bond(bond);
+    }
+    return fresh;
+}
+
+std::vector<Bond> Brain::bonds_of(const BondEnd& end) const {
+    std::vector<Bond> out = memory_->bonds_of(end);
+    if (out.empty() && cloud_ != nullptr) {
+        tell("searching the cloud for bonds");
+        out = cloud_->bonds_of(end);
+        for (const Bond& bond : out) {
+            (void)memory_->bond(bond);
+        }
+    }
+    return out;
+}
+
+std::optional<StoredAtom> Brain::conception_at(const BondEnd& end) const {
+    if (end.kind != BondEnd::Kind::Atom) {
+        return std::nullopt;
+    }
+    if (const std::optional<StoredAtom> held = memory_->find_identity(end.bytes)) {
+        return held;
+    }
+    if (cloud_ != nullptr) {
+        return cloud_->find_identity(end.bytes);
+    }
+    return std::nullopt;
 }
 
 std::int64_t Brain::refresh() {
@@ -288,7 +483,7 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
     const auto uses_of = [&](const Bytes& word) {
         std::size_t uses = 0;
         for (const Bytes& spelling : spellings(word)) {
-            uses += memory_->uses(spelling).size();
+            uses += static_cast<std::size_t>(memory_->count_uses(spelling));
         }
         return uses;
     };
@@ -301,18 +496,39 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
             rarest = &word;
         }
     }
-    std::vector<std::int64_t> ids;
-    for (const Bytes& spelling : spellings(*rarest)) {
+    std::vector<Bytes> taken;  // metadata of what is in `out` already
+    const auto take = [&](StoredAtom& atom) {
+        if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn ||
+            std::ranges::contains(taken, atom.description.metadata.bytes)) {
+            return;
+        }
+        taken.push_back(atom.description.metadata.bytes);
+        out.push_back(std::move(atom));
+    };
+    const std::vector<Bytes> wanted = spellings(*rarest);
+    if (!cloud) {
+        // N6: the atoms in play first, when they hold the word; as the cache
+        // holds them now, since the record rules (a standing may have changed).
+        const AtomOperations ops;
+        for (const StoredAtom& atom : working_) {
+            const bool holds = std::ranges::any_of(atom.description.entities.entities, [&](const Entity& e) {
+                return std::ranges::contains(wanted, ops.fold(e.word));
+            });
+            if (!holds) {
+                continue;
+            }
+            if (std::optional<StoredAtom> fresh = memory_->find(atom.description.metadata)) {
+                take(*fresh);
+            }
+        }
+    }
+    for (const Bytes& spelling : wanted) {
         if (cloud) {
             tell("searching the cloud");
         }
         std::vector<StoredAtom> found = cloud ? cloud_->containing(spelling) : memory_->containing(spelling);
         for (StoredAtom& atom : found) {
-            if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn &&
-                std::ranges::find(ids, atom.id) == ids.end()) {
-                ids.push_back(atom.id);
-                out.push_back(std::move(atom));
-            }
+            take(atom);
         }
     }
     return out;
@@ -554,6 +770,28 @@ Verdict Brain::truth(const Sentence& claim) const {
 }
 
 Verdict Brain::truth(const Description& claim) const {
+    Verdict verdict = decide(claim);
+    // N6: what decided it, and what came nearest, is in play now.
+    for (const StoredAtom& atom : verdict.because) {
+        bring_into_play(atom);
+    }
+    for (const StoredAtom& atom : verdict.nearest) {
+        bring_into_play(atom);
+    }
+    return verdict;
+}
+
+void Brain::bring_into_play(const StoredAtom& atom) const {
+    std::erase_if(working_, [&](const StoredAtom& held) {
+        return held.description.metadata.bytes == atom.description.metadata.bytes;
+    });
+    working_.insert(working_.begin(), atom);
+    if (working_.size() > working_limit) {
+        working_.resize(working_limit);
+    }
+}
+
+Verdict Brain::decide(const Description& claim) const {
     Verdict verdict;
     std::vector<Core> forms;
     if (claim.category.bytes == bytes_of("question")) {
@@ -692,6 +930,14 @@ Verdict Brain::truth(const Description& claim) const {
 }
 
 std::vector<StoredAtom> Brain::answers(const Description& question) const {
+    std::vector<StoredAtom> out = search_answers(question);
+    for (const StoredAtom& atom : out) {
+        bring_into_play(atom);  // N6
+    }
+    return out;
+}
+
+std::vector<StoredAtom> Brain::search_answers(const Description& question) const {
     std::vector<StoredAtom> out;
     const std::vector<Bytes> words = expanded_words(question);
     if (words.size() < 2 || !in(rules_->question_words(), words.front())) {
@@ -1124,6 +1370,15 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
             reply.because.push_back("rule: " + rule);
         }
         reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
+        // N3: the conflict is a bond between the two conceptions, from the
+        // rule or the comparison that found it.
+        static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};
+        const std::string origin = verdict.rules.empty()
+                                       ? "comparison: the same core with the opposite polarity (R1)"
+                                       : "rule: " + verdict.rules.front();
+        (void)bond(Bond{conflicts, BondEnd::atom(said.metadata),
+                        BondEnd::atom(verdict.because.front().description.metadata), {origin}});
+        reply.because.emplace_back("bond: conflicts with, recorded (N3)");
         return reply;
     }
     reply.text += "Noted.";
@@ -1137,10 +1392,15 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         const std::string_view word{reinterpret_cast<const char*>(entity.word.data()),
                                     entity.word.size()};
         if (d.notes[i].source == Source::Guess) {
-            reply.text += std::format(" I take \"{}\" as {}.", word,
+            reply.text += std::format(" I take \"{}\" as {}{}.", word,
                                       std::string_view{reinterpret_cast<const char*>(entity.category.data()),
-                                                       entity.category.size()});
-            reply.because.emplace_back("rule: an unknown word takes the category of known words in the same context, as a guess (A6)");
+                                                       entity.category.size()},
+                                      d.notes[i].form.empty() ? std::string{} : ", by its form");
+            if (d.notes[i].form.empty()) {
+                reply.because.emplace_back("rule: an unknown word takes the category of known words in the same context, as a guess (A6)");
+            } else {
+                reply.because.emplace_back("rule: " + d.notes[i].form + " (A4)");
+            }
         } else if (d.notes[i].source == Source::Unknown && !asked) {
             reply.text += std::format(" What is \"{}\"?", word);
             reply.because.emplace_back("rule: Larry asks about a word it does not know (A5)");

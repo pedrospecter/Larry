@@ -216,15 +216,77 @@ public:
         std::int64_t pulled = 0;       ///< Conceptions the cache lacked.
         std::int64_t redescribed = 0;  ///< Conceptions the cloud held with an older description.
         std::int64_t refreshed = 0;    ///< Cached conceptions whose standing the cloud changed.
+        std::int64_t bonds_pushed = 0; ///< Bonds the cloud lacked (N3).
+        std::int64_t bonds_pulled = 0; ///< Bonds the cache lacked.
+        std::int64_t members_pushed = 0;  ///< Molecule members the cloud lacked (N4).
+        std::int64_t members_pulled = 0;  ///< Molecule members the cache lacked.
         bool operator==(const Synced&) const = default;
     };
 
     /// N2: pushes every conception of the cache that the cloud does not have,
     /// gives the cloud the cache's description where it holds an older one
-    /// (Q28), pulls the cloud's most recent conceptions into the cache, and
-    /// refreshes the standing of the cached ones. Throws when there is no
-    /// cloud.
+    /// (Q28), pulls the cloud's most recent conceptions into the cache,
+    /// refreshes the standing of the cached ones, and exchanges the bonds
+    /// (N3) both ways. Throws when there is no cloud.
     Synced sync(std::int64_t pull);
+
+    /// N3: records a bond in the cache and, with a cloud, in the cloud. True
+    /// when the cache did not have it.
+    bool bond(const Bond& bond);
+
+    /// N3: the bonds at an end, either way: the cache's; when the cache has
+    /// none and there is a cloud, the cloud's, which are cached then.
+    [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end) const;
+
+    /// N3: the conception an atom end names, from the cache, else from the
+    /// cloud; nothing for an entity end or an identity nobody holds.
+    [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
+
+    /// A5: a question Larry asks about a word it cannot describe from
+    /// memory: unknown, open between categories, or guessed.
+    struct Question {
+        Bytes word;            ///< As the index keys it: "azure".
+        std::string sentence;  ///< The sentence it is in, as said.
+        std::string text;      ///< "what category is \"azure\" in \"The sky is azure.\"?"
+        std::string guess;     ///< What Larry would take it as, with why; empty when it has nothing.
+    };
+    /// The questions a described sentence leaves, one per such word, in order.
+    [[nodiscard]] std::vector<Question> questions(const Description& d) const;
+
+    /// A5: the answer to one: the word's category in that sentence, taught.
+    /// The sentence is described again with it and stored as a conception
+    /// from `source`, so that the word is known from memory from now on.
+    /// Nothing when the word is not in the sentence or the category is not
+    /// one of the base rules; else what store did.
+    std::optional<Stored> teach(const Sentence& sentence, std::string_view word, std::string_view category,
+                                std::string_view source);
+
+    /// N6: working memory, the atoms now in play, newest first: what was
+    /// heard and stored, and the conceptions that answered or came nearest.
+    /// Bounded; the candidates for an answer are looked for here before
+    /// the word index, so the lookup starts from what is in play.
+    [[nodiscard]] const std::vector<StoredAtom>& working() const noexcept { return working_; }
+    void forget_working() { working_.clear(); }
+    static constexpr std::size_t working_limit = 32;
+
+    /// N5: the neighbours of a described sentence or a word in the cache,
+    /// nearest first (Memory::spread), through the word index and the
+    /// bonds; the cloud is not walked, so this is what the machine knows.
+    [[nodiscard]] std::vector<Neighbour> near(const Description& d, int steps = 2, std::size_t limit = 20) const;
+    [[nodiscard]] std::vector<Neighbour> near(std::string_view word, int steps = 2, std::size_t limit = 20) const;
+
+    /// N4: from here on, what the brain remembers joins this molecule: the
+    /// text or the conversation being heard, with who said it (the source)
+    /// and when (now). Empty: nothing joins. Names: "read:<file>:<when>",
+    /// "chat:<user>:<when>".
+    void molecule(Bytes name) { molecule_ = std::move(name); }
+    [[nodiscard]] const Bytes& molecule() const noexcept { return molecule_; }
+
+    /// N4: the molecule with this name, from the cache, else from the cloud.
+    [[nodiscard]] std::optional<Molecule> molecule_named(const Bytes& name) const;
+
+    /// N4: the time now as a member records it: ISO 8601 in UTC.
+    [[nodiscard]] static std::string now();
 
     /// N2c: the cloud is the record. Every cached conception takes the
     /// status, the decision and the reading the cloud holds for it, in one
@@ -297,8 +359,13 @@ private:
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;
 
     /// The conceptions of the cache or the cloud that contain the rarest word
-    /// of a core, affirmations only.
+    /// of a core, affirmations only; from the cache, the ones in play first (N6).
     [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
+    /// truth() and answers() without the working memory: what they decide.
+    [[nodiscard]] Verdict decide(const Description& claim) const;
+    [[nodiscard]] std::vector<StoredAtom> search_answers(const Description& question) const;
+    /// N6: puts an atom at the front of the working memory, within its bound.
+    void bring_into_play(const StoredAtom& atom) const;
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.
@@ -325,6 +392,8 @@ private:
     Database* cloud_;
     Notice notice_;
     mutable std::string last_notice_;
+    Bytes molecule_;  ///< N4: what is remembered joins it, when it is named.
+    mutable std::vector<StoredAtom> working_;  ///< N6: the atoms in play, newest first.
 };
 
 }  // namespace larry

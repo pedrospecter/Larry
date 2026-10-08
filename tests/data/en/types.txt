@@ -1,0 +1,29 @@
+# A7: a suite labelled by hand. Fields are separated by " | ": the sentence, the
+# categories of its entities (commas), and each entity's types as Larry writes
+# them (features, then the role; commas between entities), then the atom's type.
+The sky is blue. | determiner,noun,auxiliary verb,adjective | subject, singular subject, third person singular present predicate, positive attribute | subject subject predicate attribute / neutral
+Birds fly. | noun,verb | plural subject, base predicate | subject predicate / neutral
+Mary went to the kitchen. | proper noun,verb,preposition,determiner,noun | singular subject, past predicate, complement, complement, singular complement | subject predicate complement complement complement / neutral
+Tom has three apples. | proper noun,verb,numeral,noun | singular subject, third person predicate, cardinal object, plural object | subject predicate object object / neutral
+Close the door. | verb,determiner,noun | base predicate, object, singular object | predicate object object / neutral
+Is the sky blue? | auxiliary verb,determiner,noun,adjective | third person singular present predicate, subject, singular subject, positive attribute | predicate subject subject attribute / neutral
+Do birds fly? | auxiliary verb,noun,verb | present predicate, plural subject, base predicate | predicate subject predicate / neutral
+Birds can fly. | noun,auxiliary verb,verb | plural subject, present predicate, base predicate | subject predicate predicate / neutral
+The children are sleeping. | determiner,noun,auxiliary verb,verb | subject, plural subject, present plural predicate, progressive predicate | subject subject predicate predicate / neutral
+She loves him. | pronoun,verb,pronoun | third person singular subject, third person predicate, third person singular object | subject predicate object / joy
+The old man walked slowly. | determiner,adjective,noun,verb,adverb | subject, positive subject, singular subject, past predicate, modifier | subject subject subject predicate modifier / neutral
+The cat sat on the mat. | determiner,noun,verb,preposition,determiner,noun | subject, singular subject, past predicate, complement, complement, singular complement | subject subject predicate complement complement complement / neutral
+I came 3rd. | pronoun,verb,numeral | first person singular subject, past predicate, ordinal object | subject predicate object / neutral
+The sky is blue and the grass is green. | determiner,noun,auxiliary verb,adjective,conjunction,determiner,noun,auxiliary verb,adjective | subject, singular subject, third person singular present predicate, positive attribute, link, subject, singular subject, third person singular present predicate, positive attribute | subject subject predicate attribute link subject subject predicate attribute / neutral
+Where is Mary? | adverb,auxiliary verb,proper noun | modifier, third person singular present predicate, singular subject | modifier predicate subject / neutral
+What is the sky? | pronoun,auxiliary verb,determiner,noun | interrogative attribute, third person singular present predicate, subject, singular subject | attribute predicate subject subject / neutral
+Who went to the kitchen? | pronoun,verb,preposition,determiner,noun | interrogative subject, past predicate, complement, complement, singular complement | subject predicate complement complement complement / neutral
+The sea is very wide. | determiner,noun,auxiliary verb,adverb,adjective | subject, singular subject, third person singular present predicate, modifier, positive attribute | subject subject predicate modifier attribute / neutral
+Oh, the sky is blue. | interjection,determiner,noun,auxiliary verb,adjective | none, subject, singular subject, third person singular present predicate, positive attribute | none subject subject predicate attribute / neutral
+The sky is not green. | determiner,noun,auxiliary verb,adverb,adjective | subject, singular subject, third person singular present predicate, modifier, positive attribute | subject subject predicate modifier attribute / neutral
+Penguins do not fly. | noun,auxiliary verb,adverb,verb | plural subject, present predicate, modifier, base predicate | subject predicate modifier predicate / neutral
+The taller boy won. | determiner,adjective,noun,verb | subject, comparative subject, singular subject, past predicate | subject subject subject predicate / neutral
+The biggest dog barked. | determiner,adjective,noun,verb | subject, superlative subject, singular subject, past predicate | subject subject subject predicate / neutral
+Dogs bark loudly. | noun,verb,adverb | plural subject, base predicate, modifier | subject predicate modifier / neutral
+Hello! | interjection | none | none / neutral
+Oh great, another meeting. | interjection,adjective,determiner,noun | none, positive subject, subject, singular subject | none subject subject subject / sarcasm

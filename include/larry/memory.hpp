@@ -66,6 +66,69 @@ struct CategoryCount {
     std::int64_t count;
 };
 
+/// One end of a bond (N3): a conception, by its identity (Q28: its
+/// qualification and its words, so a description corrected later is the
+/// same end), or an entity, by its word as the index keys it.
+struct BondEnd {
+    enum class Kind : std::uint8_t { Atom, Entity };
+    Kind kind = Kind::Entity;
+    Bytes bytes;
+    bool operator==(const BondEnd&) const = default;
+    /// The conception this metadata describes.
+    [[nodiscard]] static BondEnd atom(const MetadataElectron& metadata);
+    /// The entity with this word, in any case.
+    [[nodiscard]] static BondEnd entity(std::string_view word);
+};
+
+/// The name of an end's kind, "atom" or "entity": the bytes the file and the
+/// database store; and the kind with this name.
+[[nodiscard]] std::string_view name(BondEnd::Kind kind) noexcept;
+[[nodiscard]] std::optional<BondEnd::Kind> bond_end_from(std::string_view name) noexcept;
+
+/// A typed link between two ends (N3): its kind, its two ends, and where it
+/// came from: taught ("user:pedro"), or the rule or comparison that
+/// produced it ("rule: ..."). The same kind and ends are one bond, with
+/// every origin.
+struct Bond {
+    Bytes kind;  ///< "conflicts with", "form of", "answers", "is a kind of".
+    BondEnd from;
+    BondEnd to;
+    std::vector<std::string> origins;
+    [[nodiscard]] bool same(const Bond& other) const noexcept {
+        return kind == other.kind && from == other.from && to == other.to;
+    }
+};
+
+/// One member of a molecule (N4): a conception, by its identity (Q28), who
+/// said it ("user:pedro", "read:sky.txt"), and when (ISO 8601 in UTC:
+/// "2026-10-08T07:58:00Z").
+struct Member {
+    Bytes identity;
+    std::string who;
+    std::string when;
+    bool operator==(const Member&) const = default;
+};
+
+/// A molecule (N4): a text or a conversation, as the conceptions it gave, in
+/// the order they came. Its name says where it came from and when it began:
+/// "read:sky.txt:2026-10-08T07:58:00Z", "chat:pedro:2026-10-08T08:00:00Z".
+struct Molecule {
+    Bytes name;
+    std::vector<Member> members;
+};
+
+/// N5: a neighbour the spreading lookup found: an atom or an entity, how
+/// many steps away, how many key parts it shares with the start, its
+/// evidence (Q7: a tally, never a weight), and the way to it.
+struct Neighbour {
+    BondEnd end;
+    int steps = 1;              ///< 1 for a direct neighbour.
+    int shared = 0;             ///< Words in common with the start, for an atom.
+    std::int64_t evidence = 0;  ///< An atom: its sources; an entity: its uses.
+    std::string via;            ///< "word: sky", "bond: conflicts with", "atom: 12".
+    bool operator==(const Neighbour&) const = default;
+};
+
 /// What store() did with an atom.
 enum class Stored : std::uint8_t {
     New,       ///< The atom was stored.
@@ -141,8 +204,12 @@ public:
     [[nodiscard]] std::vector<StoredAtom> all() const;
 
     /// Where a word (as the index keys it, see AtomOperations::fold) is used,
-    /// in atom and position order.
-    [[nodiscard]] std::vector<WordUse> uses(const Bytes& word) const;
+    /// in atom and position order. A reference into the index: it lasts
+    /// until the index changes.
+    [[nodiscard]] const std::vector<WordUse>& uses(const Bytes& word) const;
+
+    /// How many uses a word has, without walking them (N2).
+    [[nodiscard]] std::int64_t count_uses(const Bytes& word) const;
 
     /// The categories a word has been seen with, in category order. Uses with
     /// no category, and guessed ones, do not count.
@@ -157,6 +224,49 @@ public:
     [[nodiscard]] std::int64_t count() const noexcept { return static_cast<std::int64_t>(atoms_.size()); }
     [[nodiscard]] std::int64_t count_words() const noexcept { return word_uses_; }
 
+    /// The atom stored under this identity (Q28), if any.
+    [[nodiscard]] std::optional<StoredAtom> find_identity(const Bytes& identity) const;
+
+    /// N3: records a bond, in the file too. True when it is new; the same
+    /// kind and ends again only add their origins. Throws
+    /// std::invalid_argument for a bond without a kind or an end.
+    bool bond(const Bond& bond);
+
+    /// N3: the bonds from an end, to an end, and either way, in the order
+    /// they were recorded.
+    [[nodiscard]] std::vector<Bond> bonds_from(const BondEnd& end) const;
+    [[nodiscard]] std::vector<Bond> bonds_to(const BondEnd& end) const;
+    [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end) const;
+    [[nodiscard]] const std::vector<Bond>& bonds() const noexcept { return bonds_; }
+    [[nodiscard]] std::int64_t count_bonds() const noexcept { return static_cast<std::int64_t>(bonds_.size()); }
+
+    /// N5: the neighbours of a set of atoms and entities, nearest first:
+    /// from an atom, the atoms that share its words (through the word
+    /// index, the rarest words first) and the ends it is bonded to; from an
+    /// entity, the atoms that contain it and its bonds. Up to `steps` steps
+    /// out and `limit` neighbours in all, so a common word never floods it.
+    /// Nearest means most shared words, then fewest steps, then most
+    /// evidence, then the earlier atom. The start ends are not neighbours
+    /// of themselves. The same on every run.
+    [[nodiscard]] std::vector<Neighbour> spread(const std::vector<BondEnd>& from, int steps,
+                                                std::size_t limit) const;
+
+    /// N4: appends a conception to a molecule, in the file too; the molecule
+    /// is made when it is not there. The position it got, from 0. The same
+    /// sentence said twice is two members. Throws std::invalid_argument
+    /// without a name or an identity.
+    std::size_t join(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when);
+
+    /// N4: the molecule with this name, if any; the names of every molecule,
+    /// in the order they were made; the names of the molecules a conception
+    /// is in, in that order.
+    [[nodiscard]] std::optional<Molecule> molecule(const Bytes& name) const;
+    [[nodiscard]] std::vector<Bytes> molecules() const;
+    [[nodiscard]] std::vector<Bytes> molecules_of(const Bytes& identity) const;
+    [[nodiscard]] std::int64_t count_molecules() const noexcept {
+        return static_cast<std::int64_t>(molecules_.size());
+    }
+
 private:
     struct Record {
         MetadataElectron metadata;
@@ -169,7 +279,12 @@ private:
     };
 
     void append(const std::string& line);
+    /// Adds a bond to the maps, and to the file when `write` is set.
+    bool add_bond(const Bond& bond, bool write);
+    std::size_t add_member(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when,
+                           bool write);
     void index(std::int64_t id, const MetadataElectron& metadata);
+    void index(std::int64_t id, const std::vector<Entity>& entities);
     void unindex(std::int64_t id);
     /// Replaces the description of a record, in the maps and the index.
     void describe(std::int64_t id, const MetadataElectron& metadata);
@@ -180,8 +295,17 @@ private:
     std::map<Bytes, std::int64_t> by_identity_;
     std::map<Bytes, std::int64_t> by_metadata_;
     std::map<Bytes, std::vector<WordUse>> words_;
+    /// N2: per word, how many uses have each category, kept as the index
+    /// changes, so that categories_of() walks no uses.
+    std::map<Bytes, std::map<Bytes, std::int64_t>> categories_;
     std::int64_t word_uses_ = 0;
     std::vector<std::string> validators_;
+    std::vector<Bond> bonds_;
+    std::map<Bytes, std::vector<std::size_t>> bonds_from_;  ///< By end key: the bonds from it.
+    std::map<Bytes, std::vector<std::size_t>> bonds_to_;
+    std::vector<Molecule> molecules_;
+    std::map<Bytes, std::size_t> molecule_index_;              ///< By name.
+    std::map<Bytes, std::vector<Bytes>> molecules_by_identity_;  ///< The molecules a conception is in.
 };
 
 }  // namespace larry

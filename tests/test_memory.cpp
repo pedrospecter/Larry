@@ -7,6 +7,7 @@
 
 #include "check.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -428,6 +429,179 @@ TEST(sources_and_status_live_in_the_log) {
     CHECK(again.store(d.atom, d.metadata, larry::Status::Proposed, "read:a,b\tc") == Stored::Same);
     Memory third{file};
     CHECK(third.find(d.metadata)->sources == std::vector<std::string>{"read:a,b\tc"});
+}
+
+TEST(bonds_live_in_the_log_both_ways_and_survive_a_clear) {
+    using larry::Bond;
+    using larry::BondEnd;
+    const std::filesystem::path file = fresh("larry_test_bonds.atoms");
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    const Bond forms{b("form of"), BondEnd::entity("Skies"), BondEnd::entity("sky"), {"user:pedro"}};
+    const Bond conflict{b("conflicts with"), BondEnd::atom(c.metadata), BondEnd::atom(d.metadata), {"rule: one colour"}};
+    {
+        Memory memory{file};
+        memory.store(c.atom, c.metadata);
+        memory.store(d.atom, d.metadata);
+        CHECK(memory.count_bonds() == 0);
+        CHECK(memory.bond(forms));
+        CHECK(!memory.bond(forms));  // the same bond again changes nothing
+        CHECK(memory.bond(conflict));
+        CHECK(memory.count_bonds() == 2);
+        // A second origin joins the bond.
+        CHECK(!memory.bond(Bond{b("form of"), BondEnd::entity("skies"), BondEnd::entity("Sky"), {"lesson:forms"}}));
+        CHECK(memory.count_bonds() == 2);
+        CHECK(memory.bonds_from(BondEnd::entity("skies")).size() == 1);
+        CHECK(memory.bonds_from(BondEnd::entity("skies")).front().origins ==
+              (std::vector<std::string>{"user:pedro", "lesson:forms"}));
+        CHECK(memory.bonds_to(BondEnd::entity("sky")).size() == 1);
+        CHECK(memory.bonds_to(BondEnd::entity("skies")).empty());
+        CHECK(memory.bonds_from(BondEnd::entity("sky")).empty());
+        CHECK(memory.bonds_of(BondEnd::entity("sky")).size() == 1);
+        CHECK(memory.bonds_of(BondEnd::atom(d.metadata)).size() == 1);
+        CHECK(memory.bonds_of(BondEnd::atom(d.metadata)).front().kind == b("conflicts with"));
+        CHECK(memory.bonds_to(BondEnd::atom(d.metadata)).front().from == BondEnd::atom(c.metadata));
+        CHECK(memory.bonds_of(BondEnd::atom(sky_clouds().metadata)).empty());
+        CHECK_THROWS(memory.bond(Bond{{}, BondEnd::entity("a"), BondEnd::entity("b"), {}}), std::invalid_argument);
+        CHECK_THROWS(memory.bond(Bond{b("x"), BondEnd::entity(""), BondEnd::entity("b"), {}}), std::invalid_argument);
+        CHECK(memory.find_identity(larry::AtomOperations{}.identity(c.metadata))->id == 1);
+        CHECK(!memory.find_identity(b("nobody")).has_value());
+    }
+    // The log reads back to the same bonds, and a clear keeps them.
+    Memory again{file};
+    CHECK(again.count_bonds() == 2);
+    CHECK(again.bonds_of(BondEnd::entity("sky")).front().origins.size() == 2);
+    CHECK(again.bonds_to(BondEnd::atom(d.metadata)).size() == 1);
+    again.clear();
+    CHECK(again.count() == 0);
+    CHECK(again.count_bonds() == 2);
+    Memory third{file};
+    CHECK(third.count() == 0);
+    CHECK(third.count_bonds() == 2);
+    CHECK(third.bonds_from(BondEnd::entity("skies")).front().to == BondEnd::entity("sky"));
+    // A bond without an origin is a line with an empty origin.
+    CHECK(third.bond(Bond{b("answers"), BondEnd::atom(c.metadata), BondEnd::atom(d.metadata), {}}));
+    Memory fourth{file};
+    CHECK(fourth.count_bonds() == 3);
+    CHECK(fourth.bonds().back().origins.empty());
+}
+
+TEST(molecules_keep_order_who_and_when_and_survive_a_clear) {
+    using larry::Member;
+    using larry::Molecule;
+    const std::filesystem::path file = fresh("larry_test_molecules.atoms");
+    const larry::AtomOperations ops;
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    const Bytes sky = ops.identity(c.metadata);
+    const Bytes sea = ops.identity(d.metadata);
+    const Bytes text = b("read:sky.txt:2026-10-08T07:58:00Z");
+    const Bytes chat = b("chat:pedro:2026-10-08T08:00:00Z");
+    {
+        Memory memory{file};
+        memory.store(c.atom, c.metadata);
+        memory.store(d.atom, d.metadata);
+        CHECK(memory.count_molecules() == 0);
+        CHECK(!memory.molecule(text).has_value());
+        CHECK(memory.join(text, sky, "read:sky.txt", "2026-10-08T07:58:01Z") == 0);
+        CHECK(memory.join(text, sea, "read:sky.txt", "2026-10-08T07:58:02Z") == 1);
+        CHECK(memory.join(chat, sea, "user:pedro", "2026-10-08T08:00:05Z") == 0);
+        CHECK(memory.join(chat, sea, "user:pedro", "2026-10-08T08:00:09Z") == 1);  // said twice: two members
+        CHECK(memory.count_molecules() == 2);
+        CHECK(memory.molecules() == (std::vector<Bytes>{text, chat}));
+        const std::optional<Molecule> m = memory.molecule(text);
+        CHECK(m.has_value());
+        if (m) {
+            CHECK(m->name == text);
+            CHECK(m->members.size() == 2);
+            CHECK(m->members == (std::vector<Member>{{sky, "read:sky.txt", "2026-10-08T07:58:01Z"},
+                                                     {sea, "read:sky.txt", "2026-10-08T07:58:02Z"}}));
+        }
+        CHECK(memory.molecules_of(sea) == (std::vector<Bytes>{text, chat}));
+        CHECK(memory.molecules_of(sky) == std::vector<Bytes>{text});
+        CHECK(memory.molecules_of(b("nobody")).empty());
+        CHECK_THROWS(memory.join({}, sky, "x", "y"), std::invalid_argument);
+        CHECK_THROWS(memory.join(text, {}, "x", "y"), std::invalid_argument);
+    }
+    // The log reads back to the same molecules, and a clear keeps them.
+    Memory again{file};
+    CHECK(again.count_molecules() == 2);
+    CHECK(again.molecule(chat)->members.size() == 2);
+    CHECK(again.molecule(chat)->members[1].when == "2026-10-08T08:00:09Z");
+    CHECK(again.molecule(text)->members[0].identity == sky);
+    again.clear();
+    CHECK(again.count() == 0);
+    CHECK(again.count_molecules() == 2);
+    Memory third{file};
+    CHECK(third.molecules() == (std::vector<Bytes>{text, chat}));
+    CHECK(third.molecule(text)->members.size() == 2);
+    CHECK(third.join(text, sky, "", "") == 2);
+    Memory fourth{file};
+    CHECK(fourth.molecule(text)->members.size() == 3);
+    CHECK(fourth.molecule(text)->members[2].who.empty());
+}
+
+TEST(the_spreading_lookup_finds_neighbours_nearest_first) {
+    using larry::Bond;
+    using larry::BondEnd;
+    using larry::Neighbour;
+    const std::filesystem::path file = fresh("larry_test_spread.atoms");
+    Memory memory{file};
+    const Description sky = sky_blue();
+    const Description sea = sea_blue();
+    const Description clouds = sky_clouds();
+    const Description grass = describe("The grass is green.", {"The", "grass", "is", "green"},
+                                       {"determiner", "noun", "auxiliary verb", "adjective"});
+    memory.store(sky.atom, sky.metadata, larry::Status::Proposed, "lesson:1");
+    memory.store(sky.atom, sky.metadata, larry::Status::Proposed, "user:pedro");  // two sources: more evidence
+    memory.store(sea.atom, sea.metadata, larry::Status::Proposed, "lesson:1");
+    memory.store(clouds.atom, clouds.metadata, larry::Status::Proposed, "lesson:1");
+    memory.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:1");
+    memory.bond(Bond{b("conflicts with"), BondEnd::atom(sea.metadata), BondEnd::atom(grass.metadata), {"rule"}});
+    memory.bond(Bond{b("form of"), BondEnd::entity("skies"), BondEnd::entity("sky"), {"user:pedro"}});
+    // From the word "sky": the atoms that contain it (the one with two sources first), and the bond.
+    const std::vector<Neighbour> from_sky = memory.spread({BondEnd::entity("sky")}, 1, 10);
+    CHECK(from_sky.size() == 3);
+    if (from_sky.size() == 3) {
+        CHECK(from_sky[0].end == BondEnd::atom(sky.metadata));
+        CHECK(from_sky[0].steps == 1);
+        CHECK(from_sky[0].shared == 1);
+        CHECK(from_sky[0].evidence == 2);
+        CHECK(from_sky[0].via == "word: sky");
+        CHECK(from_sky[1].end == BondEnd::atom(clouds.metadata));
+        CHECK(from_sky[1].evidence == 1);
+        CHECK(from_sky[2].end == BondEnd::entity("skies"));
+        CHECK(from_sky[2].via == "bond: form of (to it)");
+        CHECK(from_sky[2].shared == 0);
+    }
+    // From the atom "The sky is blue.": the atoms that share its words, most shared first; its words too.
+    const std::vector<Neighbour> from_atom = memory.spread({BondEnd::atom(sky.metadata)}, 1, 10);
+    CHECK(!from_atom.empty());
+    if (!from_atom.empty()) {
+        CHECK(from_atom[0].end == BondEnd::atom(sea.metadata));  // the, is, blue: three shared
+        CHECK(from_atom[0].shared == 3);
+    }
+    const auto find = [&](const std::vector<Neighbour>& list, const BondEnd& end) -> const Neighbour* {
+        const auto it = std::ranges::find(list, end, &Neighbour::end);
+        return it == list.end() ? nullptr : &*it;
+    };
+    CHECK(find(from_atom, BondEnd::atom(grass.metadata)) != nullptr && find(from_atom, BondEnd::atom(grass.metadata))->shared == 2);
+    CHECK(find(from_atom, BondEnd::atom(clouds.metadata)) != nullptr && find(from_atom, BondEnd::atom(clouds.metadata))->shared == 2);
+    CHECK(find(from_atom, BondEnd::entity("sky")) != nullptr);
+    CHECK(find(from_atom, BondEnd::atom(sky.metadata)) == nullptr);  // not its own neighbour
+    // Two steps reach the bond from the sea to the grass, and the limit holds.
+    const std::vector<Neighbour> two = memory.spread({BondEnd::entity("sea")}, 2, 50);
+    CHECK(find(two, BondEnd::atom(sea.metadata)) != nullptr && find(two, BondEnd::atom(sea.metadata))->steps == 1);
+    CHECK(find(two, BondEnd::atom(grass.metadata)) != nullptr && find(two, BondEnd::atom(grass.metadata))->steps == 2);
+    CHECK(find(two, BondEnd::atom(grass.metadata))->via == "bond: conflicts with" ||
+          find(two, BondEnd::atom(grass.metadata))->via == "word: is" ||
+          find(two, BondEnd::atom(grass.metadata))->via == "word: the");
+    CHECK(memory.spread({BondEnd::entity("sea")}, 2, 2).size() == 2);
+    CHECK(memory.spread({BondEnd::entity("nobody")}, 2, 10).empty());
+    CHECK(memory.spread({}, 2, 10).empty());
+    CHECK(memory.spread({BondEnd::entity("sea")}, 0, 10).empty());
+    // The same on every run.
+    CHECK(memory.spread({BondEnd::atom(sky.metadata)}, 2, 10) == memory.spread({BondEnd::atom(sky.metadata)}, 2, 10));
 }
 
 TEST(clear_keeps_the_validators) {

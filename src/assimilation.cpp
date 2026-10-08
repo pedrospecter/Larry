@@ -81,7 +81,7 @@ bool is_initialism(std::string_view folded) {
 
 Assimilation::Assimilation(const BaseRules& rules, const Dictionary* dictionary,
                            const Grammar* grammar)
-    : rules_(&rules), dictionary_(dictionary), grammar_(grammar), punctuation_(sorted(rules.punctuation())),
+    : rules_(&rules), forms_(rules), dictionary_(dictionary), grammar_(grammar), punctuation_(sorted(rules.punctuation())),
       sentence_ends_(sorted(rules.sentence_ends())), closers_(sorted(rules.closers())),
       joiners_(sorted(rules.joiners())), number_joiners_(sorted(rules.number_joiners())),
       abbreviations_(sorted(rules.abbreviations())), titles_(sorted(rules.titles())) {}
@@ -348,6 +348,21 @@ std::vector<Sentence> Assimilation::sentences(std::string_view text) const {
     return out;
 }
 
+std::optional<Form> Assimilation::form_of(const Bytes& word, const Memory* memory) const {
+    const AtomOperations ops;
+    const Bytes folded = ops.fold(word);
+    return forms_.base_of(folded, [&](const Bytes& base, const Bytes& category) {
+        if (memory != nullptr) {
+            for (const CategoryCount& c : memory->categories_of(base)) {
+                if (c.category == category) {
+                    return true;
+                }
+            }
+        }
+        return dictionary_ != nullptr && std::ranges::contains(dictionary_->categories(base), category);
+    });
+}
+
 Description Assimilation::describe(const Sentence& atom, Memory* memory,
                                    std::span<const Bytes> taught) const {
     const AtomOperations ops;
@@ -393,6 +408,28 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
                     d.notes[i].candidates = found;
                 }
             }
+        }
+        // A4: a word nobody knows may be a form of a word somebody knows
+        // ("skies" of "sky"), or carry an ending that says its category by
+        // itself ("zorping"). It is a guess, marked as one, with the form noted.
+        for (std::size_t i = 0; i < n; ++i) {
+            if (d.notes[i].source != Source::Unknown) {
+                continue;
+            }
+            Entity& entity = d.entities.entities[i];
+            const Bytes word = ops.fold(entity.word);
+            std::optional<Form> form = form_of(word, memory);
+            if (!form) {
+                form = forms_.by_ending(word);
+            }
+            if (!form) {
+                continue;
+            }
+            entity.category = form->category;
+            d.notes[i].source = Source::Guess;
+            d.notes[i].candidates = {form->category};
+            d.notes[i].form = std::string(word.begin(), word.end()) + " is a form of " +
+                              std::string(form->base.begin(), form->base.end()) + " (" + form->rule + ")";
         }
         // A2b: a word nobody knows may be a slip: the dictionary words one
         // slip away, the ones memory knows first. Such a word is asked about,
@@ -467,6 +504,25 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
     d.image.bytes.assign(bytes.begin(), bytes.end());
     d.metadata = ops.metadata(d.category, d.type, d.entities);
     return d;
+}
+
+void Assimilation::redescribe(Description& d) const {
+    const AtomOperations ops;
+    const Cognition cognition;
+    static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
+    for (Entity& entity : d.entities.entities) {
+        const bool was_guessed = std::ranges::contains(entity.types, guessed);
+        entity.types.clear();
+        if (was_guessed) {
+            entity.types.push_back(guessed);
+        }
+    }
+    const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
+    d.category.bytes.assign(qualification.begin(), qualification.end());
+    types(d);
+    const std::span<const std::uint8_t> bytes = ops.bytes(d.atom);
+    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.metadata = ops.metadata(d.category, d.type, d.entities);
 }
 
 namespace {

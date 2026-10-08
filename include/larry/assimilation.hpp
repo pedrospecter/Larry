@@ -3,6 +3,7 @@
 #include "larry/base_rules.hpp"
 #include "larry/description.hpp"
 #include "larry/electron.hpp"
+#include "larry/forms.hpp"
 #include "larry/sentence.hpp"
 
 #include <cstddef>
@@ -50,6 +51,11 @@ public:
     [[nodiscard]] Description describe(const Sentence& atom, Memory* memory,
                                        std::span<const Bytes> taught = {}) const;
 
+    /// A5: describes a sentence again from its entities as they are, after a
+    /// category was taught or corrected: the qualification, the types (the
+    /// "guessed" marks kept), the image and the metadata are made anew.
+    void redescribe(Description& d) const;
+
     /// A7 (first step, Q1 and Q2 as proposed, with emotion): fill the types.
     /// Each entity gets its grammatical features, from its form and category
     /// (number, tense, person, degree, from the endings, forms, pronouns and
@@ -71,6 +77,12 @@ public:
     [[nodiscard]] Emotion emotion(const Description& d) const;
 
     [[nodiscard]] const Grammar* grammar() const noexcept { return grammar_; }
+    [[nodiscard]] const Forms& forms() const noexcept { return forms_; }
+
+    /// A4: the form a word is, when its base is known to memory (with the
+    /// category the ending gives) or to the dictionary, or when it is an
+    /// irregular pair. The word as written, in any case.
+    [[nodiscard]] std::optional<Form> form_of(const Bytes& word, const Memory* memory) const;
 
 
 private:
@@ -86,6 +98,8 @@ private:
                                                const std::vector<Span>& tokens) const;
 
     const BaseRules* rules_;
+
+    Forms forms_;
     const Dictionary* dictionary_;
     const Grammar* grammar_;
     std::vector<std::string> punctuation_;

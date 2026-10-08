@@ -64,10 +64,10 @@ endif()
 set(LARRY_WARNINGS -Wall -Wextra -Wpedantic -Wconversion)
 
 add_library(larry_core)
-target_sources(larry_core PRIVATE src/algebra.cpp src/arithmetic.cpp src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp
+target_sources(larry_core PRIVATE src/algebra.cpp src/arithmetic.cpp src/assimilation.cpp src/atom_operations.cpp src/base_rules.cpp src/bench.cpp
                                   src/brain.cpp src/calendar.cpp src/cognition.cpp src/connection.cpp src/content.cpp
-                                  src/dictionary.cpp src/grammar.cpp src/harness.cpp src/lesson.cpp
-                                  src/memory.cpp src/study.cpp src/tolerance.cpp src/web.cpp)
+                                  src/dictionary.cpp src/forms.cpp src/grammar.cpp src/harness.cpp src/lesson.cpp
+                                  src/measure.cpp src/memory.cpp src/study.cpp src/tolerance.cpp src/web.cpp)
 target_compile_definitions(larry_core
                            PUBLIC LARRY_BASE_RULES_DIR="${CMAKE_SOURCE_DIR}/base_rules"
                                   LARRY_DICTIONARY_DIR="${CMAKE_SOURCE_DIR}/dictionary"
@@ -95,7 +95,7 @@ target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 # database test needs a PostgreSQL server (scripts/setup.sh starts one) and
 # reports "skipped" (exit 77) when it cannot connect.
 enable_testing()
-set(LARRY_TESTS algebra arithmetic assimilation atom_operations base_rules brain calendar cognition connection content database dictionary grammar harness lesson memory study tolerance web)
+set(LARRY_TESTS algebra arithmetic assimilation atom_operations base_rules bench brain calendar cognition connection content database dictionary forms grammar harness lesson measure memory study tolerance web)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)

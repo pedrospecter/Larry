@@ -95,6 +95,7 @@ BaseRules::BaseRules(Language language) : language_(language) {
         return a.first.size() > b.first.size();
     });
     forms_ = read_pairs(dir / "forms.txt");
+    irregular_ = read_pairs(dir / "irregular.txt");
     pronouns_ = read_pairs(dir / "pronouns.txt");
     auxiliaries_ = read_pairs(dir / "auxiliaries.txt");
     emotions_ = read_pairs(dir / "emotions.txt");

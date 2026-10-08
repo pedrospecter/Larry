@@ -113,6 +113,31 @@ public:
     [[nodiscard]] std::int64_t count();
     [[nodiscard]] std::int64_t count_words();
 
+    /// The conception with this identity (Q28), if any.
+    [[nodiscard]] std::optional<StoredAtom> find_identity(const Bytes& identity);
+
+    /// N3: records a bond. True when it is new; the same kind and ends
+    /// again only add their origins.
+    bool bond(const Bond& bond);
+
+    /// N3: the bonds from an end, to an end, either way, and all of them,
+    /// in the order they were recorded.
+    [[nodiscard]] std::vector<Bond> bonds_from(const BondEnd& end);
+    [[nodiscard]] std::vector<Bond> bonds_to(const BondEnd& end);
+    [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end);
+    [[nodiscard]] std::vector<Bond> bonds();
+    [[nodiscard]] std::int64_t count_bonds();
+
+    /// N4: appends a conception to a molecule, made when it is not there;
+    /// the position it got, from 0.
+    std::size_t join(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when);
+
+    /// N4: the molecule with this name, if any; the names of every molecule,
+    /// in the order they were made; how many there are.
+    [[nodiscard]] std::optional<Molecule> molecule(const Bytes& name);
+    [[nodiscard]] std::vector<Bytes> molecules();
+    [[nodiscard]] std::int64_t count_molecules();
+
     /// One parameter of a query: bytes sent as they are, or as text.
     struct Param {
         Bytes bytes;
@@ -123,6 +148,7 @@ private:
     class Result;
     [[nodiscard]] Result exec(const char* sql, const std::vector<Param>& params = {});
     [[nodiscard]] std::vector<StoredAtom> read_atoms(const Result& result);
+    [[nodiscard]] std::vector<Bond> read_bonds(const Result& result);
     void index(std::int64_t id, const MetadataElectron& metadata);
 
     pg_conn* connection_;

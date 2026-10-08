@@ -58,3 +58,47 @@ create table if not exists words (
     unique (conception, position)
 );
 create index if not exists words_word on words (word);
+
+-- Bonds (N3): typed links between two ends, each a conception (by its
+-- identity, Q28) or an entity (a word as the index keys it), and where each
+-- came from: taught ("user:pedro"), or the rule or comparison that produced
+-- it ("rule: ..."). The same kind and ends are one bond. A clear keeps them,
+-- like the validators: a rebuild forgets atoms, not what was bonded.
+create table if not exists bonds (
+    id         bigint      generated always as identity primary key,
+    kind       bytea       not null,
+    from_kind  bytea       not null,
+    from_bytes bytea       not null,
+    to_kind    bytea       not null,
+    to_bytes   bytea       not null,
+    created    timestamptz not null default now(),
+    unique (kind, from_kind, from_bytes, to_kind, to_bytes)
+);
+create index if not exists bonds_from on bonds (from_kind, from_bytes);
+create index if not exists bonds_to on bonds (to_kind, to_bytes);
+create table if not exists bond_origins (
+    id     bigint generated always as identity primary key,
+    bond   bigint not null references bonds (id) on delete cascade,
+    origin bytea  not null,
+    unique (bond, origin)
+);
+
+-- Molecules (N4): a text or a conversation, as the conceptions it gave, in
+-- order, with who said each one and when (ISO 8601 in UTC, as bytes). The
+-- name says where it came from and when it began: "read:sky.txt:<when>",
+-- "chat:pedro:<when>". A clear keeps them, like the bonds.
+create table if not exists molecules (
+    id      bigint      generated always as identity primary key,
+    name    bytea       not null unique,
+    created timestamptz not null default now()
+);
+create table if not exists molecule_members (
+    id       bigint  generated always as identity primary key,
+    molecule bigint  not null references molecules (id) on delete cascade,
+    position integer not null,
+    identity bytea   not null,
+    who      bytea   not null,
+    said_at  bytea   not null,
+    unique (molecule, position)
+);
+create index if not exists molecule_members_identity on molecule_members (identity);

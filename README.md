@@ -116,3 +116,12 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry harness "The sea is wide."   # "wide" was never said of the sea
     ./build/larry qualify "Close the window."  # order (command), by rule 6 and by example
     ./build/larry words sky
+    ./build/larry say "The sky is not blue."  # a conflict: both stay, bonded "conflicts with"
+    ./build/larry bonds sky                   # the bonds at a word, or at a sentence in quotes
+    ./build/larry molecules                   # each text read and each conversation, in order (N4)
+    ./build/larry near sky                    # the neighbours in memory, nearest first (N5)
+    ./build/larry forms skies                 # skies is a form of sky: noun plural, by the ending (A4)
+    ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
+    ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
+    ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
+    scripts/ud.sh && ./build/larry measure    # A6: accuracy on the Universal Dependencies English test set

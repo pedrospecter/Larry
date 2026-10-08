@@ -6,6 +6,7 @@
 #include "larry/base_rules.hpp"
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
+#include "larry/grammar.hpp"
 #include "larry/memory.hpp"
 
 #include "check.hpp"
@@ -479,6 +480,57 @@ TEST(types_features_and_roles) {
     CHECK(types_of(unknown, 0) == V{"subject"});
     CHECK(type_of(unknown) == "subject subject / neutral");
     CHECK(type_of(assimilation().describe(ops().from_text("..."), nullptr)) == "/ neutral");
+}
+
+// A7: the suite labelled by hand, with the grammar, as Larry runs.
+TEST(types_suite_labelled_by_hand) {
+    larry::Grammar grammar{rules()};
+    const Assimilation with_grammar{rules(), nullptr, &grammar};
+    const auto split = [](std::string_view text, char separator) {
+        std::vector<std::string> out;
+        std::string current;
+        for (const char c : text) {
+            if (c == separator) {
+                out.emplace_back(trim(current));
+                current.clear();
+            } else {
+                current.push_back(c);
+            }
+        }
+        out.emplace_back(trim(current));
+        return out;
+    };
+    int failed = 0;
+    int cases = 0;
+    for (const Case& c : suite("types.txt", false)) {
+        if (c.expected.size() != 3) {
+            std::println("types.txt line {}: needs the categories, the types and the atom type", c.line);
+            ++failed;
+            continue;
+        }
+        ++cases;
+        std::vector<Bytes> taught_list;
+        for (const std::string& category : split(c.expected[0], ',')) {
+            taught_list.emplace_back(category.begin(), category.end());
+        }
+        const larry::Description d = with_grammar.describe(ops().from_text(c.input), nullptr, taught_list);
+        const std::vector<std::string> want = split(c.expected[1], ',');
+        std::vector<std::string> got;
+        for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+            std::string types;
+            for (const std::string& t : types_of(d, i)) {
+                types += types.empty() ? t : " " + t;
+            }
+            got.push_back(types);
+        }
+        if (got != want || type_of(d) != c.expected[2]) {
+            ++failed;
+            std::println("types.txt line {}: \"{}\" ({})\n  expected {} | {}\n  got      {} | {}", c.line, c.input,
+                         d.pattern.empty() ? "no pattern" : d.pattern, show(want), c.expected[2], show(got), type_of(d));
+        }
+    }
+    CHECK(cases >= 25);
+    CHECK(failed == 0);
 }
 
 TEST(types_emotion) {

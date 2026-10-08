@@ -27,6 +27,8 @@ namespace {
 //   status     <hex metadata> <status> <hex name of who decided>
 //   reading    <hex metadata> <hex sentence as read>
 //   validator  <hex name>
+//   bond       <hex kind> <atom|entity> <hex from> <atom|entity> <hex to> <hex origin>
+//   molecule   <hex name> <hex identity> <hex who> <hex when>
 // with tabs between the fields. A line finds its conception by the identity
 // of its metadata (Q28): the qualification and the words, not the types, so
 // a conception described anew (its roles corrected) stays one conception,
@@ -52,6 +54,13 @@ std::vector<std::string_view> fields(std::string_view line) {
 
 std::string hex_of(std::string_view text) {
     return hex::encode(std::span{reinterpret_cast<const std::uint8_t*>(text.data()), text.size()});
+}
+
+// The key of a bond's end in the maps: its kind as one byte, then its bytes.
+Bytes end_key(const BondEnd& end) {
+    Bytes key{static_cast<std::uint8_t>(end.kind)};
+    key.insert(key.end(), end.bytes.begin(), end.bytes.end());
+    return key;
 }
 
 std::vector<std::string> sources_of(std::string_view list) {
@@ -94,6 +103,28 @@ std::optional<Status> status_from(std::string_view text) noexcept {
     return std::nullopt;
 }
 
+std::string_view name(BondEnd::Kind kind) noexcept {
+    return kind == BondEnd::Kind::Atom ? "atom" : "entity";
+}
+
+std::optional<BondEnd::Kind> bond_end_from(std::string_view text) noexcept {
+    if (text == "atom") {
+        return BondEnd::Kind::Atom;
+    }
+    if (text == "entity") {
+        return BondEnd::Kind::Entity;
+    }
+    return std::nullopt;
+}
+
+BondEnd BondEnd::atom(const MetadataElectron& metadata) {
+    return {Kind::Atom, AtomOperations{}.identity(metadata)};
+}
+
+BondEnd BondEnd::entity(std::string_view word) {
+    return {Kind::Entity, AtomOperations{}.fold(std::span{reinterpret_cast<const std::uint8_t*>(word.data()), word.size()})};
+}
+
 Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
     std::ifstream in{file_, std::ios::binary};
     if (!in) {
@@ -134,6 +165,42 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             }
             continue;
         }
+        if (tag == "bond") {
+            if (f.size() != 7) {
+                bad("has a bond without its seven fields");
+            }
+            const std::optional<Bytes> kind = hex::decode(f[1]);
+            const std::optional<BondEnd::Kind> from_kind = bond_end_from(f[2]);
+            const std::optional<Bytes> from_bytes = hex::decode(f[3]);
+            const std::optional<BondEnd::Kind> to_kind = bond_end_from(f[4]);
+            const std::optional<Bytes> to_bytes = hex::decode(f[5]);
+            const std::optional<Bytes> origin = hex::decode(f[6]);
+            if (!kind || kind->empty() || !from_kind || !from_bytes || from_bytes->empty() || !to_kind ||
+                !to_bytes || to_bytes->empty() || !origin) {
+                bad("has a bond that is not hex bytes with its ends");
+            }
+            Bond bond{*kind, {*from_kind, *from_bytes}, {*to_kind, *to_bytes}, {}};
+            if (!origin->empty()) {
+                bond.origins.emplace_back(origin->begin(), origin->end());
+            }
+            add_bond(bond, false);
+            continue;
+        }
+        if (tag == "molecule") {
+            if (f.size() != 5) {
+                bad("has a molecule member without its four fields");
+            }
+            const std::optional<Bytes> name = hex::decode(f[1]);
+            const std::optional<Bytes> identity = hex::decode(f[2]);
+            const std::optional<Bytes> who = hex::decode(f[3]);
+            const std::optional<Bytes> when = hex::decode(f[4]);
+            if (!name || name->empty() || !identity || identity->empty() || !who || !when) {
+                bad("has a molecule member that is not hex bytes");
+            }
+            add_member(*name, *identity, std::string_view{reinterpret_cast<const char*>(who->data()), who->size()},
+                       std::string_view{reinterpret_cast<const char*>(when->data()), when->size()}, false);
+            continue;
+        }
         if (tag != "atom" && tag != "describe" && tag != "source" && tag != "status" && tag != "reading") {
             bad("has an unknown tag");
         }
@@ -142,15 +209,16 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             bad("is not an atom");
         }
         const MetadataElectron electron{*metadata};
-        Bytes identity;
+        Electrons electrons;  // read once: the identity, the index and the completeness come from it (N2)
         try {
-            identity = ops.identity(electron);
+            electrons = ops.electrons(electron);
         } catch (const std::invalid_argument&) {
             if (tag != "atom") {
                 bad("changes an atom that is not there");
             }
             throw;
         }
+        const Bytes identity = ops.identity(electrons);
         if (tag == "atom") {
             if (f.size() < first + 2) {
                 bad("is not an atom");
@@ -179,7 +247,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
                         first_record.sources.push_back(std::move(source));
                     }
                 }
-                if (first_record.metadata.bytes != electron.bytes && ops.complete(electron)) {
+                if (first_record.metadata.bytes != electron.bytes && ops.complete(electrons)) {
                     describe(held->second, electron);
                 }
                 continue;
@@ -188,7 +256,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             const auto id = static_cast<std::int64_t>(atoms_.size());
             by_identity_.emplace(identity, id);
             by_metadata_.emplace(*metadata, id);
-            index(id, atoms_.back().metadata);
+            index(id, electrons.entities.entities);
             continue;
         }
         const auto found = by_identity_.find(identity);
@@ -261,13 +329,24 @@ void Memory::append(const std::string& line) {
 }
 
 void Memory::clear() {
-    // The validators stay: a rebuild forgets atoms, not who may validate.
+    // The validators and the bonds stay: a rebuild forgets atoms, not who
+    // may validate nor what was bonded; a bond's atom end is an identity
+    // (Q28), which the lessons give back.
     const std::vector<std::string> validators = std::move(validators_);
     validators_.clear();
+    const std::vector<Bond> bonds = std::move(bonds_);
+    bonds_.clear();
+    bonds_from_.clear();
+    bonds_to_.clear();
+    const std::vector<Molecule> molecules = std::move(molecules_);
+    molecules_.clear();
+    molecule_index_.clear();
+    molecules_by_identity_.clear();
     atoms_.clear();
     by_identity_.clear();
     by_metadata_.clear();
     words_.clear();
+    categories_.clear();
     word_uses_ = 0;
     std::filesystem::create_directories(file_.parent_path().empty() ? "." : file_.parent_path());
     std::ofstream out{file_, std::ios::binary | std::ios::trunc};
@@ -278,11 +357,295 @@ void Memory::clear() {
     for (const std::string& validator : validators) {
         add_validator(validator);
     }
+    for (const Bond& bond : bonds) {
+        add_bond(bond, true);
+    }
+    for (const Molecule& molecule : molecules) {
+        for (const Member& member : molecule.members) {
+            add_member(molecule.name, member.identity, member.who, member.when, true);
+        }
+    }
+}
+
+std::vector<Neighbour> Memory::spread(const std::vector<BondEnd>& from, int steps, std::size_t limit) const {
+    const AtomOperations ops;
+    std::vector<Neighbour> out;
+    if (from.empty() || steps <= 0 || limit == 0) {
+        return out;
+    }
+    // The words of the start: what "shared" counts.
+    std::vector<Bytes> start_words;
+    std::map<Bytes, std::size_t> seen;  // end key -> index in out, or npos for a start end
+    for (const BondEnd& end : from) {
+        seen[end_key(end)] = static_cast<std::size_t>(-1);
+        if (end.kind == BondEnd::Kind::Entity) {
+            if (!std::ranges::contains(start_words, end.bytes)) {
+                start_words.push_back(end.bytes);
+            }
+        } else if (const auto held = by_identity_.find(end.bytes); held != by_identity_.end()) {
+            for (const Entity& e : ops.electrons(atoms_[static_cast<std::size_t>(held->second - 1)].metadata)
+                                       .entities.entities) {
+                const Bytes word = ops.fold(e.word);
+                if (!std::ranges::contains(start_words, word)) {
+                    start_words.push_back(word);
+                }
+            }
+        }
+    }
+    const auto words_of = [&](std::int64_t id) {
+        std::vector<Bytes> words;
+        for (const Entity& e : ops.electrons(atoms_[static_cast<std::size_t>(id - 1)].metadata).entities.entities) {
+            words.push_back(ops.fold(e.word));
+        }
+        return words;
+    };
+    const auto shared_with = [&](std::int64_t id) {
+        int shared = 0;
+        for (const Bytes& word : words_of(id)) {
+            if (std::ranges::contains(start_words, word)) {
+                ++shared;
+            }
+        }
+        return shared;
+    };
+    const auto evidence_of = [&](const BondEnd& end) -> std::int64_t {
+        if (end.kind == BondEnd::Kind::Entity) {
+            return count_uses(end.bytes);
+        }
+        const auto held = by_identity_.find(end.bytes);
+        return held == by_identity_.end()
+                   ? 0
+                   : static_cast<std::int64_t>(atoms_[static_cast<std::size_t>(held->second - 1)].sources.size());
+    };
+    // One step: the direct neighbours of an end, added when new.
+    const auto add = [&](BondEnd end, int step, std::string via) {
+        const Bytes key = end_key(end);
+        if (seen.contains(key)) {
+            return;
+        }
+        Neighbour n{std::move(end), step, 0, 0, std::move(via)};
+        n.evidence = evidence_of(n.end);
+        if (n.end.kind == BondEnd::Kind::Atom) {
+            if (const auto held = by_identity_.find(n.end.bytes); held != by_identity_.end()) {
+                n.shared = shared_with(held->second);
+            }
+        }
+        seen[key] = out.size();
+        out.push_back(std::move(n));
+    };
+    const auto neighbours_of = [&](const BondEnd& end, int step) {
+        // Through the word index: the rarest words first, so a common word
+        // ("the") adds its atoms last, within the limit.
+        std::vector<Bytes> words;
+        if (end.kind == BondEnd::Kind::Entity) {
+            words.push_back(end.bytes);
+        } else if (const auto held = by_identity_.find(end.bytes); held != by_identity_.end()) {
+            words = words_of(held->second);
+        }
+        std::ranges::stable_sort(words, [&](const Bytes& a, const Bytes& b) { return count_uses(a) < count_uses(b); });
+        for (const Bytes& word : words) {
+            if (end.kind == BondEnd::Kind::Atom) {
+                add(BondEnd{BondEnd::Kind::Entity, word}, step, "word: " + std::string(word.begin(), word.end()));
+            }
+            for (const WordUse& use : uses(word)) {
+                if (out.size() >= limit) {
+                    break;
+                }
+                const Record& record = atoms_[static_cast<std::size_t>(use.atom - 1)];
+                add(BondEnd{BondEnd::Kind::Atom, record.identity}, step,
+                    "word: " + std::string(word.begin(), word.end()));
+            }
+        }
+        // Through the bonds, both ways.
+        for (const Bond& bond : bonds_of(end)) {
+            const bool outward = bond.from == end;
+            add(outward ? bond.to : bond.from, step,
+                "bond: " + std::string(bond.kind.begin(), bond.kind.end()) + (outward ? "" : " (to it)"));
+        }
+    };
+    std::vector<BondEnd> frontier = from;
+    for (int step = 1; step <= steps && out.size() < limit; ++step) {
+        const std::size_t before = out.size();
+        for (const BondEnd& end : frontier) {
+            neighbours_of(end, step);
+        }
+        frontier.clear();
+        for (std::size_t i = before; i < out.size(); ++i) {
+            frontier.push_back(out[i].end);
+        }
+        if (frontier.empty()) {
+            break;
+        }
+    }
+    // Nearest first: most shared words, fewest steps, most evidence, then the
+    // order found (which follows the atom order of the index).
+    std::ranges::stable_sort(out, [](const Neighbour& a, const Neighbour& b) {
+        if (a.shared != b.shared) {
+            return a.shared > b.shared;
+        }
+        if (a.steps != b.steps) {
+            return a.steps < b.steps;
+        }
+        return a.evidence > b.evidence;
+    });
+    if (out.size() > limit) {
+        out.resize(limit);
+    }
+    return out;
+}
+
+std::size_t Memory::add_member(const Bytes& molecule, const Bytes& identity, std::string_view who,
+                               std::string_view when, bool write) {
+    if (write) {
+        append(std::format("molecule{}{}{}{}{}{}{}{}", tab, hex::encode(molecule), tab, hex::encode(identity), tab,
+                           hex_of(who), tab, hex_of(when)));
+    }
+    const auto held = molecule_index_.find(molecule);
+    std::size_t index = 0;
+    if (held == molecule_index_.end()) {
+        molecules_.push_back({molecule, {}});
+        index = molecules_.size() - 1;
+        molecule_index_.emplace(molecule, index);
+    } else {
+        index = held->second;
+    }
+    Molecule& m = molecules_[index];
+    m.members.push_back({identity, std::string{who}, std::string{when}});
+    std::vector<Bytes>& in = molecules_by_identity_[identity];
+    if (!std::ranges::contains(in, molecule)) {
+        in.push_back(molecule);
+    }
+    return m.members.size() - 1;
+}
+
+std::size_t Memory::join(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when) {
+    if (molecule.empty() || identity.empty()) {
+        throw std::invalid_argument("Memory::join: a member needs a molecule and an identity");
+    }
+    return add_member(molecule, identity, who, when, true);
+}
+
+std::optional<Molecule> Memory::molecule(const Bytes& name) const {
+    const auto held = molecule_index_.find(name);
+    if (held == molecule_index_.end()) {
+        return std::nullopt;
+    }
+    return molecules_[held->second];
+}
+
+std::vector<Bytes> Memory::molecules() const {
+    std::vector<Bytes> out;
+    for (const Molecule& m : molecules_) {
+        out.push_back(m.name);
+    }
+    return out;
+}
+
+std::vector<Bytes> Memory::molecules_of(const Bytes& identity) const {
+    const auto held = molecules_by_identity_.find(identity);
+    return held == molecules_by_identity_.end() ? std::vector<Bytes>{} : held->second;
+}
+
+std::optional<StoredAtom> Memory::find_identity(const Bytes& identity) const {
+    const auto found = by_identity_.find(identity);
+    if (found == by_identity_.end()) {
+        return std::nullopt;
+    }
+    return read(found->second);
+}
+
+bool Memory::add_bond(const Bond& bond, bool write) {
+    const auto line = [&](std::string_view origin) {
+        return std::format("bond{}{}{}{}{}{}{}{}{}{}{}{}", tab, hex::encode(bond.kind), tab, name(bond.from.kind), tab,
+                           hex::encode(bond.from.bytes), tab, name(bond.to.kind), tab, hex::encode(bond.to.bytes), tab,
+                           hex_of(origin));
+    };
+    const Bytes from_key = end_key(bond.from);
+    if (const auto held = bonds_from_.find(from_key); held != bonds_from_.end()) {
+        for (const std::size_t i : held->second) {
+            Bond& mine = bonds_[i];
+            if (!mine.same(bond)) {
+                continue;
+            }
+            for (const std::string& origin : bond.origins) {
+                if (!std::ranges::contains(mine.origins, origin)) {
+                    if (write) {
+                        append(line(origin));
+                    }
+                    mine.origins.push_back(origin);
+                }
+            }
+            return false;
+        }
+    }
+    if (write) {
+        if (bond.origins.empty()) {
+            append(line(""));
+        }
+        for (const std::string& origin : bond.origins) {
+            append(line(origin));
+        }
+    }
+    bonds_.push_back(bond);
+    bonds_from_[from_key].push_back(bonds_.size() - 1);
+    bonds_to_[end_key(bond.to)].push_back(bonds_.size() - 1);
+    return true;
+}
+
+bool Memory::bond(const Bond& bond) {
+    if (bond.kind.empty() || bond.from.bytes.empty() || bond.to.bytes.empty()) {
+        throw std::invalid_argument("Memory::bond: a bond needs a kind and two ends");
+    }
+    return add_bond(bond, true);
+}
+
+std::vector<Bond> Memory::bonds_from(const BondEnd& end) const {
+    std::vector<Bond> out;
+    if (const auto held = bonds_from_.find(end_key(end)); held != bonds_from_.end()) {
+        for (const std::size_t i : held->second) {
+            out.push_back(bonds_[i]);
+        }
+    }
+    return out;
+}
+
+std::vector<Bond> Memory::bonds_to(const BondEnd& end) const {
+    std::vector<Bond> out;
+    if (const auto held = bonds_to_.find(end_key(end)); held != bonds_to_.end()) {
+        for (const std::size_t i : held->second) {
+            out.push_back(bonds_[i]);
+        }
+    }
+    return out;
+}
+
+std::vector<Bond> Memory::bonds_of(const BondEnd& end) const {
+    std::vector<std::size_t> indexes;
+    const Bytes key = end_key(end);
+    if (const auto held = bonds_from_.find(key); held != bonds_from_.end()) {
+        indexes.insert(indexes.end(), held->second.begin(), held->second.end());
+    }
+    if (const auto held = bonds_to_.find(key); held != bonds_to_.end()) {
+        for (const std::size_t i : held->second) {
+            if (!std::ranges::contains(indexes, i)) {
+                indexes.push_back(i);
+            }
+        }
+    }
+    std::ranges::sort(indexes);
+    std::vector<Bond> out;
+    for (const std::size_t i : indexes) {
+        out.push_back(bonds_[i]);
+    }
+    return out;
 }
 
 void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
+    index(id, AtomOperations{}.electrons(metadata).entities.entities);
+}
+
+void Memory::index(std::int64_t id, const std::vector<Entity>& entities) {
     const AtomOperations ops;
-    const std::vector<Entity> entities = ops.electrons(metadata).entities.entities;
     // A guessed category is no evidence: the index keeps it empty.
     static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
     const auto category_of = [&](std::size_t i) {
@@ -296,7 +659,11 @@ void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
                     .after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{},
                     .before_category = i > 0 ? category_of(i - 1) : Bytes{},
                     .after_category = i + 1 < entities.size() ? category_of(i + 1) : Bytes{}};
-        words_[ops.fold(entities[i].word)].push_back(std::move(use));
+        Bytes word = ops.fold(entities[i].word);
+        if (!use.category.empty()) {
+            ++categories_[word][use.category];
+        }
+        words_[std::move(word)].push_back(std::move(use));
         ++word_uses_;
     }
 }
@@ -308,6 +675,19 @@ void Memory::unindex(std::int64_t id) {
         const auto found = words_.find(ops.fold(entity.word));
         if (found == words_.end()) {
             continue;
+        }
+        for (const WordUse& use : found->second) {
+            if (use.atom == id && !use.category.empty()) {
+                const auto counted = categories_.find(found->first);
+                if (counted != categories_.end()) {
+                    if (--counted->second[use.category] <= 0) {
+                        counted->second.erase(use.category);
+                    }
+                    if (counted->second.empty()) {
+                        categories_.erase(counted);
+                    }
+                }
+            }
         }
         const auto removed = std::erase_if(found->second, [&](const WordUse& use) { return use.atom == id; });
         word_uses_ -= static_cast<std::int64_t>(removed);
@@ -330,7 +710,8 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
                      std::string_view source) {
     const AtomOperations ops;
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);
-    const Bytes identity = ops.identity(metadata);  // validates before anything is written
+    const Electrons electrons = ops.electrons(metadata);  // validates before anything is written
+    const Bytes identity = ops.identity(electrons);
     const auto found = by_identity_.find(identity);
     if (found != by_identity_.end()) {
         Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
@@ -353,7 +734,7 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
     const auto id = static_cast<std::int64_t>(atoms_.size());
     by_identity_.emplace(identity, id);
     by_metadata_.emplace(metadata.bytes, id);
-    index(id, metadata);
+    index(id, electrons.entities.entities);
     return Stored::New;
 }
 
@@ -490,27 +871,28 @@ std::vector<StoredAtom> Memory::with_status(Status status) const {
     return out;
 }
 
-std::vector<WordUse> Memory::uses(const Bytes& word) const {
+const std::vector<WordUse>& Memory::uses(const Bytes& word) const {
+    static const std::vector<WordUse> none;
     const auto found = words_.find(word);
-    if (found == words_.end()) {
-        return {};
-    }
-    return found->second;
+    return found == words_.end() ? none : found->second;
 }
 
 std::vector<CategoryCount> Memory::categories_of(const Bytes& word) const {
-    std::map<Bytes, std::int64_t> counts;
-    for (const WordUse& use : uses(word)) {
-        if (!use.category.empty()) {
-            ++counts[use.category];
-        }
-    }
     std::vector<CategoryCount> out;
-    out.reserve(counts.size());
-    for (const auto& [category, count] : counts) {
+    const auto counted = categories_.find(word);
+    if (counted == categories_.end()) {
+        return out;
+    }
+    out.reserve(counted->second.size());
+    for (const auto& [category, count] : counted->second) {
         out.push_back({category, count});
     }
     return out;
+}
+
+std::int64_t Memory::count_uses(const Bytes& word) const {
+    const auto found = words_.find(word);
+    return found == words_.end() ? 0 : static_cast<std::int64_t>(found->second.size());
 }
 
 std::vector<Bytes> Memory::words() const {
