@@ -1789,6 +1789,43 @@ TEST(themes_index_what_is_held_and_a_prompt_is_understood) {
     CHECK(user.text.starts_with("That contradicts what you told me before") || user.text.starts_with("That conflicts"));
 }
 
+TEST(order_relations_give_places_and_judge_claims) {
+    // C14 (first step), from the user's transcript: who is the second youngest?
+    const larry::AtomOperations ops;
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_orders.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    (void)brain.hear(ops.from_text("Ana is older than Bruno."), "user:pedro");
+    (void)brain.hear(ops.from_text("Carla is younger than Bruno but older than Duarte."), "user:pedro");
+    (void)brain.hear(ops.from_text("Eva is older than Ana."), "user:pedro");
+    CHECK(cache.bonds_from(larry::BondEnd::entity("ana")).size() >= 1);
+    const larry::Brain::Order order = brain.order(b("older than"));
+    CHECK(order.total);
+    CHECK(order.chain == (std::vector<Bytes>{b("eva"), b("ana"), b("bruno"), b("carla"), b("duarte")}));
+    CHECK(order.text() == "eva, ana, bruno, carla, duarte");
+    CHECK(brain.answer(ops.from_text("Who is the second youngest?")).text == "Carla.");
+    CHECK(brain.answer(ops.from_text("Who is the youngest?")).text == "Duarte.");
+    CHECK(brain.answer(ops.from_text("Who is the oldest?")).text == "Eva.");
+    CHECK(brain.answer(ops.from_text("Who is the third oldest?")).text == "Bruno.");
+    CHECK(brain.answer(ops.from_text("Who is the sixth oldest?")).text == "Nobody.");
+    const larry::Reply second = brain.answer(ops.from_text("Who is the second youngest?"));
+    CHECK(std::ranges::contains(second.because, std::string{"From the top: eva, ana, bruno, carla, duarte."}));
+    CHECK(std::ranges::contains(second.because, std::string{"conception: Carla is younger than Bruno but older than Duarte."}));
+    // Claims, by the chain of bonds.
+    CHECK(brain.answer(ops.from_text("Is Ana older than Duarte?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Is Duarte older than Eva?")).text == "No.");
+    CHECK(brain.answer(ops.from_text("Is Eva younger than Carla?")).text == "No.");
+    CHECK(brain.answer(ops.from_text("Ana is older than Duarte.")).text == "true");
+    CHECK(brain.answer(ops.from_text("Ana is not older than Duarte.")).text == "false");
+    // The ones above or below one.
+    CHECK(brain.answer(ops.from_text("Who is older than Bruno?")).text == "Eva and Ana.");
+    CHECK(brain.answer(ops.from_text("Who is younger than Carla?")).text == "Duarte.");
+    CHECK(brain.answer(ops.from_text("Who is older than Eva?")).text == "Nobody.");
+    // Another relation, unknown: no order.
+    CHECK(brain.answer(ops.from_text("Who is the tallest?")).text == "I know no order of that among them.");
+}
+
 int main() {
     return larry::test::run();
 }

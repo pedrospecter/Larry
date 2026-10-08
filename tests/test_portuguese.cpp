@@ -249,6 +249,12 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     CHECK(assimilation().sentence_of(azul.image, &cache) == "O céu é azul.");
     const larry::Description nao = assimilation().describe(ops.from_text("O céu não é azul."), &cache);
     CHECK(assimilation().sentence_of(nao.image, &cache) == "O céu não é azul.");
+    // C14: an order in Portuguese, by orders.txt.
+    (void)brain.hear(ops.from_text("A Ana é mais velha que o Bruno."), "user:pedro");
+    (void)brain.hear(ops.from_text("O Bruno é mais velho que a Carla."), "user:pedro");
+    CHECK(brain.order(b("mais velho que")).chain == (std::vector<Bytes>{b("ana"), b("bruno"), b("carla")}));
+    CHECK(brain.answer(ops.from_text("Quem é a mais nova?")).text == "Carla.");
+    CHECK(brain.answer(ops.from_text("Quem é o mais velho?")).text == "Ana.");
     // T1: the theme by the Portuguese themes.txt.
     CHECK(brain.theme_of_word(b("céu")) == b("natureza"));
     CHECK(brain.theme_of(assimilation().describe(ops.from_text("O céu é azul."), &cache)) == b("natureza"));

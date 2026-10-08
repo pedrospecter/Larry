@@ -144,6 +144,7 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry themes                      # the index of what Larry holds, by theme (T1); larry theme animals lists one
     ./build/larry understand "Summarise the 2019 paper \"X\"."   # command:about; theme: science; "X" unknown (P1)
     ./build/larry chat ana                    # the chat for a person: what goes against memory is denied, what is new waits for the validator
+    ./build/larry ask "Who is the second youngest?"   # after "Ana is older than Bruno. ...": Carla, from the order of the bonds (C14)
     ./build/larry plan "open the door"        # S2: the steps, from "To open the door, turn the key." and the like
     LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"   # 5: the second constellation, Portuguese (A12)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
