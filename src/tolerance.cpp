@@ -347,7 +347,20 @@ Reading Tolerance::read(const Description& said, const Assimilation& assimilatio
         }
         for (auto it = slips.rbegin(); it != slips.rend(); ++it) {
             if (it->kind == Slip::Kind::Extra) {
-                erase(it->at);
+                // A reading drops a word only when it is a slip of the keys: a
+                // word that repeats its neighbour ("the the sky"), or a
+                // function word in excess ("Is sky are blue"). A content word,
+                // a question word or a pronoun that no pattern places ("Who is
+                // the second youngest?") is kept: what was said stands.
+                const Bytes word = ops.fold(words[it->at]);
+                const Bytes& category = it->at < categories.size() ? categories[it->at] : word;
+                const bool repeats = (it->at > 0 && ops.fold(words[it->at - 1]) == word) ||
+                                     (it->at + 1 < words.size() && ops.fold(words[it->at + 1]) == word);
+                const bool function_word = category == auxiliary_verb || category == bytes_of("determiner") ||
+                                           category == bytes_of("preposition") || category == conjunction;
+                if (repeats || function_word) {
+                    erase(it->at);
+                }
             } else if (it->kind == Slip::Kind::Missing) {
                 if (const std::optional<Bytes> fill = filler(it->category)) {
                     insert(it->at, *fill);

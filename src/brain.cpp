@@ -333,6 +333,16 @@ std::optional<std::string> Brain::goal_of(const Description& order) const {
     if (order.entities.entities.size() < 2 || rules_->copulas().empty()) {
         return std::nullopt;
     }
+    // The thing has to be known: every word of it with a category in memory,
+    // and no more than a few words; else the order is beyond a goal of this shape.
+    if (order.entities.entities.size() > 5) {
+        return std::nullopt;
+    }
+    for (std::size_t i = 1; i < order.entities.entities.size(); ++i) {
+        if (memory_->categories_of(ops.fold(order.entities.entities[i].word)).empty()) {
+            return std::nullopt;
+        }
+    }
     const Bytes base = ops.fold(first.word);
     Bytes participle = assimilation_.word_form(base, verb, bytes_of("participle"), memory_);
     if (participle == base) {
@@ -452,6 +462,356 @@ std::vector<Brain::Explanation> Brain::explain(const Description& observation) c
         out.push_back(std::move(e));
     }
     return out;
+}
+
+Bytes Brain::theme_of_word(const Bytes& word) const {
+    const AtomOperations ops;
+    static const Bytes kind_of = bytes_of("is a kind of");
+    const auto in_file = [&](const Bytes& w) -> Bytes {
+        for (const auto& [theme, words] : rules_->themes()) {
+            for (const Bytes& member : split_words(words)) {
+                if (member == w) {
+                    return theme;
+                }
+            }
+        }
+        return {};
+    };
+    const Bytes folded = ops.fold(word);
+    if (Bytes theme = in_file(folded); !theme.empty()) {
+        return theme;
+    }
+    if (const std::optional<Form> form = assimilation_.form_of(folded, memory_)) {
+        if (Bytes theme = in_file(form->base); !theme.empty()) {
+            return theme;
+        }
+    }
+    // Through the kinds: a sparrow is a kind of bird, and birds are animals.
+    std::vector<Bytes> frontier = {folded};
+    std::vector<Bytes> seen = {folded};
+    for (int step = 0; step < 4 && !frontier.empty(); ++step) {
+        std::vector<Bytes> next;
+        for (const Bytes& at : frontier) {
+            for (const Bond& bond : memory_->bonds_from(BondEnd{BondEnd::Kind::Entity, at})) {
+                if (bond.kind != kind_of || bond.to.kind != BondEnd::Kind::Entity || std::ranges::contains(seen, bond.to.bytes)) {
+                    continue;
+                }
+                if (Bytes theme = in_file(bond.to.bytes); !theme.empty()) {
+                    return theme;
+                }
+                seen.push_back(bond.to.bytes);
+                next.push_back(bond.to.bytes);
+            }
+        }
+        frontier = std::move(next);
+    }
+    return {};
+}
+
+Bytes Brain::theme_of(const Description& d) const {
+    static const Bytes subject_role = bytes_of("subject");
+    static const Bytes guessed = bytes_of("guessed");
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    const std::vector<Entity>& entities = d.entities.entities;
+    const auto role_of = [&](const Entity& e) -> Bytes {
+        for (auto it = e.types.rbegin(); it != e.types.rend(); ++it) {
+            if (*it != guessed) {
+                return *it;
+            }
+        }
+        return {};
+    };
+    // The subject's head: its last noun.
+    Bytes theme;
+    for (auto it = entities.rbegin(); it != entities.rend(); ++it) {
+        if (role_of(*it) == subject_role && (it->category == noun || it->category == proper_noun)) {
+            theme = theme_of_word(it->word);
+            if (!theme.empty()) {
+                return theme;
+            }
+            break;
+        }
+    }
+    for (const Entity& e : entities) {
+        theme = theme_of_word(e.word);
+        if (!theme.empty()) {
+            return theme;
+        }
+    }
+    return {};
+}
+
+std::vector<Brain::Theme> Brain::themes() const {
+    const AtomOperations ops;
+    std::vector<Theme> out;
+    const auto slot = [&](const Bytes& name) -> Theme& {
+        for (Theme& t : out) {
+            if (t.name == name) {
+                return t;
+            }
+        }
+        out.push_back({name, 0, {}});
+        return out.back();
+    };
+    const std::vector<StoredAtom> all = memory_->all();
+    for (auto it = all.rbegin(); it != all.rend(); ++it) {
+        if (it->description.category.bytes != affirmation || it->status == Status::Withdrawn) {
+            continue;
+        }
+        Bytes theme = theme_of(it->description);
+        if (theme.empty()) {
+            theme = bytes_of("none");
+        }
+        Theme& t = slot(theme);
+        ++t.count;
+        if (t.sample.size() < 3) {
+            t.sample.emplace_back(ops.text(it->description.atom));
+        }
+    }
+    std::ranges::stable_sort(out, [](const Theme& a, const Theme& b) { return a.count > b.count; });
+    return out;
+}
+
+std::vector<StoredAtom> Brain::about_theme(const Bytes& theme) const {
+    std::vector<StoredAtom> out;
+    const std::vector<StoredAtom> all = memory_->all();
+    for (auto it = all.rbegin(); it != all.rend(); ++it) {
+        if (it->description.category.bytes != affirmation || it->status == Status::Withdrawn) {
+            continue;
+        }
+        Bytes found = theme_of(it->description);
+        if (found.empty()) {
+            found = bytes_of("none");
+        }
+        if (found == theme) {
+            out.push_back(*it);
+        }
+    }
+    return out;
+}
+
+bool Brain::knows(std::string_view thing) const {
+    const AtomOperations ops;
+    static const Bytes determiner = bytes_of("determiner");
+    static const Bytes preposition = bytes_of("preposition");
+    static const Bytes conjunction = bytes_of("conjunction");
+    static const Bytes pronoun = bytes_of("pronoun");
+    const Description d = assimilation_.describe(ops.from_text(thing), memory_);
+    std::vector<Bytes> content;
+    for (const Entity& e : d.entities.entities) {
+        const Bytes word = ops.fold(e.word);
+        if (e.category == determiner || e.category == preposition || e.category == conjunction || e.category == pronoun ||
+            std::ranges::contains(rules_->articles(), word)) {
+            continue;
+        }
+        content.push_back(word);
+    }
+    if (content.empty()) {
+        return false;
+    }
+    for (const StoredAtom& atom : memory_->containing(content.front())) {
+        if (atom.status == Status::Withdrawn) {
+            continue;
+        }
+        bool all = true;
+        for (const Bytes& word : content) {
+            const bool has = std::ranges::any_of(atom.description.entities.entities,
+                                                 [&](const Entity& e) { return ops.fold(e.word) == word; });
+            if (!has) {
+                all = false;
+                break;
+            }
+        }
+        if (all) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Brain::Understanding Brain::understand(const Description& d) const {
+    const AtomOperations ops;
+    static const Bytes guessed = bytes_of("guessed");
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes determiner = bytes_of("determiner");
+    static const Bytes interjection = bytes_of("interjection");
+    static const std::array<std::string_view, 4> named_roles = {"subject", "object", "attribute", "complement"};
+    Understanding out;
+    const std::string text{ops.text(d.atom)};
+    // The intent: a command by its words, a calculation, else the qualification.
+    if (const std::optional<Command> cmd = command(d)) {
+        out.intent = "command:" + cmd->operation;
+    } else if (calculate(d.atom)) {
+        out.intent = "calculation";
+    } else {
+        out.intent.assign(d.category.bytes.begin(), d.category.bytes.end());
+    }
+    // The things: quoted titles as one thing each.
+    for (std::size_t open = text.find('"'); open != std::string::npos; open = text.find('"', open + 1)) {
+        const std::size_t close = text.find('"', open + 1);
+        if (close == std::string::npos) {
+            break;
+        }
+        const std::string quoted = text.substr(open + 1, close - open - 1);
+        if (!quoted.empty() && !std::ranges::contains(out.things, quoted)) {
+            out.things.push_back(quoted);
+        }
+        open = close;
+    }
+    // Then the groups of a named role (A8), without their articles, split at a
+    // preposition; the words inside a quoted title belong to the title.
+    const std::vector<Entity>& entities = d.entities.entities;
+    std::vector<bool> quoted_word(entities.size(), false);
+    for (const std::string& title : out.things) {
+        // The entities whose words, joined, are the title (a name of several
+        // words is one entity, so the join is compared, not the count).
+        const Bytes wanted = ops.fold(bytes_of(title));
+        for (std::size_t i = 0; i < entities.size(); ++i) {
+            Bytes joined;
+            for (std::size_t k = i; k < entities.size() && joined.size() <= wanted.size(); ++k) {
+                if (k > i) {
+                    joined.push_back(' ');
+                }
+                const Bytes w = ops.fold(entities[k].word);
+                joined.insert(joined.end(), w.begin(), w.end());
+                if (joined == wanted) {
+                    for (std::size_t m = i; m <= k; ++m) {
+                        quoted_word[m] = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    const auto role_of = [&](const Entity& e) -> std::string_view {
+        for (auto it = e.types.rbegin(); it != e.types.rend(); ++it) {
+            if (*it != guessed) {
+                return {reinterpret_cast<const char*>(it->data()), it->size()};
+            }
+        }
+        return {};
+    };
+    std::string group;
+    std::string_view group_role;
+    bool group_has_noun = false;
+    const auto flush = [&] {
+        if (!group.empty() && group_has_noun) {
+            bool inside_quoted = false;
+            for (const std::string& t : out.things) {
+                if (t.find(group) != std::string::npos) {
+                    inside_quoted = true;
+                }
+            }
+            if (!inside_quoted && !std::ranges::contains(out.things, group)) {
+                out.things.push_back(group);
+            }
+        }
+        group.clear();
+        group_role = {};
+        group_has_noun = false;
+    };
+    for (std::size_t i = 0; i < entities.size(); ++i) {
+        const Entity& e = entities[i];
+        const std::string_view role = role_of(e);
+        const Bytes folded = ops.fold(e.word);
+        const bool named = std::ranges::contains(named_roles, role);
+        const bool article = e.category == determiner || std::ranges::contains(rules_->articles(), folded);
+        const bool preposition = e.category == bytes_of("preposition");
+        if (!named || quoted_word[i] || e.category == interjection || e.category == bytes_of("conjunction")) {
+            flush();
+            continue;
+        }
+        if (role != group_role || preposition) {
+            flush();
+            group_role = role;
+        }
+        if (article || preposition) {
+            continue;
+        }
+        std::string word(e.word.begin(), e.word.end());
+        while (!word.empty() && (word.back() == '"' || word.back() == ',' || word.back() == '.' || word.back() == '?')) {
+            word.pop_back();
+        }
+        while (!word.empty() && word.front() == '"') {
+            word.erase(word.begin());
+        }
+        if (word.empty()) {
+            continue;
+        }
+        group += (group.empty() ? "" : " ") + word;
+        // A thing has a noun, or a name nobody taught (a capital, no category).
+        const bool capital = !word.empty() && word.front() >= 'A' && word.front() <= 'Z';
+        if (e.category == noun || e.category == proper_noun || (e.category.empty() && capital)) {
+            group_has_noun = true;
+        }
+    }
+    flush();
+    for (const std::string& thing : out.things) {
+        out.known.push_back(knows(thing));
+    }
+    // The subject and its theme.
+    for (auto it = entities.rbegin(); it != entities.rend(); ++it) {
+        if (role_of(*it) == "subject" && (it->category == noun || it->category == proper_noun)) {
+            out.subject.assign(it->word.begin(), it->word.end());
+            break;
+        }
+    }
+    if (out.subject.empty() && !out.things.empty()) {
+        const std::string& first = out.things.front();
+        out.subject = first.substr(first.rfind(' ') == std::string::npos ? 0 : first.rfind(' ') + 1);
+    }
+    out.theme = theme_of(d);
+    return out;
+}
+
+std::vector<std::string> Brain::Understanding::unknown() const {
+    std::vector<std::string> out;
+    for (std::size_t i = 0; i < things.size() && i < known.size(); ++i) {
+        if (!known[i]) {
+            out.push_back(things[i]);
+        }
+    }
+    return out;
+}
+
+std::string Brain::Understanding::text() const {
+    std::string out = intent;
+    if (!theme.empty()) {
+        out += "; theme: " + std::string(theme.begin(), theme.end());
+    }
+    for (std::size_t i = 0; i < things.size(); ++i) {
+        out += std::format("; \"{}\" {}", things[i], i < known.size() && known[i] ? "known" : "unknown");
+    }
+    return out;
+}
+
+std::string Brain::propose_thing(std::string_view thing, std::string_view source, std::string_view note) {
+    const AtomOperations ops;
+    std::string named{thing};
+    for (const Bytes& article : rules_->articles()) {
+        const std::string a(article.begin(), article.end());
+        if (named.size() > a.size() + 1 && named.starts_with(a + " ")) {
+            named = named.substr(a.size() + 1);
+            break;
+        }
+        if (named.size() > a.size() + 1 && named.front() >= 'A' && named.front() <= 'Z') {
+            std::string lowered = named;
+            lowered[0] = static_cast<char>(lowered[0] - 'A' + 'a');
+            if (lowered.starts_with(a + " ")) {
+                named = named.substr(a.size() + 1);
+                break;
+            }
+        }
+    }
+    const std::string sentence = "There is " + named + ".";
+    const Description d = assimilation_.describe(ops.from_text(sentence), memory_);
+    (void)remember(d, Status::Proposed, source, {});
+    if (!note.empty()) {
+        (void)memory_->store(d.atom, d.metadata, Status::Proposed, note);  // a second source: the note
+    }
+    return sentence;
 }
 
 Core Brain::thinking_core(const StoredAtom& atom) const {
@@ -1234,6 +1594,11 @@ std::optional<Description> Brain::refer(const Description& d) const {
         }
         const std::optional<Reference> reference = reference_of(ops.fold(e.word));
         if (!reference) {
+            continue;
+        }
+        // Q40: "it" before a verb of impersonal.txt ("it rains") stands for nothing.
+        if (reference->thing && i + 1 < entities.size() &&
+            std::ranges::contains(rules_->impersonal(), ops.fold(entities[i + 1].word))) {
             continue;
         }
         // A word that also owns ("her book") refers when nothing it could own follows.
@@ -2566,7 +2931,7 @@ std::vector<std::string> Brain::abilities() const {
     std::vector<std::string> seen;
     for (const auto& [pattern, operation] : rules_->commands()) {
         const std::string op(operation.begin(), operation.end());
-        if (op == "request" || std::ranges::contains(seen, op)) {
+        if (op == "request" || op == "cannot" || std::ranges::contains(seen, op)) {
             continue;
         }
         seen.push_back(op);
@@ -2601,8 +2966,43 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     // within the tolerance (K3), is what Larry thinks with.
     const Description said = assimilation_.describe(sentence, memory_);
     Reply reply;
-    // W3: an order Larry knows how to do, by its words, before anything else.
-    if (std::optional<Command> cmd = command(said); cmd && cmd->operation == "request") {
+    // A3, G3: an expression with an answer of its own ("how are you?"), by answers.txt.
+    {
+        std::string folded{ops.text(sentence)};
+        for (char& c : folded) {
+            c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        }
+        while (!folded.empty() && (folded.back() == '?' || folded.back() == '!' || folded.back() == '.' || folded.back() == ' ')) {
+            folded.pop_back();
+        }
+        for (const auto& [expression, answer] : rules_->answers()) {
+            if (std::string_view{reinterpret_cast<const char*>(expression.data()), expression.size()} == folded) {
+                reply.text = std::string(answer.begin(), answer.end());
+                reply.because.emplace_back("rule: an expression with an answer of its own (answers.txt)");
+                return reply;
+            }
+        }
+    }
+    // W3: an order Larry knows how to do, by its words, before anything else;
+    // one it understands and cannot do is denied with the reason.
+    if (std::optional<Command> cmd = command(said); cmd && cmd->operation == "cannot") {
+        std::string verb(cmd->pattern.begin(), cmd->pattern.end());
+        const std::size_t star = verb.find(" *");
+        if (star != std::string::npos) {
+            verb = verb.substr(0, star);
+        }
+        std::string can;
+        for (const std::string& ability : abilities()) {
+            if (ability.starts_with("can you") || ability.starts_with("please")) {
+                continue;
+            }
+            can += (can.empty() ? "" : ", ") + ability;
+        }
+        reply.text = std::vformat(say("cannot verb"), std::make_format_args(verb, can));
+        reply.because.push_back(std::format("command: \"{}\" is one Larry cannot do", cmd->pattern));
+        reply.command = std::move(cmd);
+        return reply;
+    } else if (cmd && cmd->operation == "request") {
         reply.text = say("cannot do");
         for (const std::string& ability : abilities()) {
             if (ability.starts_with("can you") || ability.starts_with("please")) {
@@ -2660,6 +3060,12 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         const std::string read_text{ops.text(d.atom)};
         reply.text = std::vformat(say("read as"), std::make_format_args(read_text));
         reply.because.push_back(std::format("read as: {}", ops.text(d.atom)));
+    }
+    // T1, P1: what it is about, and what it names that Larry holds nothing about.
+    {
+        const Understanding u = understand(d);
+        reply.theme.assign(u.theme.begin(), u.theme.end());
+        reply.unknown_things = u.unknown();
     }
     // K4: what is unusual goes into the reasons; a stored affirmation says it too.
     const std::vector<std::string> unusual = judge(d).unusual();
@@ -2821,6 +3227,18 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         }
         return reply;
     }
+    // P4: from a source that is not the user (the chat exposed to people, a
+    // model), what goes against memory is denied and not kept.
+    if (verdict.truth == Truth::False && (source.starts_with("chat:") || source.starts_with("llm:"))) {
+        const std::string earlier_text = text_of(verdict.because.front());
+        reply.text += std::vformat(say("goes against"), std::make_format_args(earlier_text));
+        reply.because.push_back(text_of(verdict.because.front()));
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
+        }
+        reply.because.emplace_back("rule: what goes against memory is denied unless the user says it (P4, R2b)");
+        return reply;
+    }
     // An affirmation: what does memory hold already? (C16, first step)
     const Stored stored = remember(said, Status::Proposed, source, read_as);
     reply.stored = stored == Stored::New;
@@ -2835,6 +3253,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         for (const std::string& rule : verdict.rules) {
             reply.because.push_back("rule: " + rule);
         }
+
         // N3: the conflict is a bond between the two conceptions, from the
         // rule or the comparison that found it.
         static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};

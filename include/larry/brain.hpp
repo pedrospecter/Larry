@@ -94,6 +94,10 @@ struct Reply {
     std::string text;
     /// The conceptions and rules the reply came from, as text.
     std::vector<std::string> because;
+    /// T1, P1: what the sentence was about, as a theme name (empty when none),
+    /// and the things it named that Larry holds nothing about.
+    std::string theme;
+    std::vector<std::string> unknown_things;
     /// Whether the sentence was stored as a conception or an assumption.
     bool stored = false;
     /// W3: the command the sentence is, for whoever runs the brain to do.
@@ -303,6 +307,42 @@ public:
     /// and "The sky is blue."), as a sentence; empty when every word is in
     /// the question.
     [[nodiscard]] std::string short_answer(const Description& question, const StoredAtom& atom) const;
+
+    /// T1 (first step): the theme of a word, by themes.txt, directly or through
+    /// its base form (A4), else through the kinds it is a kind of (A10), four
+    /// steps up; empty when none.
+    [[nodiscard]] Bytes theme_of_word(const Bytes& word) const;
+    /// T1: the theme of a sentence: of its subject's head, else of the first
+    /// of its words that has one.
+    [[nodiscard]] Bytes theme_of(const Description& d) const;
+    /// T1: the index: each theme with how many conceptions are about it and a
+    /// few of them; "none" for the ones with no theme.
+    struct Theme {
+        Bytes name;
+        std::int64_t count = 0;
+        std::vector<std::string> sample;
+    };
+    [[nodiscard]] std::vector<Theme> themes() const;
+    /// T1: the conceptions about a theme, newest first.
+    [[nodiscard]] std::vector<StoredAtom> about_theme(const Bytes& theme) const;
+
+    /// P1 (first step): what a sentence is, what it names and what Larry holds of it.
+    struct Understanding {
+        std::string intent;                ///< "command:about", "question", "order", "affirmation", "assumption", "expression", "calculation".
+        std::vector<std::string> things;   ///< The things named, as written without their articles; a quoted title is one thing.
+        std::vector<bool> known;           ///< One per thing: memory holds a conception with all its content words.
+        std::string subject;               ///< The head word of the subject, or of the first thing.
+        Bytes theme;                       ///< The theme of the subject.
+        [[nodiscard]] std::vector<std::string> unknown() const;
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Understanding understand(const Description& d) const;
+    /// P1: whether memory holds a conception with every content word of a thing.
+    [[nodiscard]] bool knows(std::string_view thing) const;
+    /// P5: a thing named that Larry holds nothing about, kept as the proposal
+    /// "There is <thing>." from a source, with a note on what the research
+    /// found, for the validator to judge. The sentence stored.
+    std::string propose_thing(std::string_view thing, std::string_view source, std::string_view note);
 
     /// S1 (first step): the goal an order sets, the state that would satisfy
     /// it (C11), from goals.txt ("close *" gives "* is closed"), else the
