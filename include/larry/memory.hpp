@@ -117,6 +117,18 @@ struct Molecule {
     std::vector<Member> members;
 };
 
+/// N5: a neighbour the spreading lookup found: an atom or an entity, how
+/// many steps away, how many key parts it shares with the start, its
+/// evidence (Q7: a tally, never a weight), and the way to it.
+struct Neighbour {
+    BondEnd end;
+    int steps = 1;              ///< 1 for a direct neighbour.
+    int shared = 0;             ///< Words in common with the start, for an atom.
+    std::int64_t evidence = 0;  ///< An atom: its sources; an entity: its uses.
+    std::string via;            ///< "word: sky", "bond: conflicts with", "atom: 12".
+    bool operator==(const Neighbour&) const = default;
+};
+
 /// What store() did with an atom.
 enum class Stored : std::uint8_t {
     New,       ///< The atom was stored.
@@ -227,6 +239,17 @@ public:
     [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end) const;
     [[nodiscard]] const std::vector<Bond>& bonds() const noexcept { return bonds_; }
     [[nodiscard]] std::int64_t count_bonds() const noexcept { return static_cast<std::int64_t>(bonds_.size()); }
+
+    /// N5: the neighbours of a set of atoms and entities, nearest first:
+    /// from an atom, the atoms that share its words (through the word
+    /// index, the rarest words first) and the ends it is bonded to; from an
+    /// entity, the atoms that contain it and its bonds. Up to `steps` steps
+    /// out and `limit` neighbours in all, so a common word never floods it.
+    /// Nearest means most shared words, then fewest steps, then most
+    /// evidence, then the earlier atom. The start ends are not neighbours
+    /// of themselves. The same on every run.
+    [[nodiscard]] std::vector<Neighbour> spread(const std::vector<BondEnd>& from, int steps,
+                                                std::size_t limit) const;
 
     /// N4: appends a conception to a molecule, in the file too; the molecule
     /// is made when it is not there. The position it got, from 0. The same

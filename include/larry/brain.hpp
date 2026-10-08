@@ -242,6 +242,12 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// N5: the neighbours of a described sentence or a word in the cache,
+    /// nearest first (Memory::spread), through the word index and the
+    /// bonds; the cloud is not walked, so this is what the machine knows.
+    [[nodiscard]] std::vector<Neighbour> near(const Description& d, int steps = 2, std::size_t limit = 20) const;
+    [[nodiscard]] std::vector<Neighbour> near(std::string_view word, int steps = 2, std::size_t limit = 20) const;
+
     /// N4: from here on, what the brain remembers joins this molecule: the
     /// text or the conversation being heard, with who said it (the source)
     /// and when (now). Empty: nothing joins. Names: "read:<file>:<when>",

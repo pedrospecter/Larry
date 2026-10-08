@@ -207,6 +207,21 @@ Benchmark bench(const BaseRules& rules, std::int64_t atoms, const std::filesyste
         out.measures.push_back({"answers", answer_seconds * 1000.0 / static_cast<double>(std::max<std::size_t>(answered, 1)), "ms each",
                                 std::format("{} yes/no questions, {} answered yes, in {} s", answered, yes,
                                             plain(answer_seconds))});
+
+        // Spread (N5): three steps out from a stored atom, twenty neighbours.
+        say("spreading from up to 100 atoms, three steps");
+        const Clock::time_point spread_start = Clock::now();
+        std::size_t spread_count = 0;
+        std::int64_t neighbours = 0;
+        for (; spread_count < 100 && seconds_since(spread_start) < box; ++spread_count) {
+            neighbours += static_cast<std::int64_t>(
+                memory.spread({BondEnd::atom(stored[pick(random)])}, 3, 20).size());
+        }
+        const double spread_seconds = seconds_since(spread_start);
+        out.measures.push_back({"spread", spread_seconds * 1000.0 / static_cast<double>(std::max<std::size_t>(spread_count, 1)),
+                                "ms each",
+                                std::format("{} lookups of three steps and twenty neighbours, {} neighbours in all, in {} s",
+                                            spread_count, neighbours, plain(spread_seconds))});
     }
 
     // Start-up: the file read whole, as Larry starts.

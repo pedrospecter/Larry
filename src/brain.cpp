@@ -149,6 +149,24 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
     return stored;
 }
 
+std::vector<Neighbour> Brain::near(const Description& d, int steps, std::size_t limit) const {
+    const AtomOperations ops;
+    std::vector<BondEnd> from;
+    if (memory_->find(d.metadata)) {
+        from.push_back(BondEnd::atom(d.metadata));
+    } else {
+        // A sentence not held: its words are the start.
+        for (const Entity& e : d.entities.entities) {
+            from.push_back(BondEnd{BondEnd::Kind::Entity, ops.fold(e.word)});
+        }
+    }
+    return memory_->spread(from, steps, limit);
+}
+
+std::vector<Neighbour> Brain::near(std::string_view word, int steps, std::size_t limit) const {
+    return memory_->spread({BondEnd::entity(word)}, steps, limit);
+}
+
 std::string Brain::now() {
     const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     std::tm utc{};

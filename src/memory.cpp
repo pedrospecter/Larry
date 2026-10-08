@@ -367,6 +367,133 @@ void Memory::clear() {
     }
 }
 
+std::vector<Neighbour> Memory::spread(const std::vector<BondEnd>& from, int steps, std::size_t limit) const {
+    const AtomOperations ops;
+    std::vector<Neighbour> out;
+    if (from.empty() || steps <= 0 || limit == 0) {
+        return out;
+    }
+    // The words of the start: what "shared" counts.
+    std::vector<Bytes> start_words;
+    std::map<Bytes, std::size_t> seen;  // end key -> index in out, or npos for a start end
+    for (const BondEnd& end : from) {
+        seen[end_key(end)] = static_cast<std::size_t>(-1);
+        if (end.kind == BondEnd::Kind::Entity) {
+            if (!std::ranges::contains(start_words, end.bytes)) {
+                start_words.push_back(end.bytes);
+            }
+        } else if (const auto held = by_identity_.find(end.bytes); held != by_identity_.end()) {
+            for (const Entity& e : ops.electrons(atoms_[static_cast<std::size_t>(held->second - 1)].metadata)
+                                       .entities.entities) {
+                const Bytes word = ops.fold(e.word);
+                if (!std::ranges::contains(start_words, word)) {
+                    start_words.push_back(word);
+                }
+            }
+        }
+    }
+    const auto words_of = [&](std::int64_t id) {
+        std::vector<Bytes> words;
+        for (const Entity& e : ops.electrons(atoms_[static_cast<std::size_t>(id - 1)].metadata).entities.entities) {
+            words.push_back(ops.fold(e.word));
+        }
+        return words;
+    };
+    const auto shared_with = [&](std::int64_t id) {
+        int shared = 0;
+        for (const Bytes& word : words_of(id)) {
+            if (std::ranges::contains(start_words, word)) {
+                ++shared;
+            }
+        }
+        return shared;
+    };
+    const auto evidence_of = [&](const BondEnd& end) -> std::int64_t {
+        if (end.kind == BondEnd::Kind::Entity) {
+            return count_uses(end.bytes);
+        }
+        const auto held = by_identity_.find(end.bytes);
+        return held == by_identity_.end()
+                   ? 0
+                   : static_cast<std::int64_t>(atoms_[static_cast<std::size_t>(held->second - 1)].sources.size());
+    };
+    // One step: the direct neighbours of an end, added when new.
+    const auto add = [&](BondEnd end, int step, std::string via) {
+        const Bytes key = end_key(end);
+        if (seen.contains(key)) {
+            return;
+        }
+        Neighbour n{std::move(end), step, 0, 0, std::move(via)};
+        n.evidence = evidence_of(n.end);
+        if (n.end.kind == BondEnd::Kind::Atom) {
+            if (const auto held = by_identity_.find(n.end.bytes); held != by_identity_.end()) {
+                n.shared = shared_with(held->second);
+            }
+        }
+        seen[key] = out.size();
+        out.push_back(std::move(n));
+    };
+    const auto neighbours_of = [&](const BondEnd& end, int step) {
+        // Through the word index: the rarest words first, so a common word
+        // ("the") adds its atoms last, within the limit.
+        std::vector<Bytes> words;
+        if (end.kind == BondEnd::Kind::Entity) {
+            words.push_back(end.bytes);
+        } else if (const auto held = by_identity_.find(end.bytes); held != by_identity_.end()) {
+            words = words_of(held->second);
+        }
+        std::ranges::stable_sort(words, [&](const Bytes& a, const Bytes& b) { return count_uses(a) < count_uses(b); });
+        for (const Bytes& word : words) {
+            if (end.kind == BondEnd::Kind::Atom) {
+                add(BondEnd{BondEnd::Kind::Entity, word}, step, "word: " + std::string(word.begin(), word.end()));
+            }
+            for (const WordUse& use : uses(word)) {
+                if (out.size() >= limit) {
+                    break;
+                }
+                const Record& record = atoms_[static_cast<std::size_t>(use.atom - 1)];
+                add(BondEnd{BondEnd::Kind::Atom, record.identity}, step,
+                    "word: " + std::string(word.begin(), word.end()));
+            }
+        }
+        // Through the bonds, both ways.
+        for (const Bond& bond : bonds_of(end)) {
+            const bool outward = bond.from == end;
+            add(outward ? bond.to : bond.from, step,
+                "bond: " + std::string(bond.kind.begin(), bond.kind.end()) + (outward ? "" : " (to it)"));
+        }
+    };
+    std::vector<BondEnd> frontier = from;
+    for (int step = 1; step <= steps && out.size() < limit; ++step) {
+        const std::size_t before = out.size();
+        for (const BondEnd& end : frontier) {
+            neighbours_of(end, step);
+        }
+        frontier.clear();
+        for (std::size_t i = before; i < out.size(); ++i) {
+            frontier.push_back(out[i].end);
+        }
+        if (frontier.empty()) {
+            break;
+        }
+    }
+    // Nearest first: most shared words, fewest steps, most evidence, then the
+    // order found (which follows the atom order of the index).
+    std::ranges::stable_sort(out, [](const Neighbour& a, const Neighbour& b) {
+        if (a.shared != b.shared) {
+            return a.shared > b.shared;
+        }
+        if (a.steps != b.steps) {
+            return a.steps < b.steps;
+        }
+        return a.evidence > b.evidence;
+    });
+    if (out.size() > limit) {
+        out.resize(limit);
+    }
+    return out;
+}
+
 std::size_t Memory::add_member(const Bytes& molecule, const Bytes& identity, std::string_view who,
                                std::string_view when, bool write) {
     if (write) {

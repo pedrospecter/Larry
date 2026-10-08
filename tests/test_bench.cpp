@@ -32,7 +32,7 @@ TEST(a_small_run_measures_everything) {
     });
     CHECK(result.atoms == 300);
     const std::vector<std::string> names = {"stored", "memory per atom", "described", "lookups",
-                                            "prefix lookups", "answers", "start-up", "file per atom"};
+                                            "prefix lookups", "answers", "spread", "start-up", "file per atom"};
     CHECK(result.measures.size() == names.size());
     for (std::size_t i = 0; i < names.size() && i < result.measures.size(); ++i) {
         CHECK(result.measures[i].name == names[i]);
@@ -49,7 +49,8 @@ TEST(a_small_run_measures_everything) {
     CHECK(find("start-up") != nullptr && find("start-up")->note == "300 atoms read from the file");
     CHECK(find("file per atom") != nullptr && find("file per atom")->value > 0);
     CHECK(!std::filesystem::exists(file));
-    CHECK(phases.size() == 6);
+    CHECK(phases.size() == 7);
+    CHECK(find("spread") != nullptr && find("spread")->note.starts_with("100 lookups of three steps"));
     CHECK(!phases.empty() && phases.front() == "storing 300 sentences");
     CHECK(phases.size() > 1 && phases[1] == "describing up to 300 sentences from the word index");
 }

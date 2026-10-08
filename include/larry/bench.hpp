@@ -33,7 +33,8 @@ struct Benchmark {
 /// taught and stored per second, how many are described from the word
 /// index per second, how many lookups by metadata and by prefix the cache
 /// does per second, the time to answer "Is the <noun> <adjective>?", the
-/// time to start with the file, and the memory and file bytes per atom.
+/// time of a spreading lookup of three steps (N5), the time to start with
+/// the file, and the memory and file bytes per atom.
 /// Without a cloud, a dictionary or a grammar: the cache alone. The file
 /// is removed at the end. After the storing, each phase runs its count or
 /// ten seconds (twenty for the answers), whichever ends first, so that a

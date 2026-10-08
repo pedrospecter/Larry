@@ -123,7 +123,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conversation, with its conceptions in order
   molecule <name>              one molecule: its conceptions in order, who said
                                each and when
-  bonds [word or sentence]     the bonds (N3) at a word or a conception, either
+  near <word or sentence>      the neighbours in memory (N5), nearest first:
+                               the conceptions that share its words, the words
+                               and conceptions it is bonded to, two steps out;
+                               "near <text> <steps> <limit>" changes the reach
                                way, or all of them: kind, both ends, origins
   bond <from> <kind> <to>      record a bond between two ends: a word, or a
                                sentence Larry holds as a conception
@@ -1351,6 +1354,33 @@ int run(std::span<const std::string_view> args) {
                 larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
             std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
                          held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
+    if (command == "near") {
+        if (rest.empty() || rest.size() > 3) {
+            throw std::runtime_error("near needs a word or a sentence, then steps and a limit at most");
+        }
+        const int steps = rest.size() > 1 ? std::stoi(std::string{rest[1]}) : 2;
+        const std::size_t limit = rest.size() > 2 ? static_cast<std::size_t>(std::stoul(std::string{rest[2]})) : 20;
+        const std::string text{rest[0]};
+        const std::vector<larry::Neighbour> found =
+            text.find(' ') == std::string::npos
+                ? larry.brain.near(text, steps, limit)
+                : larry.brain.near(larry.assimilation.describe(larry.ops.from_text(text), &larry.memory), steps, limit);
+        if (found.empty()) {
+            std::println("nothing near \"{}\" in memory", text);
+        }
+        for (const larry::Neighbour& n : found) {
+            std::string what;
+            if (n.end.kind == larry::BondEnd::Kind::Entity) {
+                what = "word " + std::string(n.end.bytes.begin(), n.end.bytes.end());
+            } else if (const std::optional<larry::StoredAtom> held = larry.brain.conception_at(n.end)) {
+                what = "\"" + std::string{larry.ops.text(held->description.atom)} + "\"";
+            } else {
+                what = "(a conception I do not hold)";
+            }
+            std::println("{:<44} step {}  shared {}  evidence {}  via {}", what, n.steps, n.shared, n.evidence, n.via);
         }
         return 0;
     }

@@ -119,4 +119,5 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry say "The sky is not blue."  # a conflict: both stay, bonded "conflicts with"
     ./build/larry bonds sky                   # the bonds at a word, or at a sentence in quotes
     ./build/larry molecules                   # each text read and each conversation, in order (N4)
+    ./build/larry near sky                    # the neighbours in memory, nearest first (N5)
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
