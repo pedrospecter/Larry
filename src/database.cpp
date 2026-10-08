@@ -454,6 +454,26 @@ void Database::set_status(std::int64_t id, Status status, std::string_view by) {
                {number(id), text(name(status)), text(by)});
 }
 
+std::vector<Database::Standing> Database::standings() {
+    const Result rows = exec("select identity, status, decided_by, reading from conceptions "
+                             "where identity is not null order by id");
+    std::vector<Standing> out;
+    out.reserve(static_cast<std::size_t>(rows.rows()));
+    for (int row = 0; row < rows.rows(); ++row) {
+        Standing s;
+        s.identity = rows.bytes(row, 0);
+        const Bytes status = rows.bytes(row, 1);
+        s.status = status_from(std::string_view{reinterpret_cast<const char*>(status.data()), status.size()})
+                       .value_or(Status::Proposed);
+        const Bytes by = rows.bytes(row, 2);
+        s.decided_by.assign(by.begin(), by.end());
+        const Bytes reading = rows.bytes(row, 3);
+        s.reading.assign(reading.begin(), reading.end());
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
 void Database::set_reading(std::int64_t id, std::string_view reading) {
     (void)exec("update conceptions set reading = $2 where id = $1", {number(id), text(reading)});
 }

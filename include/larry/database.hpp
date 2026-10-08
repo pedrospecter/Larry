@@ -83,6 +83,16 @@ public:
 
     void set_status(std::int64_t id, Status status, std::string_view by = "");
 
+    /// The standing of every conception, in one query (N2c): what the cloud,
+    /// the record, says a conception is, for the cache to follow.
+    struct Standing {
+        Bytes identity;
+        Status status = Status::Proposed;
+        std::string decided_by;
+        std::string reading;
+    };
+    [[nodiscard]] std::vector<Standing> standings();
+
     /// Notes how a conception was read when it was stored (Q29).
     void set_reading(std::int64_t id, std::string_view reading);
 

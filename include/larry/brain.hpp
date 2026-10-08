@@ -76,6 +76,15 @@ struct Qualifying {
     [[nodiscard]] std::string text() const;
 };
 
+/// An order Larry knows how to do (W3, the first step of S1): the operation
+/// and its arguments, from the pattern in commands.txt that the sentence
+/// matched.
+struct Command {
+    std::string operation;
+    std::vector<std::string> arguments;  ///< One per '*' in the pattern, the words as written.
+    std::string pattern;
+};
+
 /// What Larry says back, with what it used to say it (rule 6).
 struct Reply {
     std::string text;
@@ -83,6 +92,8 @@ struct Reply {
     std::vector<std::string> because;
     /// Whether the sentence was stored as a conception or an assumption.
     bool stored = false;
+    /// W3: the command the sentence is, for whoever runs the brain to do.
+    std::optional<Command> command;
 };
 
 /// A sentence reduced to what it claims: its words in lower case, with
@@ -126,6 +137,14 @@ public:
     /// refused for now. An assumption is stored as one, never as a truth. An
     /// expression is answered in kind.
     [[nodiscard]] Reply hear(const Sentence& sentence, std::string_view source = "user");
+
+    /// W3: the command a described sentence is, when its words, after any
+    /// "please", match a pattern in commands.txt; nothing otherwise.
+    [[nodiscard]] std::optional<Command> command(const Description& d) const;
+
+    /// W3: what Larry can do, as the first pattern of each operation:
+    /// "search for *", "define *", ...
+    [[nodiscard]] std::vector<std::string> abilities() const;
 
     /// Answers a question or judges a claim, and stores nothing: what `larry
     /// ask` does. A question gets yes, no, the conception that fills its gap
@@ -175,14 +194,23 @@ public:
         std::int64_t pushed = 0;       ///< Conceptions the cloud lacked.
         std::int64_t pulled = 0;       ///< Conceptions the cache lacked.
         std::int64_t redescribed = 0;  ///< Conceptions the cloud held with an older description.
+        std::int64_t refreshed = 0;    ///< Cached conceptions whose standing the cloud changed.
         bool operator==(const Synced&) const = default;
     };
 
     /// N2: pushes every conception of the cache that the cloud does not have,
     /// gives the cloud the cache's description where it holds an older one
-    /// (Q28), and pulls the cloud's most recent conceptions into the cache.
-    /// Throws when there is no cloud.
+    /// (Q28), pulls the cloud's most recent conceptions into the cache, and
+    /// refreshes the standing of the cached ones. Throws when there is no
+    /// cloud.
     Synced sync(std::int64_t pull);
+
+    /// N2c: the cloud is the record. Every cached conception takes the
+    /// status, the decision and the reading the cloud holds for it, in one
+    /// query. How many changed; nothing without a cloud. Larry does this
+    /// when it starts with a cloud, so that a question is answered by what
+    /// the record says, not by what the cache remembered.
+    std::int64_t refresh();
 
     /// R1 (first step): the conceptions that answer a question that opens
     /// with a question word: those whose core has the known words of the

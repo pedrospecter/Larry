@@ -5,3 +5,5 @@ compile_commands.json
 .DS_Store
 memory/
 .env
+content/
+lessons/*/drafts/

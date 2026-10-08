@@ -4,6 +4,7 @@
 #include "larry/brain.hpp"
 #include "larry/cognition.hpp"
 #include "larry/constellation.hpp"
+#include "larry/content.hpp"
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
@@ -11,7 +12,9 @@
 #include "larry/harness.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
+#include "larry/study.hpp"
 #include "larry/tolerance.hpp"
+#include "larry/web.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -40,7 +43,12 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   tell <text> [category ...]   describe a sentence and store it as a
                                conception; with the category of each entity,
                                in order, it is taught
-  read <file>                  tell every sentence in a text file
+  read <file>                  tell every fact in a text file: the sentences that
+                               are conceptions become proposed ones; questions,
+                               headings, references and the rest are listed
+  classify <file or text>      what each sentence of content is: a fact, context,
+                               a question, an instruction, speech, a heading, a
+                               reference or a fragment, and why
   teach <file>                 tell every lesson in a lesson file: a sentence,
                                then the category of each entity, in order
   rebuild                      empty memory and teach every lesson in
@@ -67,8 +75,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                reading of a sentence off the grammar, and what
                                is unusual in it
   say <text>                   hear one sentence and reply: an affirmation is
-                               stored, a question answered, an order refused,
-                               an assumption noted, an expression returned
+                               stored, a question answered, an order done when
+                               it is a command Larry knows (see
+                               base_rules/<locale>/commands.txt: "search for",
+                               "define", "tell me about", "compare", ...), an
+                               assumption noted, an expression returned
   chat                         hear a line at a time from standard input;
                                "why?" explains the last reply, "bye" ends
   sync [n]                     push the cache's conceptions to the cloud and
@@ -81,6 +92,19 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                (anyone adds the first, then only a validator)
   words [word]                 the vocabulary: every word with its categories
                                and uses, or one word with its types and contexts
+  search <words>               ask Wikipedia for the pages about these words:
+                               titles and snippets
+  fetch <title or url>         keep a Wikipedia article, or any web page, as
+                               plain text under content/<locale>/, with its
+                               source and date
+  define <word>                ask Wiktionary what the word is: its parts of
+                               speech as categories, with the first meanings,
+                               beside what memory and the dictionary say
+  study <file, title or url>   fetch the content when it is not a file, classify
+                               its sentences, propose the facts as conceptions,
+                               gather the words to learn, and write a lesson
+                               draft in lessons/<locale>/drafts/ for you to
+                               correct and teach
   count                        how many conceptions and word uses memory holds
 
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
@@ -248,10 +272,20 @@ struct Larry {
             rebuild(false);
         }
         // A cloud with nothing in it gets what the cache holds: the first
-        // contact of a machine that already learned.
+        // contact of a machine that already learned. Otherwise the cloud is
+        // the record: the cache takes its standing for what it holds (N2c).
         if (cloud && cloud->count() == 0 && memory.count() > 0) {
             const larry::Brain::Synced synced = brain.sync(0);
             std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", synced.pushed);
+        } else if (cloud) {
+            try {
+                if (const std::int64_t refreshed = brain.refresh(); refreshed > 0) {
+                    std::println(stderr, "larry: the cloud changed the standing of {} cached conception{}",
+                                 refreshed, refreshed == 1 ? "" : "s");
+                }
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: the cloud did not answer for the standings: {}", e.what());
+            }
         }
     }
 
@@ -399,6 +433,24 @@ std::vector<larry::Bytes> categories(std::span<const std::string_view> words) {
     return out;
 }
 
+std::string read_file(const std::filesystem::path& file);
+
+/// The text of a file: a page kept by larry fetch without its header lines,
+/// or any text file as it is.
+std::string content_of(const std::filesystem::path& file) {
+    if (const std::optional<larry::Page> page = larry::Web::read_page(file); page && !page->source.empty()) {
+        return page->text;
+    }
+    return read_file(file);
+}
+
+void print_classes(const larry::ContentTally& classes) {
+    std::println("{} sentences: {} facts, {} context, {} questions, {} instructions, {} speech, {} headings, "
+                 "{} references, {} fragments",
+                 classes.total(), classes.facts, classes.context, classes.questions, classes.instructions,
+                 classes.speech, classes.headings, classes.references, classes.fragments);
+}
+
 std::string read_file(const std::filesystem::path& file) {
     std::ifstream in{file, std::ios::binary};
     if (!in) {
@@ -420,6 +472,172 @@ std::string open_words(const larry::Description& d) {
         }
     }
     return out;
+}
+
+/// W4: studies a file, a Wikipedia title or a URL: the content is classified,
+/// the facts proposed, the words gathered, and a lesson draft written.
+larry::StudyReport study(Larry& larry, std::string_view what) {
+    std::string text;
+    std::string name;
+    std::string source;
+    if (std::filesystem::exists(what)) {
+        const std::filesystem::path file{what};
+        text = content_of(file);
+        if (const std::optional<larry::Page> page = larry::Web::read_page(file); page && !page->source.empty()) {
+            name = page->title;
+            source = page->source;
+        } else {
+            name = file.stem().string();
+            source = file.string();
+        }
+    } else {
+        const larry::Web web{larry.constellation.language()};
+        const larry::Page page = web.fetch(what);
+        text = page.text;
+        name = page.title;
+        source = page.source;
+        std::println(stderr, "larry: kept \"{}\" in {}", page.title, page.file.string());
+    }
+    const larry::Content content{larry.rules};
+    const larry::Study study{larry.rules, content};
+    return study.study(text, name, source, larry.brain,
+                       larry::Study::drafts_directory(larry.constellation.language()));
+}
+
+/// W3: does a command and gives what it says, one line or several. The
+/// web, the memory and the brain are the Larry struct's.
+std::string execute(Larry& larry, const larry::Command& command) {
+    const auto argument = [&](std::size_t i) {
+        return i < command.arguments.size() ? command.arguments[i] : std::string{};
+    };
+    // "the sea" is about the sea: leading determiners go.
+    const auto thing = [&](std::string text) {
+        for (const char* determiner : {"the ", "a ", "an ", "The ", "A ", "An "}) {
+            if (text.starts_with(determiner)) {
+                return text.substr(std::string_view{determiner}.size());
+            }
+        }
+        return text;
+    };
+    const std::string& op = command.operation;
+    std::string out;
+    if (op == "search") {
+        const larry::Web web{larry.constellation.language()};
+        const std::vector<larry::Hit> hits = web.search(argument(0));
+        if (hits.empty()) {
+            return "nothing found for \"" + argument(0) + "\".";
+        }
+        for (const larry::Hit& hit : hits) {
+            out += std::format("{}{}: {}", out.empty() ? "" : "\n", hit.title, hit.snippet);
+        }
+        return out;
+    }
+    if (op == "define") {
+        const larry::Web web{larry.constellation.language()};
+        const std::string word = thing(argument(0));
+        const std::vector<larry::Meaning> meanings = web.define(word);
+        if (meanings.empty()) {
+            return "Wiktionary has no English entry for \"" + word + "\".";
+        }
+        for (const larry::Meaning& m : meanings) {
+            out += std::format("{}{}: {}", out.empty() ? "" : "\n", as_text(m.category),
+                               m.definitions.empty() ? "" : m.definitions.front());
+        }
+        return out;
+    }
+    if (op == "fetch") {
+        const larry::Web web{larry.constellation.language()};
+        const larry::Page page = web.fetch(argument(0));
+        return std::format("kept \"{}\" in {}: {} bytes.", page.title, page.file.string(), page.text.size());
+    }
+    if (op == "read") {
+        const std::filesystem::path file = argument(0);
+        if (!std::filesystem::exists(file)) {
+            return "there is no file " + file.string() + ".";
+        }
+        const larry::Content content{larry.rules};
+        larry::ContentTally classes;
+        std::size_t stored = 0;
+        const std::string source = "read:" + file.filename().string();
+        for (const larry::Piece& piece : content.classify(content_of(file), larry.brain)) {
+            classes.add(piece.what);
+            if (piece.what == larry::ContentClass::Fact &&
+                larry.brain.remember(piece.description, larry::Status::Proposed, source) == larry::Stored::New) {
+                ++stored;
+            }
+        }
+        return std::format("read {}: {} sentences, {} facts, {} new conceptions proposed.", file.string(),
+                           classes.total(), classes.facts, stored);
+    }
+    if (op == "study") {
+        const larry::StudyReport report = study(larry, argument(0));
+        for (const std::string& line : report.lines()) {
+            out += (out.empty() ? "" : "\n") + line;
+        }
+        return out;
+    }
+    if (op == "about") {
+        const std::string word = thing(argument(0));
+        const larry::Bytes folded = larry.ops.fold(larry::Bytes(word.begin(), word.end()));
+        std::vector<larry::StoredAtom> found = larry.memory.containing(folded);
+        if (found.empty() && larry.cloud) {
+            found = larry.cloud->containing(folded);
+        }
+        std::size_t shown = 0;
+        for (const larry::StoredAtom& atom : found) {
+            if (atom.status == larry::Status::Withdrawn || as_text(atom.description.category.bytes) != "affirmation") {
+                continue;
+            }
+            out += std::format("{}{}", out.empty() ? "" : " ", larry.ops.text(atom.description.atom));
+            if (++shown == 5) {
+                break;
+            }
+        }
+        return out.empty() ? "I know nothing of \"" + word + "\"." : out;
+    }
+    if (op == "show") {
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(argument(0)), &larry.memory);
+        out = std::format("{} ({})", as_text(d.category.bytes), d.pattern.empty() ? "no pattern fits" : d.pattern);
+        for (const larry::Entity& e : d.entities.entities) {
+            out += std::format("\n  {} {}{}", as_text(e.word), e.category.empty() ? "?" : as_text(e.category),
+                               e.types.empty() ? "" : ", " + std::string{as_text(e.types.back())});
+        }
+        return out;
+    }
+    if (op == "compare") {
+        const larry::Description a = larry.assimilation.describe(larry.ops.from_text(argument(0)), &larry.memory);
+        const larry::Description b = larry.assimilation.describe(larry.ops.from_text(argument(1)), &larry.memory);
+        const auto yes = [](bool holds) { return holds ? "yes" : "no"; };
+        return std::format("identity {}, same form {}, aligned {}, different {}, same structure {}.",
+                           yes(larry.cognition.identity(a, b).holds), yes(larry.cognition.same_form(a, b).holds),
+                           yes(larry.cognition.align(a, b).holds), yes(larry.cognition.difference(a, b).holds),
+                           yes(larry.cognition.same_structure(a, b).holds));
+    }
+    if (op == "count") {
+        return std::format("{} conceptions and {} word uses here{}.", larry.memory.count(), larry.memory.count_words(),
+                           larry.cloud ? std::format(", {} conceptions in the cloud", larry.cloud->count()) : "");
+    }
+    if (op == "grammar") {
+        for (const larry::Grammar::Pattern& p : larry.grammar.patterns()) {
+            out += (out.empty() ? "" : ", ") + p.name;
+        }
+        return std::format("{} patterns: {}.", larry.grammar.size(), out);
+    }
+    if (op == "withdraw") {
+        if (!larry.brain.is_validator(larry.user)) {
+            return "only a validator withdraws a conception, and \"" + larry.user + "\" is not one.";
+        }
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(argument(0)), &larry.memory);
+        if (!larry.brain.decide(d.metadata, larry::Status::Withdrawn, larry.user)) {
+            return "I hold no conception \"" + argument(0) + "\".";
+        }
+        return "withdrawn: " + argument(0) + ".";
+    }
+    if (op == "tell") {
+        const larry::Reply told = larry.brain.hear(larry.ops.from_text(argument(0) + "."), "user:" + larry.user);
+        return told.text;
+    }
+    return "I do not know how to " + op + " yet.";
 }
 
 int run(std::span<const std::string_view> args) {
@@ -455,17 +673,41 @@ int run(std::span<const std::string_view> args) {
         if (rest.size() != 1) {
             throw std::runtime_error("read needs one file");
         }
-        const std::string text = read_file(rest[0]);
+        // W2: the facts become proposed conceptions; the rest is listed by class.
+        const std::string text = content_of(rest[0]);
         Tally tally;
+        larry::ContentTally classes;
         const std::string source = "read:" + std::filesystem::path{rest[0]}.filename().string();
-        for (const larry::Sentence& sentence : larry.assimilation.sentences(text)) {
-            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
-            const larry::Stored stored = larry.brain.remember(d, larry::Status::Proposed, source);
+        const larry::Content content{larry.rules};
+        for (const larry::Piece& piece : content.classify(text, larry.brain)) {
+            classes.add(piece.what);
+            if (piece.what != larry::ContentClass::Fact) {
+                std::println("{:<11} {}", larry::name(piece.what), larry.ops.text(piece.sentence));
+                continue;
+            }
+            const larry::Stored stored = larry.brain.remember(piece.description, larry::Status::Proposed, source);
             tally.add(stored);
-            std::println("{:<10} {}{}", stored_name(stored), larry.ops.text(sentence),
-                         open_words(d));
+            std::println("{:<11} {}{}", stored_name(stored), larry.ops.text(piece.sentence),
+                         open_words(piece.description));
         }
+        print_classes(classes);
         tally.print();
+        return 0;
+    }
+    if (command == "classify") {
+        if (rest.empty()) {
+            throw std::runtime_error("classify needs a file or a text");
+        }
+        const std::string text = rest.size() == 1 && std::filesystem::exists(rest[0]) ? content_of(rest[0])
+                                                                                       : join(rest);
+        larry::ContentTally classes;
+        const larry::Content content{larry.rules};
+        for (const larry::Piece& piece : content.classify(text, larry.brain)) {
+            classes.add(piece.what);
+            std::println("{:<11} {}", larry::name(piece.what), larry.ops.text(piece.sentence));
+            std::println("            {}", piece.reason);
+        }
+        print_classes(classes);
         return 0;
     }
     if (command == "teach") {
@@ -665,6 +907,9 @@ int run(std::span<const std::string_view> args) {
         for (const std::string& because : reply.because) {
             std::println("  because: {}", because);
         }
+        if (reply.command) {
+            std::println("{}", execute(larry, *reply.command));
+        }
         return 0;
     }
     if (command == "chat") {
@@ -701,6 +946,13 @@ int run(std::span<const std::string_view> args) {
                 }
                 last = brain.hear(sentence, "user:" + larry.user);
                 std::println("Larry: {}", last.text);
+                if (last.command) {
+                    try {
+                        std::println("Larry: {}", execute(larry, *last.command));
+                    } catch (const std::exception& e) {
+                        std::println("Larry: I could not: {}", e.what());
+                    }
+                }
             }
         }
         std::println("");
@@ -798,8 +1050,9 @@ int run(std::span<const std::string_view> args) {
             pull = std::stoll(std::string{rest[0]});
         }
         const larry::Brain::Synced synced = larry.brain.sync(pull);
-        std::println("{} conceptions pushed to the cloud, {} pulled into the cache, {} described anew in the cloud",
-                     synced.pushed, synced.pulled, synced.redescribed);
+        std::println("{} conceptions pushed to the cloud, {} pulled into the cache, {} described anew in the cloud, "
+                     "{} cached ones given the cloud's standing",
+                     synced.pushed, synced.pulled, synced.redescribed, synced.refreshed);
         std::println("{} conceptions here, {} in the cloud", larry.memory.count(),
                      larry.cloud->count());
         return 0;
@@ -865,6 +1118,75 @@ int run(std::span<const std::string_view> args) {
                 break;
             }
             std::println("  in: {}", larry.ops.text(atom.description.atom));
+        }
+        return 0;
+    }
+    if (command == "search") {
+        if (rest.empty()) {
+            throw std::runtime_error("search needs words");
+        }
+        const larry::Web web{larry.constellation.language()};
+        const std::vector<larry::Hit> hits = web.search(join(rest));
+        if (hits.empty()) {
+            std::println("nothing found for \"{}\"", join(rest));
+            return 0;
+        }
+        for (const larry::Hit& hit : hits) {
+            std::println("{}\n  {}\n  {}", hit.title, hit.snippet, hit.url);
+        }
+        return 0;
+    }
+    if (command == "fetch") {
+        if (rest.empty()) {
+            throw std::runtime_error("fetch needs a title or a url");
+        }
+        const larry::Web web{larry.constellation.language()};
+        const larry::Page page = web.fetch(join(rest));
+        const std::vector<larry::Sentence> sentences = larry.assimilation.sentences(page.text);
+        std::println("{}: {} bytes, {} sentences, kept in {}", page.title, page.text.size(), sentences.size(),
+                     page.file.string());
+        std::println("source: {}", page.source);
+        return 0;
+    }
+    if (command == "define") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("define needs one word");
+        }
+        const larry::Web web{larry.constellation.language()};
+        const std::vector<larry::Meaning> meanings = web.define(rest[0]);
+        if (meanings.empty()) {
+            std::println("Wiktionary has no English entry for \"{}\"", rest[0]);
+        }
+        for (const larry::Meaning& m : meanings) {
+            std::println("{}", as_text(m.category));
+            for (const std::string& d : m.definitions) {
+                std::println("  {}", d);
+            }
+        }
+        const larry::Bytes folded = larry.ops.fold(larry::Bytes(rest[0].begin(), rest[0].end()));
+        std::string known;
+        for (const larry::CategoryCount& c : larry.memory.categories_of(folded)) {
+            known += known.empty() ? "" : ", ";
+            known += std::format("{} ({})", as_text(c.category), c.count);
+        }
+        std::println("memory: {}", known.empty() ? "no use of the word" : known);
+        if (larry.dictionary) {
+            std::string listed;
+            for (const larry::Bytes& c : larry.dictionary->categories(folded)) {
+                listed += listed.empty() ? "" : ", ";
+                listed += as_text(c);
+            }
+            std::println("dictionary: {}", listed.empty() ? "not listed" : listed);
+        }
+        return 0;
+    }
+    if (command == "study") {
+        if (rest.empty()) {
+            throw std::runtime_error("study needs a file, a Wikipedia title or a url");
+        }
+        const larry::StudyReport report = study(larry, join(rest));
+        for (const std::string& line : report.lines()) {
+            std::println("{}", line);
         }
         return 0;
     }

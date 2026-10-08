@@ -83,6 +83,10 @@ void Database::set_status(std::int64_t /*id*/, Status /*status*/, std::string_vi
     absent();
 }
 
+std::vector<Database::Standing> Database::standings() {
+    absent();
+}
+
 void Database::set_reading(std::int64_t /*id*/, std::string_view /*reading*/) {
     absent();
 }

@@ -64,6 +64,30 @@ qualified, an affirmation (a declaration), a question, an order (a command),
 an assumption or an expression, by the rules and by the conceptions of the
 same structure, with the reasons (`larry qualify`).
 
+## The web as a source
+
+Larry can search Wikipedia, keep an article or any page as plain text on
+the machine (`content/en/`), ask Wiktionary what a word is, and study
+content: every sentence gets a class (a fact, context, a question, an
+instruction, speech, a heading, a reference, a fragment), the facts
+become proposed conceptions, the words to learn are gathered, and a lesson
+draft is written in `lessons/en/drafts/` for you to correct and teach.
+Nothing from the web is true until you validate it. The transport is the
+`curl` command on the machine.
+
+    ./build/larry search sky
+    ./build/larry fetch Sky                  # content/en/sky.txt
+    ./build/larry define vast                # adjective, noun, from Wiktionary
+    ./build/larry classify content/en/sky.txt
+    ./build/larry study Sky                  # or a file, or a url
+    ./build/larry teach lessons/en/drafts/sky.txt   # after you corrected it
+
+In `larry chat` and `larry say`, an order Larry knows how to do is done:
+"search for the sea", "define vast", "tell me about the sea", "compare the
+sky and the sea", "count the conceptions", "remember that the moon is
+round", "forget that ..." (a validator only). The list is in
+`base_rules/en/commands.txt`.
+
 ## Ask Larry something
 
     ./build/larry chat                       # a line at a time: questions, statements, "why?", "bye"

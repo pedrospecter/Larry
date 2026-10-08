@@ -232,7 +232,37 @@ Brain::Synced Brain::sync(std::int64_t pull) {
         cache(atom);
         ++out.pulled;
     }
+    out.refreshed = refresh();
     return out;
+}
+
+std::int64_t Brain::refresh() {
+    if (cloud_ == nullptr) {
+        return 0;
+    }
+    const AtomOperations ops;
+    std::map<Bytes, Database::Standing> record;
+    for (Database::Standing& s : cloud_->standings()) {
+        Bytes identity = s.identity;
+        record.emplace(std::move(identity), std::move(s));
+    }
+    std::int64_t changed = 0;
+    for (const StoredAtom& atom : memory_->all()) {
+        const auto held = record.find(ops.identity(atom.description.metadata));
+        if (held == record.end()) {
+            continue;
+        }
+        const Database::Standing& s = held->second;
+        if (atom.status != s.status || atom.decided_by != s.decided_by) {
+            memory_->set_status(atom.description.metadata, s.status, s.decided_by);
+            ++changed;
+        }
+        if (!s.reading.empty() && atom.reading != s.reading) {
+            memory_->set_reading(atom.description.metadata, s.reading);
+            ++changed;
+        }
+    }
+    return changed;
 }
 
 std::vector<Bytes> Brain::spellings(const Bytes& word) const {
@@ -709,6 +739,111 @@ std::vector<StoredAtom> Brain::answers(const Description& question) const {
     return out;
 }
 
+namespace {
+
+// The words of a pattern or a sentence, folded, split at spaces.
+std::vector<std::string> words_of(std::string_view text) {
+    std::vector<std::string> out;
+    std::string current;
+    for (const char c : text) {
+        if (c == ' ') {
+            if (!current.empty()) {
+                out.push_back(std::move(current));
+                current.clear();
+            }
+        } else {
+            current.push_back(c);
+        }
+    }
+    if (!current.empty()) {
+        out.push_back(std::move(current));
+    }
+    return out;
+}
+
+// Matches the pattern's words from `p` against the sentence's from `w`; a
+// '*' takes one or more words, as an argument.
+bool match_words(const std::vector<std::string>& pattern, std::size_t p, const std::vector<std::string>& folded,
+                 const std::vector<std::string>& written, std::size_t w, std::vector<std::string>& arguments) {
+    if (p == pattern.size()) {
+        return w == folded.size();
+    }
+    if (pattern[p] != "*") {
+        return w < folded.size() && folded[w] == pattern[p] &&
+               match_words(pattern, p + 1, folded, written, w + 1, arguments);
+    }
+    for (std::size_t take = 1; w + take <= folded.size(); ++take) {
+        std::string argument;
+        for (std::size_t i = w; i < w + take; ++i) {
+            argument += (i == w ? "" : " ") + written[i];
+        }
+        arguments.push_back(std::move(argument));
+        if (match_words(pattern, p + 1, folded, written, w + take, arguments)) {
+            return true;
+        }
+        arguments.pop_back();
+    }
+    return false;
+}
+
+}  // namespace
+
+std::optional<Command> Brain::command(const Description& d) const {
+    const AtomOperations ops;
+    // The words of the sentence as written, split at spaces, with the marks
+    // around each stripped: a file name keeps its dot ("notes.txt").
+    std::vector<std::string> folded;
+    std::vector<std::string> written;
+    for (std::string word : words_of(ops.text(d.atom))) {
+        const auto is_mark = [&](char c) {
+            return in(rules_->punctuation(), Bytes{static_cast<std::uint8_t>(c)}) ||
+                   in(rules_->sentence_ends(), Bytes{static_cast<std::uint8_t>(c)}) ||
+                   in(rules_->closers(), Bytes{static_cast<std::uint8_t>(c)}) || c == '"' || c == '\'';
+        };
+        while (!word.empty() && is_mark(word.front())) {
+            word.erase(word.begin());
+        }
+        while (!word.empty() && is_mark(word.back())) {
+            word.pop_back();
+        }
+        if (word.empty()) {
+            continue;
+        }
+        const Bytes f = ops.fold(Bytes(word.begin(), word.end()));
+        const std::string lower(f.begin(), f.end());
+        if (folded.empty() && (lower == "please" || lower == "larry")) {
+            continue;
+        }
+        folded.push_back(lower);
+        written.push_back(std::move(word));
+    }
+    if (folded.empty()) {
+        return std::nullopt;
+    }
+    for (const auto& [pattern, operation] : rules_->commands()) {
+        const std::string text(pattern.begin(), pattern.end());
+        std::vector<std::string> arguments;
+        if (match_words(words_of(text), 0, folded, written, 0, arguments)) {
+            return Command{std::string(operation.begin(), operation.end()), std::move(arguments), text};
+        }
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> Brain::abilities() const {
+    std::vector<std::string> out;
+    std::vector<std::string> seen;
+    for (const auto& [pattern, operation] : rules_->commands()) {
+        const std::string op(operation.begin(), operation.end());
+        if (std::ranges::contains(seen, op)) {
+            continue;
+        }
+        seen.push_back(op);
+        out.emplace_back(pattern.begin(), pattern.end());
+    }
+    return out;
+}
+
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     return respond(sentence, source, true);
 }
@@ -722,8 +857,19 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     // What was said is what gets stored; what was meant, by the reading
     // within the tolerance (K3), is what Larry thinks with.
     const Description said = assimilation_.describe(sentence, memory_);
-    const Reading reading = read(said);
     Reply reply;
+    // W3: an order Larry knows how to do, by its words, before anything else.
+    if (std::optional<Command> cmd = command(said)) {
+        std::string what = cmd->operation;
+        for (const std::string& argument : cmd->arguments) {
+            what += " \"" + argument + "\"";
+        }
+        reply.text = "I can do that: " + what + ".";
+        reply.because.push_back(std::format("command: \"{}\" is {}", cmd->pattern, cmd->operation));
+        reply.command = std::move(cmd);
+        return reply;
+    }
+    const Reading reading = read(said);
     if (!reading.accepted) {
         reply.text = "I cannot read that";
         for (std::size_t i = 0; i < reading.deviations.size(); ++i) {
@@ -757,8 +903,12 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         return reply;
     }
     if (qualification == "order") {
-        reply.text += "I cannot do that yet.";
-        reply.because.emplace_back("rule: orders wait for S1");
+        reply.text += "I cannot do that yet. I can:";
+        for (const std::string& ability : abilities()) {
+            reply.text += " " + ability + ",";
+        }
+        reply.text.back() = '.';
+        reply.because.emplace_back("rule: an order that matches no command waits (S1)");
         return reply;
     }
     const std::string read_as = reading.changed ? std::string{ops.text(d.atom)} : std::string{};

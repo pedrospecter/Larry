@@ -286,7 +286,7 @@ TEST(answer_replies_to_questions_and_judges_claims_without_storing) {
     CHECK(std::ranges::contains(unknown.because, std::string{"nearest: Mary went to the kitchen."}));
     // The rest is answered in kind, and nothing is stored.
     CHECK(brain.answer(ops.from_text("Suppose the sky is red.")).text == "That is an assumption: I do not judge it.");
-    CHECK(brain.answer(ops.from_text("Close the door.")).text == "I cannot do that yet.");
+    CHECK(brain.answer(ops.from_text("Close the door.")).text.starts_with("I cannot do that yet. I can:"));
     CHECK(brain.answer(ops.from_text("Hello!")).text == "Hello!");
     CHECK(memory.count() == before);
 }
@@ -610,10 +610,86 @@ TEST(qualification_by_the_rules_and_by_example) {
     CHECK(brain.qualify(assimilation.describe(ops.from_text("The moon is white."), &cache)).examples.size() == 5);
 }
 
+TEST(orders_that_are_commands_are_matched_with_their_arguments) {
+    larry::Brain& brain = hearing_brain();
+    const larry::AtomOperations ops;
+    const auto command = [&](std::string_view text) {
+        return brain.command(brain.assimilation().describe(ops.from_text(text), &brain.memory()));
+    };
+    const std::optional<larry::Command> search = command("Please search for the sea.");
+    CHECK(search.has_value());
+    if (search) {
+        CHECK(search->operation == "search");
+        CHECK(search->arguments == (std::vector<std::string>{"the sea"}));
+        CHECK(search->pattern == "search for *");
+    }
+    const std::optional<larry::Command> compare = command("Compare the sky and the sea.");
+    CHECK(compare.has_value());
+    if (compare) {
+        CHECK(compare->arguments == (std::vector<std::string>{"the sky", "the sea"}));
+    }
+    CHECK(!command("Close the door.").has_value());
+    CHECK(!command("").has_value());
+    CHECK(!brain.abilities().empty());
+    CHECK(brain.abilities().front() == "search for *");
+    // The suite: the operation, the arguments, the sentence.
+    const std::filesystem::path suite = std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "commands.txt";
+    std::ifstream in{suite, std::ios::binary};
+    CHECK(static_cast<bool>(in));
+    std::size_t cases = 0;
+    std::size_t failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        const std::string_view text = trim_view(line);
+        if (text.empty() || text.front() == '#') {
+            continue;
+        }
+        const std::size_t first = text.find(" | ");
+        const std::size_t second = first == std::string_view::npos ? first : text.find(" | ", first + 3);
+        CHECK(second != std::string_view::npos);
+        if (second == std::string_view::npos) {
+            continue;
+        }
+        const std::string operation{trim_view(text.substr(0, first))};
+        std::string arguments{trim_view(text.substr(first + 3, second - first - 3))};
+        const std::string sentence{trim_view(text.substr(second + 3))};
+        ++cases;
+        const std::optional<larry::Command> got = command(sentence);
+        std::string got_operation = got ? got->operation : "none";
+        std::string got_arguments;
+        if (got) {
+            for (const std::string& a : got->arguments) {
+                got_arguments += (got_arguments.empty() ? "" : "; ") + a;
+            }
+        }
+        if (got_operation != operation || got_arguments != arguments) {
+            ++failed;
+            std::println(stderr, "commands.txt line {}: \"{}\" expected {} [{}], got {} [{}]", number, sentence,
+                         operation, arguments, got_operation, got_arguments);
+        }
+    }
+    CHECK(cases >= 20);
+    CHECK(failed == 0);
+    // Hearing a command gives it back to do, and stores nothing; an order
+    // that is no command says what Larry can do.
+    const std::int64_t before = brain.memory().count();
+    const larry::Reply reply = brain.hear(ops.from_text("Search for the sea."), "user:pedro");
+    CHECK(reply.command.has_value());
+    CHECK(reply.text == "I can do that: search \"the sea\".");
+    CHECK(reply.because == (std::vector<std::string>{"command: \"search for *\" is search"}));
+    CHECK(!reply.stored);
+    CHECK(brain.memory().count() == before);
+    const larry::Reply order = brain.hear(ops.from_text("Close the window."), "user:pedro");
+    CHECK(!order.command.has_value());
+    CHECK(order.text.starts_with("I cannot do that yet. I can: search for *, define *,"));
+    CHECK(brain.answer(ops.from_text("Count the conceptions.")).command.has_value());
+}
+
 TEST(hear_handles_orders_assumptions_and_expressions) {
     const larry::Memory& memory = hearing_brain().memory();
     const larry::Reply order = say("Close the window.");
-    CHECK(order.text == "I cannot do that yet.");
+    CHECK(order.text.starts_with("I cannot do that yet. I can:"));
     CHECK(!order.stored);
     const std::int64_t before = memory.count();
     const larry::Reply assumption = say("Suppose the sky is green.");
@@ -729,7 +805,7 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
     const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
-    const auto [pushed, pulled, redescribed] = brain.sync(100);
+    const auto [pushed, pulled, redescribed, refreshed] = brain.sync(100);
     CHECK(pushed == 1);
     CHECK(pulled == 2);  // the cat and the withdrawn moon
     CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
@@ -771,6 +847,19 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cloud->set_reading(cloud->find(third.metadata)->id, "The moon is white.");
     CHECK(brain.sync(100).pulled == 1);
     CHECK(cache.find(third.metadata)->reading == "The moon is white.");
+    // N2c: the cloud is the record. A decision taken there reaches the cache
+    // at refresh, and so does a reading; what the cache alone holds stays.
+    cloud->set_status(cloud->find(grass.metadata)->id, larry::Status::Withdrawn, "pedro");
+    cloud->set_reading(cloud->find(sun.metadata)->id, "The sun is hot!");
+    CHECK(cache.find(grass.metadata)->status == larry::Status::Proposed);
+    CHECK(brain.truth(ops.from_text("the grass is tall")).truth == Truth::True);
+    CHECK(brain.refresh() == 2);
+    CHECK(cache.find(grass.metadata)->status == larry::Status::Withdrawn);
+    CHECK(cache.find(grass.metadata)->decided_by == "pedro");
+    CHECK(cache.find(sun.metadata)->reading == "The sun is hot!");
+    CHECK(brain.truth(ops.from_text("the grass is tall")).truth == Truth::Unknown);
+    CHECK(brain.refresh() == 0);
+    CHECK(brain.sync(100).refreshed == 0);
     // A description that is not complete never replaces one that is.
     larry::Description guessed = sun;
     guessed.entities.entities[3].types.push_back(b("guessed"));
