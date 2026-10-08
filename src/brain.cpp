@@ -5,12 +5,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <chrono>
 #include <ctime>
 #include <format>
 #include <limits>
 #include <map>
 #include <optional>
+#include <print>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -360,29 +362,50 @@ std::optional<Brain::Guess> Brain::analogy(const Description& question) const {
         }
         return out;
     };
-    // The base a word is a form of: by the "form of" bonds, else by the endings (A4).
-    const auto base_of = [&](const Bytes& word) -> Bytes {
+    // The bases a word may be a form of: itself, the "form of" bonds, the
+    // known base (A4) and every base its endings allow ("likes": like, lik).
+    const auto bases_of = [&](const Bytes& word) {
+        std::vector<Bytes> out = {word};
         for (const Bond& bond : memory_->bonds_from(BondEnd{BondEnd::Kind::Entity, word})) {
             if (bond.kind == form_of && bond.to.kind == BondEnd::Kind::Entity) {
-                return bond.to.bytes;
+                out.push_back(bond.to.bytes);
             }
         }
         if (const std::optional<Form> form = assimilation_.form_of(word, memory_)) {
-            return form->base;
+            out.push_back(form->base);
         }
-        const std::vector<Form> by_ending = assimilation_.forms().candidates(word);
-        return by_ending.empty() ? word : by_ending.front().base;
+        for (const Form& form : assimilation_.forms().candidates(word)) {
+            out.push_back(form.base);
+        }
+        return out;
     };
-    // The kinds of a word, or of its base ("robins": the kinds of "robin").
+    // The kinds of a word, or of a base of it ("robins": the kinds of "robin").
     const auto kinds_of_either = [&](const Bytes& word) {
-        std::vector<Bytes> kinds = kinds_of(word);
-        if (kinds.empty()) {
-            kinds = kinds_of(base_of(word));
+        for (const Bytes& base : bases_of(word)) {
+            std::vector<Bytes> kinds = kinds_of(base);
+            if (!kinds.empty()) {
+                return kinds;
+            }
         }
-        return kinds;
+        return std::vector<Bytes>{};
     };
+    // Two words are one word when a base of one is a base of the other.
     const auto same_word = [&](const Bytes& a, const Bytes& b) {
-        return a == b || base_of(a) == base_of(b) || base_of(a) == b || a == base_of(b);
+        if (a == b) {
+            return true;
+        }
+        const std::vector<Bytes> of_a = bases_of(a);
+        for (const Bytes& base : bases_of(b)) {
+            if (std::ranges::contains(of_a, base)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // The one base a word is read by, for the key of the search.
+    const auto base_of = [&](const Bytes& word) {
+        const std::vector<Bytes> bases = bases_of(word);
+        return bases.size() > 1 ? bases[1] : bases.front();
     };
     for (const Core& form : forms) {
         if (form.words.size() < 2) {
