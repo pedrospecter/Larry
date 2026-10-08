@@ -1708,6 +1708,87 @@ TEST(the_chat_answers_expressions_denies_what_it_cannot_do_and_keeps_what_was_sa
     CHECK(!rains.text.starts_with("I read it as"));
 }
 
+TEST(themes_index_what_is_held_and_a_prompt_is_understood) {
+    const larry::AtomOperations ops;
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_themes.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::Assimilation assimilation{rules()};
+    const auto describe = [&](std::string_view text) { return assimilation.describe(ops.from_text(text), &cache); };
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        (void)brain.remember(d, larry::Status::Proposed, "lesson:test");
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("A sparrow is a bird.", {"determiner", "noun", "auxiliary verb", "determiner", "noun"});
+    teach("Sparrows fly.", {"noun", "verb"});
+    teach("Mary went to the kitchen.", {"proper noun", "verb", "preposition", "determiner", "noun"});
+    teach("The opera is long.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Summarise the paper.", {"verb", "determiner", "noun"});
+    // T1: a theme by the file, by the base form, and through the kinds (A10).
+    CHECK(brain.theme_of_word(b("sky")) == b("nature"));
+    CHECK(brain.theme_of_word(b("Skies")) == b("nature"));
+    CHECK(brain.theme_of_word(b("opera")) == b("music"));
+    CHECK(brain.theme_of_word(b("sparrow")) == b("animals"));  // a sparrow is a kind of bird
+    CHECK(brain.theme_of_word(b("zorp")).empty());
+    CHECK(brain.theme_of(describe("The sky is blue.")) == b("nature"));
+    CHECK(brain.theme_of(describe("Mary went to the kitchen.")) == b("places"));  // Mary has none: the kitchen
+    const std::vector<larry::Brain::Theme> index = brain.themes();
+    CHECK(index.size() >= 4);
+    std::int64_t nature = 0;
+    for (const larry::Brain::Theme& t : index) {
+        if (t.name == b("nature")) {
+            nature = t.count;
+        }
+    }
+    CHECK(nature == 2);
+    CHECK(brain.about_theme(b("animals")).size() == 2);
+    // P1: a prompt understood: a command, the things it names, and what is held.
+    const larry::Brain::Understanding u =
+        brain.understand(describe("Summarise the main findings of the 2019 paper \"Quantum Effects in Gothenburg Tram Scheduling\" by Lindqvist and Moreau."));
+    CHECK(u.intent == "command:about");
+    CHECK(std::ranges::contains(u.things, std::string{"Quantum Effects in Gothenburg Tram Scheduling"}));
+    CHECK(!u.unknown().empty());
+    CHECK(u.text().starts_with("command:about"));
+    CHECK(brain.knows("the sky"));
+    CHECK(brain.knows("the opera"));
+    CHECK(!brain.knows("the 2019 paper"));
+    const larry::Brain::Understanding sky = brain.understand(describe("What is the sky?"));
+    CHECK(sky.intent == "question");
+    CHECK(sky.theme == b("nature"));
+    CHECK(sky.unknown().empty());
+    // The reply carries the theme and the unknown things.
+    const larry::Reply asked = brain.hear(ops.from_text("What is the opera?"), "chat:ana");
+    CHECK(asked.theme == "music");
+    // P5: a thing proposed for the validator, with the research as a note.
+    const std::int64_t before = cache.count();
+    const std::string proposed = brain.propose_thing("the 2019 paper Quantum Effects", "chat:ana", "research:wikipedia:nothing");
+    CHECK(proposed == "There is 2019 paper Quantum Effects.");
+    CHECK(cache.count() == before + 1);
+    const std::optional<larry::StoredAtom> kept = cache.find(describe(proposed).metadata);
+    CHECK(kept.has_value());
+    if (kept) {
+        CHECK(kept->status == larry::Status::Proposed);
+        CHECK(std::ranges::contains(kept->sources, std::string{"chat:ana"}));
+        CHECK(std::ranges::contains(kept->sources, std::string{"research:wikipedia:nothing"}));
+    }
+    // P4: from a person in the chat, what goes against memory is denied and not kept.
+    const std::int64_t count = cache.count();
+    const larry::Reply denied = brain.hear(ops.from_text("The sky is green."), "chat:ana");
+    CHECK(denied.text == "That goes against what I know: The sky is blue. I do not take it.");
+    CHECK(!denied.stored);
+    CHECK(cache.count() == count);
+    // From the user, the later stands (Q14), as before.
+    const larry::Reply user = brain.hear(ops.from_text("The sea is narrow."), "user:pedro");
+    CHECK(user.text.starts_with("That contradicts what you told me before") || user.text.starts_with("That conflicts"));
+}
+
 int main() {
     return larry::test::run();
 }

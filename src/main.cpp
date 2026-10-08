@@ -68,6 +68,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                lessons/<locale>/, in name order
   compare <text> <text>        compare two sentences: C1 to C5
   groups <text>                A8: the word each word attaches to, by its group
+  themes                       T1: the index of what Larry holds, by theme
+                               (themes.txt and the kinds of A10)
+  theme <name>                 T1: the conceptions about one theme
+  understand <text>            P1: what a sentence is (a command, a question,
+                               ...), what it names, and what Larry holds of it
   goal <order>                 S1: the state the order would make, whether it
                                is so already, and the plan to reach it (S2)
   explain <observation>        R6: the assumption that would explain it, from
@@ -117,7 +122,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                base_rules/<locale>/commands.txt: "search for",
                                "define", "tell me about", "compare", ...), an
                                assumption noted, an expression returned
-  chat                         hear a line at a time from standard input;
+  chat [name]                  hear a line at a time from standard input; with
+                               a name, the person is "chat:<name>", no
+                               validator: what goes against memory is denied,
+                               what is new waits for the validator;
                                "why?" explains the last reply, "bye" ends; the
                                reply streams word by word on a terminal
                                (LARRY_STREAM=0 prints it at once), and a line
@@ -352,6 +360,8 @@ struct Larry {
     larry::Memory memory{larry::Memory::file_from_environment(constellation.language())};
     std::unique_ptr<larry::Database> cloud;
     larry::Brain brain{rules, memory, nullptr, dictionary.get(), &grammar};
+    /// Whom what is heard comes from: "user:<name>" (the user), or "chat:<name>" for a person in the chat.
+    std::string source = "user:" + user;
 
     Larry() {
         const std::string connection = larry::Database::connection_from_environment();
@@ -654,6 +664,38 @@ larry::StudyReport study(Larry& larry, std::string_view what) {
 
 /// W3: does a command and gives what it says, one line or several. The
 /// web, the memory and the brain are the Larry struct's.
+/// T1, P5: what Larry does when it holds nothing on a thing named to it: it
+/// asks Wikipedia (W1), says what it found or that nothing was found (it may
+/// not exist), and keeps "There is <thing>." as a proposal from the source,
+/// with the research as a note, for the validator to judge.
+std::string research(Larry& larry, const std::string& thing, const std::string& source) {
+    std::string out;
+    std::string note;
+    try {
+        const larry::Web web{larry.constellation.language()};
+        show_notice("asking Wikipedia for \"" + thing + "\"");
+        const std::vector<larry::Hit> hits = web.search(thing, 3);
+        if (hits.empty()) {
+            out = std::vformat(larry.brain.say("wikipedia nothing"), std::make_format_args(thing));
+            note = "research:wikipedia:nothing";
+        } else {
+            std::string titles;
+            for (const larry::Hit& hit : hits) {
+                titles += (titles.empty() ? "" : "; ") + hit.title;
+            }
+            const std::string first = hits.front().title;
+            out = std::vformat(larry.brain.say("wikipedia has"), std::make_format_args(titles, first));
+            note = "research:wikipedia:" + first;
+        }
+    } catch (const std::exception& e) {
+        out = std::format("I could not ask Wikipedia: {}", e.what());
+        note = "research:none";
+    }
+    const std::string proposed = larry.brain.propose_thing(thing, source, note);
+    out += " " + std::vformat(larry.brain.say("proposed"), std::make_format_args(proposed));
+    return out;
+}
+
 std::string execute(Larry& larry, const larry::Command& command) {
     const auto argument = [&](std::size_t i) {
         return i < command.arguments.size() ? command.arguments[i] : std::string{};
@@ -775,7 +817,19 @@ std::string execute(Larry& larry, const larry::Command& command) {
                 break;
             }
         }
-        return out.empty() ? "I know nothing of \"" + word + "\"." : out;
+        if (!out.empty()) {
+            return out;
+        }
+        // T1: where to search when Larry does not know: the theme, then the web.
+        const larry::Description about = larry.assimilation.describe(larry.ops.from_text(word), &larry.memory);
+        const larry::Bytes theme = larry.brain.theme_of(about);
+        out = std::vformat(larry.brain.say("no knowledge"), std::make_format_args(word));
+        if (!theme.empty()) {
+            const std::string theme_name(theme.begin(), theme.end());
+            const std::size_t held = larry.brain.about_theme(theme).size();
+            out += " " + std::vformat(larry.brain.say("on theme"), std::make_format_args(theme_name, held));
+        }
+        return out + " " + research(larry, word, larry.source);
     }
     if (op == "show") {
         const larry::Description d = larry.assimilation.describe(larry.ops.from_text(argument(0)), &larry.memory);
@@ -1044,6 +1098,40 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "rebuild") {
         larry.rebuild(true);
+        return 0;
+    }
+    if (command == "themes") {
+        // T1: the index of what Larry holds, by theme.
+        for (const larry::Brain::Theme& t : larry.brain.themes()) {
+            std::string sample;
+            for (const std::string& text : t.sample) {
+                sample += (sample.empty() ? "" : " ") + text;
+            }
+            std::println("{:<14} {:>6}  {}", std::string(t.name.begin(), t.name.end()), t.count, sample);
+        }
+        return 0;
+    }
+    if (command == "theme") {
+        if (rest.empty()) {
+            throw std::runtime_error("theme needs a name: larry themes lists them");
+        }
+        const larry::Bytes name(rest.front().begin(), rest.front().end());
+        const std::vector<larry::StoredAtom> about = larry.brain.about_theme(name);
+        for (const larry::StoredAtom& atom : about) {
+            std::println("{:>6}  {}", atom.id, larry.ops.text(atom.description.atom));
+        }
+        std::println("{} conceptions about {}", about.size(), rest.front());
+        return 0;
+    }
+    if (command == "understand") {
+        if (rest.empty()) {
+            throw std::runtime_error("understand needs a sentence");
+        }
+        // P1: what it is, what it names, and what Larry holds of it.
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            std::println("{}", larry.brain.understand(d).text());
+        }
         return 0;
     }
     if (command == "groups") {
@@ -1437,8 +1525,7 @@ int run(std::span<const std::string_view> args) {
         if (rest.empty()) {
             throw std::runtime_error("say needs a sentence");
         }
-        const larry::Reply reply =
-            larry.brain.hear(larry.ops.from_text(join(rest)), "user:" + larry.user);
+        const larry::Reply reply = larry.brain.hear(larry.ops.from_text(join(rest)), larry.source);
         std::println("{}", reply.text);
         for (const std::string& because : reply.because) {
             std::println("  because: {}", because);
@@ -1454,8 +1541,14 @@ int run(std::span<const std::string_view> args) {
     if (command == "chat") {
         larry::Brain& brain = larry.brain;
         brain.notice(show_notice);
+        // The chat exposed to people: with a name, what is heard comes from
+        // "chat:<name>", who is no validator: what goes against memory is
+        // denied, and what is new waits for the validator (P4, P5).
+        if (!rest.empty()) {
+            larry.source = "chat:" + std::string{rest.front()};
+        }
         // N4: the conversation is one molecule.
-        const std::string conversation = "chat:" + larry.user + ":" + larry::Brain::now();
+        const std::string conversation = "chat:" + (rest.empty() ? larry.user : std::string{rest.front()}) + ":" + larry::Brain::now();
         brain.molecule(larry::Bytes(conversation.begin(), conversation.end()));
         larry::Reply last;
         std::println("Larry: hello. I hold {} conceptions{}. Say \"bye\" to end, \"why?\" to ask why.",
@@ -1491,9 +1584,28 @@ int run(std::span<const std::string_view> args) {
                                                        : std::string{});
                     return 0;
                 }
-                last = brain.hear(sentence, "user:" + larry.user);
+                last = brain.hear(sentence, larry.source);
+                // T1, P1: what it was about, and what it named that Larry holds nothing about.
+                if (!last.theme.empty() || !last.unknown_things.empty()) {
+                    std::string about = last.theme.empty() ? std::string{} : std::vformat(brain.say("about"), std::make_format_args(last.theme));
+                    for (const std::string& thing : last.unknown_things) {
+                        about += (about.empty() ? "" : "; ") + std::vformat(brain.say("unknown to me"), std::make_format_args(thing));
+                    }
+                    std::println("  ({})", about);
+                }
                 std::print("Larry: ");
                 stream(last.text);
+                // P5: a question about a thing Larry holds nothing about: the research, and the thing proposed.
+                if (!last.unknown_things.empty() && !last.command && last.text.starts_with(brain.say("unknown"))) {
+                    std::string longest;
+                    for (const std::string& thing : last.unknown_things) {
+                        if (thing.size() > longest.size()) {
+                            longest = thing;
+                        }
+                    }
+                    std::print("Larry: ");
+                    stream(research(larry, longest, larry.source));
+                }
                 if (last.command && last.command->operation == "cannot") {
                     // One request per line: what follows a denied request goes with it.
                     if (&sentence != &sentences.back()) {

@@ -106,6 +106,7 @@ BaseRules::BaseRules(Language language) : language_(language) {
     names_ = read_pairs(dir / "names.txt");
     goals_ = read_pairs(dir / "goals.txt");
     answers_ = read_pairs(dir / "answers.txt");
+    themes_ = read_pairs(dir / "themes.txt");
     impersonal_ = read(dir / "impersonal.txt");
     conditions_ = read_pairs(dir / "conditions.txt");
     std::ranges::stable_sort(relations_, [](const auto& a, const auto& b) {
