@@ -123,6 +123,7 @@ BaseRules::BaseRules(Language language) : language_(language) {
         }
     }
     number_words_ = read_pairs(dir / "number_words.txt");
+    grammar_ = read(dir / "grammar.txt");
 }
 
 }  // namespace larry

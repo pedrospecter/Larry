@@ -1,6 +1,7 @@
 #include "larry/brain.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/grammar.hpp"
 
 #include <algorithm>
 #include <format>
@@ -50,8 +51,43 @@ const std::vector<Bytes> do_support = {bytes_of("do"), bytes_of("does"), bytes_o
 
 }  // namespace
 
-Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dictionary* dictionary)
-    : rules_(&rules), assimilation_(rules, dictionary), cognition_(), memory_(&memory), cloud_(cloud) {}
+Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dictionary* dictionary,
+             Grammar* grammar)
+    : rules_(&rules),
+      grammar_(grammar),
+      assimilation_(rules, dictionary, grammar),
+      cognition_(),
+      memory_(&memory),
+      cloud_(cloud) {
+    if (grammar_ != nullptr) {
+        for (const StoredAtom& atom : memory_->with_status(Status::Validated)) {
+            learn_grammar(atom);
+        }
+    }
+}
+
+bool Brain::learn_grammar(const StoredAtom& atom) {
+    if (grammar_ == nullptr || atom.status != Status::Validated) {
+        return false;
+    }
+    std::vector<Bytes> categories;
+    std::vector<Bytes> roles;
+    for (const Entity& e : atom.description.entities.entities) {
+        // The role is the last type that is one; after it may come "guessed".
+        const auto role = std::ranges::find_if(e.types.rbegin(), e.types.rend(), [](const Bytes& t) {
+            return std::ranges::contains(Grammar::roles(), t);
+        });
+        if (e.category.empty() || role == e.types.rend()) {
+            return false;
+        }
+        categories.push_back(e.category);
+        roles.push_back(*role);
+    }
+    const AtomOperations ops;
+    static const Bytes question = bytes_of("question");
+    return grammar_->learn("example: " + std::string{ops.text(atom.description.atom)}, categories,
+                           roles, atom.description.category.bytes == question);
+}
 
 void Brain::cache(const StoredAtom& atom) const {
     const Description& d = atom.description;
@@ -116,6 +152,11 @@ bool Brain::set_status(const MetadataElectron& metadata, Status status, std::str
         if (const std::optional<StoredAtom> held = cloud_->find(metadata)) {
             cloud_->set_status(held->id, status, by);
             any = true;
+        }
+    }
+    if (any && status == Status::Validated && grammar_ != nullptr) {
+        if (const std::optional<StoredAtom> held = memory_->find(metadata)) {
+            learn_grammar(*held);
         }
     }
     return any;

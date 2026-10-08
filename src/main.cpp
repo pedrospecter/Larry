@@ -7,6 +7,7 @@
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
+#include "larry/grammar.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
 
@@ -43,6 +44,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
   compare <text> <text>        compare two sentences: C1 to C5
+  grammar <text>               which grammar pattern each sentence fits and the
+                               role of each word, or where it breaks and what
+                               was expected there; "grammar" alone lists the
+                               patterns
   ask <text>                   is a concept true, false or unknown, from the
                                conceptions in memory; a yes/no question works
   say <text>                   hear one sentence and reply: an affirmation is
@@ -203,12 +208,13 @@ struct Larry {
     larry::Constellation constellation{larry::Language::English};
     larry::BaseRules rules{constellation.language()};
     std::unique_ptr<larry::Dictionary> dictionary{open_dictionary(constellation.language())};
-    larry::Assimilation assimilation{rules, dictionary.get()};
+    larry::Grammar grammar{rules};
+    larry::Assimilation assimilation{rules, dictionary.get(), &grammar};
     larry::Cognition cognition;
     larry::AtomOperations ops;
     larry::Memory memory{larry::Memory::file_from_environment(constellation.language())};
     std::unique_ptr<larry::Database> cloud;
-    larry::Brain brain{rules, memory, nullptr, dictionary.get()};
+    larry::Brain brain{rules, memory, nullptr, dictionary.get(), &grammar};
 
     Larry() {
         const std::string connection = larry::Database::connection_from_environment();
@@ -219,7 +225,7 @@ struct Larry {
                 std::println(stderr, "larry: no cloud: {}", e.what());
             }
         }
-        brain = larry::Brain{rules, memory, cloud.get(), dictionary.get()};
+        brain = larry::Brain{rules, memory, cloud.get(), dictionary.get(), &grammar};
         if (!std::filesystem::exists(memory.file())) {
             std::println(stderr, "larry: no memory at {}; rebuilding it from the lessons",
                          memory.file().string());
@@ -323,6 +329,7 @@ void print(const Larry& larry, const larry::Description& d) {
     std::println("category      : {} ({} bytes)", as_text(d.category.bytes),
                  d.category.bytes.size());
     std::println("type          : {} ({} bytes)", as_text(d.type.bytes), d.type.bytes.size());
+    std::println("pattern       : {}", d.pattern.empty() ? "none fits; roles by position" : d.pattern);
     std::println("entities      : {}", d.entities.entities.size());
     for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
         const larry::Entity& entity = d.entities.entities[i];
@@ -437,6 +444,59 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "rebuild") {
         larry.rebuild(true);
+        return 0;
+    }
+    if (command == "grammar") {
+        if (rest.empty()) {
+            std::println("{} patterns, {} learned from validated conceptions", larry.grammar.size(),
+                         larry.grammar.learned());
+            for (const larry::Grammar::Pattern& p : larry.grammar.patterns()) {
+                std::println("{}: {}", p.name, p.text);
+            }
+            return 0;
+        }
+        const larry::Grammar& grammar = larry.grammar;
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            std::println("{}", larry.ops.text(sentence));
+            std::vector<larry::Bytes> categories;
+            std::string shown;
+            for (const larry::Entity& e : d.entities.entities) {
+                categories.push_back(e.category);
+                shown += shown.empty() ? "" : ", ";
+                shown += e.category.empty() ? "?" : std::string{as_text(e.category)};
+            }
+            std::println("categories : {}", shown);
+            if (std::ranges::any_of(categories, [](const larry::Bytes& c) { return c.empty(); })) {
+                std::println("no pattern : a word has no category{}", open_words(d));
+                continue;
+            }
+            const bool question = as_text(d.category.bytes) == "question";
+            const larry::Fit fit = grammar.fit(categories, question);
+            if (fit.fits) {
+                std::println("pattern    : {}", fit.pattern);
+                std::println("             {}", grammar.text(fit.pattern));
+                for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+                    std::println("  {:<14} {:<15} {}", as_text(d.entities.entities[i].word),
+                                 as_text(categories[i]), as_text(fit.roles[i]));
+                }
+                continue;
+            }
+            std::string expected;
+            for (const larry::Bytes& e : fit.expected) {
+                expected += expected.empty() ? "" : ", ";
+                expected += as_text(e) == "end" ? "the end of the sentence" : std::string{as_text(e)};
+            }
+            if (fit.breaks_at < d.entities.entities.size()) {
+                std::println("no pattern : breaks at word {} \"{}\" ({}); expected: {}", fit.breaks_at + 1,
+                             as_text(d.entities.entities[fit.breaks_at].word),
+                             as_text(categories[fit.breaks_at]), expected);
+            } else {
+                std::println("no pattern : the sentence ends too early; expected: {}", expected);
+            }
+            std::println("nearest    : {}", fit.pattern);
+            std::println("             {}", grammar.text(fit.pattern));
+        }
         return 0;
     }
     if (command == "compare") {

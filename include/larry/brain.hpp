@@ -7,6 +7,7 @@
 #include "larry/description.hpp"
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
+#include "larry/grammar.hpp"
 #include "larry/memory.hpp"
 #include "larry/sentence.hpp"
 
@@ -65,9 +66,11 @@ struct Core {
 class Brain {
 public:
     /// Without a cloud, the brain has only the cache; without a dictionary,
-    /// only what the conceptions taught.
+    /// only what the conceptions taught; without a grammar, roles by
+    /// position. With a grammar, the validated conceptions of the cache add
+    /// their patterns to it (K2), now and as they are validated.
     Brain(const BaseRules& rules, Memory& memory, Database* cloud = nullptr,
-          const Dictionary* dictionary = nullptr);
+          const Dictionary* dictionary = nullptr, Grammar* grammar = nullptr);
 
     /// R1 (first step) and K1: is this concept true? A concept is true when an
     /// affirmation in memory has the same core with the same polarity, false
@@ -144,6 +147,13 @@ public:
     [[nodiscard]] Memory& memory() const noexcept { return *memory_; }
     [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
+    [[nodiscard]] Grammar* grammar() const noexcept { return grammar_; }
+
+    /// K2: adds the pattern of a validated conception to the grammar: its
+    /// categories with their roles, named after the sentence. False when
+    /// there is no grammar, the conception is not validated, a category or
+    /// role is missing, or the grammar already gives those roles.
+    bool learn_grammar(const StoredAtom& atom);
     [[nodiscard]] const Cognition& cognition() const noexcept { return cognition_; }
 
 private:
@@ -162,6 +172,7 @@ private:
     void cache(const StoredAtom& atom) const;
 
     const BaseRules* rules_;
+    Grammar* grammar_;
     Assimilation assimilation_;
     Cognition cognition_;
     Memory* memory_;

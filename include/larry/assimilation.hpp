@@ -14,6 +14,7 @@
 namespace larry {
 
 class Dictionary;
+class Grammar;
 class Memory;
 
 /// Assimilation: how Larry takes in language (PLAN.md, track A). It splits
@@ -22,8 +23,11 @@ class Memory;
 class Assimilation {
 public:
     /// With a dictionary, a word no conception has taught takes its
-    /// categories from it (A2b); without one, it is unknown.
-    explicit Assimilation(const BaseRules& rules, const Dictionary* dictionary = nullptr);
+    /// categories from it (A2b); without one, it is unknown. With a grammar,
+    /// the roles come from the pattern the sentence fits (K2); without one,
+    /// or when none fits, from the position of each word.
+    explicit Assimilation(const BaseRules& rules, const Dictionary* dictionary = nullptr,
+                          const Grammar* grammar = nullptr);
 
     /// A1: the sentences in a text, each an atom: its bytes, without the white
     /// space around them. A sentence ends at a sentence-end mark that is
@@ -49,13 +53,15 @@ public:
     /// A7 (first step, Q1 and Q2 as proposed, with emotion): fill the types.
     /// Each entity gets its grammatical features, from its form and category
     /// (number, tense, person, degree, from the endings, forms, pronouns and
-    /// auxiliaries in the base rules), and its role by position: subject
-    /// before the first verb, predicate, then object, attribute after a
-    /// copula, complement after a preposition, modifier for adverbs. The
-    /// atom's type is the roles in order and its emotion: sarcasm when a
-    /// marker phrase occurs, else the emotion of the first emotion word,
-    /// else neutral.
+    /// auxiliaries in the base rules), and its role: from the grammar pattern
+    /// the categories fit (K2), else by position: subject before the first
+    /// verb, predicate, then object, attribute after a copula, complement
+    /// after a preposition, modifier for adverbs. The atom's type is the
+    /// roles in order and its emotion: sarcasm when a marker phrase occurs,
+    /// else the emotion of the first emotion word, else neutral.
     void types(Description& d) const;
+
+    [[nodiscard]] const Grammar* grammar() const noexcept { return grammar_; }
 
 
 private:
@@ -72,6 +78,7 @@ private:
 
     const BaseRules* rules_;
     const Dictionary* dictionary_;
+    const Grammar* grammar_;
     std::vector<std::string> punctuation_;
     std::vector<std::string> sentence_ends_;
     std::vector<std::string> closers_;

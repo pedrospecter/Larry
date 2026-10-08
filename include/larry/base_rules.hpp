@@ -124,6 +124,10 @@ public:
         return number_words_;
     }
 
+    /// The grammar patterns as written, one per line, from grammar.txt (K2).
+    /// The Grammar class parses them.
+    [[nodiscard]] const std::vector<Bytes>& grammar() const noexcept { return grammar_; }
+
     /// Reads one rule file. Throws std::runtime_error when the file cannot be
     /// read or a line is not hex bytes.
     [[nodiscard]] static std::vector<Bytes> read(const std::filesystem::path& file);
@@ -159,6 +163,7 @@ private:
     std::vector<Bytes> sarcasm_;
     std::vector<Exclusive> exclusives_;
     std::vector<std::pair<Bytes, Bytes>> number_words_;
+    std::vector<Bytes> grammar_;
 };
 
 }  // namespace larry

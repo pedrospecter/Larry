@@ -1,0 +1,87 @@
+# K2: sentences against the grammar patterns. Fields are separated by " | ": what
+# is expected, the sentence, and the categories of its entities separated by
+# commas. "fits" means a pattern takes every word; "breaks at N" means no pattern
+# takes word N (counted from 1); "breaks at end" means the sentence ends where the
+# pattern that came furthest expected more ("blue green" reads as two adjectives
+# before a missing noun).
+#
+# Statements with a copula.
+fits | The sky is blue. | determiner, noun, auxiliary verb, adjective
+fits | Snow is white. | noun, auxiliary verb, adjective
+fits | The old dog is slow. | determiner, adjective, noun, auxiliary verb, adjective
+fits | A new book is here. | determiner, adjective, noun, auxiliary verb, adverb
+fits | An apple is a fruit. | determiner, noun, auxiliary verb, determiner, noun
+fits | Tom is a teacher. | proper noun, auxiliary verb, determiner, noun
+fits | Larry is an AI model. | proper noun, auxiliary verb, determiner, noun, noun
+fits | The sky is not green. | determiner, noun, auxiliary verb, adverb, adjective
+fits | The milk is in the kitchen. | determiner, noun, auxiliary verb, preposition, determiner, noun
+fits | Paris is the capital of France. | proper noun, auxiliary verb, determiner, noun, preposition, proper noun
+fits | The colour of the sky is blue. | determiner, noun, preposition, determiner, noun, auxiliary verb, adjective
+fits | Tea or coffee is fine. | noun, conjunction, noun, auxiliary verb, adjective
+fits | We are here now. | pronoun, auxiliary verb, adverb, adverb
+fits | Mary was late. | proper noun, auxiliary verb, adjective
+fits | The two cats are asleep. | determiner, numeral, noun, auxiliary verb, adjective
+fits | My keys are on the table in the kitchen. | determiner, noun, auxiliary verb, preposition, determiner, noun, preposition, determiner, noun
+#
+# Statements with a verb.
+fits | Birds fly. | noun, verb
+fits | Penguins do not fly. | noun, auxiliary verb, adverb, verb
+fits | Tom has a red car. | proper noun, verb, determiner, adjective, noun
+fits | Tom has three apples. | proper noun, verb, numeral, noun
+fits | I like tea. | pronoun, verb, noun
+fits | Mary went to the kitchen. | proper noun, verb, preposition, determiner, noun
+fits | Ana went to Paris. | proper noun, verb, preposition, proper noun
+fits | The cat sat on the mat. | determiner, noun, verb, preposition, determiner, noun
+fits | Clouds cross the sky. | noun, verb, determiner, noun
+fits | Water boils at 100 degrees. | noun, verb, preposition, numeral, noun
+fits | It rained yesterday. | pronoun, verb, adverb
+fits | Tom can swim. | proper noun, auxiliary verb, verb
+fits | Tom will come tomorrow. | proper noun, auxiliary verb, verb, adverb
+fits | Tom is running. | proper noun, auxiliary verb, verb
+fits | Mary gave Tom the book. | proper noun, verb, proper noun, determiner, noun
+fits | Maybe it rains tomorrow. | adverb, pronoun, verb, adverb
+fits | Tom and Mary like apples and pears. | proper noun, conjunction, proper noun, verb, noun, conjunction, noun
+fits | The dog sat down. | determiner, noun, verb, particle
+#
+# Compound and conditional.
+fits | The street is wet because it rained. | determiner, noun, auxiliary verb, adjective, conjunction, pronoun, verb
+fits | The sky is blue and the grass is green. | determiner, noun, auxiliary verb, adjective, conjunction, determiner, noun, auxiliary verb, adjective
+fits | If it rains, the street is wet. | conjunction, pronoun, verb, determiner, noun, auxiliary verb, adjective
+#
+# Questions.
+fits | Is the sky blue? | auxiliary verb, determiner, noun, adjective
+fits | Are birds animals? | auxiliary verb, noun, noun
+fits | Can penguins fly? | auxiliary verb, noun, verb
+fits | Does Tom like apples? | auxiliary verb, proper noun, verb, noun
+fits | Is the milk in the kitchen? | auxiliary verb, determiner, noun, preposition, determiner, noun
+fits | Isn't the sky blue? | auxiliary verb, determiner, noun, adjective
+fits | Where is Tom? | adverb, auxiliary verb, proper noun
+fits | Who is Mary? | pronoun, auxiliary verb, proper noun
+fits | What is the capital of France? | pronoun, auxiliary verb, determiner, noun, preposition, proper noun
+fits | What colour is the sky? | pronoun, noun, auxiliary verb, determiner, noun
+fits | Where did Mary go? | adverb, auxiliary verb, proper noun, verb
+fits | Who wrote this book? | pronoun, verb, determiner, noun
+fits | Which way is the station? | determiner, noun, auxiliary verb, determiner, noun
+#
+# Orders and expressions.
+fits | Close the door. | verb, determiner, noun
+fits | Please sit down. | interjection, verb, particle
+fits | Give me the book. | verb, pronoun, determiner, noun
+fits | Look at the sky. | verb, preposition, determiner, noun
+fits | Listen carefully. | verb, adverb
+fits | Stop! | verb
+fits | Hello. | interjection
+fits | Thank you. | interjection, pronoun
+fits | Oh no. | interjection, interjection
+#
+# What breaks: the word no pattern takes, with what was expected there.
+breaks at 2 | Sky the is blue. | noun, determiner, auxiliary verb, adjective
+breaks at 3 | The sky blue is. | determiner, noun, adjective, auxiliary verb
+breaks at end | The sky is blue green. | determiner, noun, auxiliary verb, adjective, adjective
+breaks at 7 | The sky is blue not not green. | determiner, noun, auxiliary verb, adjective, adverb, adverb, adjective
+breaks at end | The sky is | determiner, noun, auxiliary verb
+breaks at end | The | determiner
+breaks at 2 | Is is the sky blue? | auxiliary verb, auxiliary verb, determiner, noun, adjective
+breaks at 2 | Tom apples likes. | proper noun, noun, verb
+breaks at 2 | The the sky is blue. | determiner, determiner, noun, auxiliary verb, adjective
+breaks at 1 | Of the sky. | preposition, determiner, noun
