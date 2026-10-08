@@ -47,10 +47,32 @@ true or withdraws it, and nobody is a validator until you add yourself:
 
 Larry refuses a decision from anyone else, and records who decided.
 
+## Cognition
+
+Larry answers true, false or I don't know (`larry ask`): a claim is false
+when a conception says the opposite, or gives the thing another exclusive
+attribute ("the sky is green" against "the sky is blue"), and the answer
+names the conception and the rule. The grammar of English is data
+(`base_rules/en/grammar.txt`): patterns of categories with the role of each
+place, which say why the words sit where they sit (`larry grammar`). A
+sentence off the grammar is read as meant within a tolerance
+(`base_rules/en/tolerance.txt`), each deviation named: "Sky are blue" is
+read as "The sky is blue", stored as said. The context harness says whether
+each word is used with the words it is known with (`larry harness`): "wide"
+was never said of the sea, the sea is known as vast. And every sentence is
+qualified, an affirmation (a declaration), a question, an order (a command),
+an assumption or an expression, by the rules and by the conceptions of the
+same structure, with the reasons (`larry qualify`).
+
 ## Try
 
     ./build/larry show "the grass is green"
     ./build/larry compare "the sky is blue" "the sea is blue"
     ./build/larry ask "Is the sky blue?"
+    ./build/larry ask "the sky is green"       # false, because the sky is blue
     ./build/larry say "The skyy is blue."      # Did you mean "sky"?
+    ./build/larry say "Sky are blue."          # I read it as "The sky is blue."
+    ./build/larry grammar "Sky the is blue."   # breaks at word 2; expected ...
+    ./build/larry harness "The sea is wide."   # "wide" was never said of the sea
+    ./build/larry qualify "Close the window."  # order (command), by rule 6 and by example
     ./build/larry words sky

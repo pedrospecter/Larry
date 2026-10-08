@@ -77,7 +77,7 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 7. **Every item lands with tests.** The build and all tests pass before a commit.
 8. **Claim only what was measured.** Write measured numbers in the log. A capability exists when its test passes.
 
-## 4. Where the code stands (2026-10-07, end of the second prototype session)
+## 4. Where the code stands (2026-10-08, end of the third session: cognition, Stage 2d)
 
 `./build/larry` builds and runs on Linux (GCC 14) with libpq as its only dependency. The machine keeps the cache (`memory/<locale>.atoms`, or `LARRY_MEMORY`); the cloud is the PostgreSQL server `LARRY_DB` names, with `scripts/setup.sh` starting a local one as the stand-in for the user's Raspberry Pi. On first use Larry rebuilds its cache from the lessons and pushes them to the cloud.
 
@@ -86,9 +86,9 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Atom from text, atom as bits | Works (`AtomOperations`). |
 | Metadata | Works, reads back into electrons, and gives prefixes for neighbours. It now holds the types, so caches and clouds filled before the types change need a rebuild. |
 | Dictionary (A2b) | `dictionary/en/words.txt`, built by `scripts/dictionary.sh` from Moby, loads in 0.3 s. A word memory does not know takes its one dictionary category (`Source::Dictionary`, evidence when stored), or its several as candidates for the context to choose from (then a guess). A word nobody knows gets the dictionary words one slip away, the ones memory knows first, and Larry asks "Did you mean" instead of guessing. |
-| Base rules | 19 files in `base_rules/en/`: the 13 categories, and the lists the splitter, qualification, brain and types need (punctuation, sentence ends, closers, joiners, number joiners, abbreviations, titles, question words, assumption words, expressions, negation words, contractions, endings, forms, pronouns, auxiliaries, emotions, sarcasm markers). Hex, with `#` comments and `key=value` pairs; `scripts/hex.sh` converts. |
+| Base rules | 23 files in `base_rules/en/`: the 13 categories, and the lists the splitter, qualification, brain and types need (punctuation, sentence ends, closers, joiners, number joiners, abbreviations, titles, question words, assumption words, expressions, negation words, contractions, endings, forms, pronouns, auxiliaries, emotions, sarcasm markers). Hex, with `#` comments and `key=value` pairs; `scripts/hex.sh` converts. |
 | Sentences and entities (A1) | Works. Suites: 240 sentences, 55 texts, random bytes under the sanitizers. Known gaps: a name of several words at the start of a sentence is not joined, initials and web addresses split, an emoji is a word. |
-| Qualification (A3) | Works with the proposed rules (Q5). Suite: 407 sentences. Guessed categories do not drive it. |
+| Qualification (A3, K5) | Works with the proposed rules (Q5), each answer naming the rule that fired. Suite: 407 sentences. Guessed categories do not drive it. By example too: the conceptions of the same structure (C5) say what they are, validated ones first; when the rules and the examples disagree, Larry says both (`larry qualify`). The user's words, declaration and command, are accepted. |
 | Categories (A2, A6a) | From lessons and from memory. An unknown word takes the category of known words in the same context as a guess, marked and never evidence; Larry says so when it hears one and asks about a word it cannot guess (A5, first step). `larry words` lists the vocabulary with categories, types and contexts. |
 | Types (A7a) | Filled, with Q1 and Q2 as proposed plus emotion: features from the word's form (number, tense, person, degree), the role by position (subject, predicate, object, attribute, complement, modifier, link), and the atom's roles in order with its emotion (sarcasm by marker phrases for now). |
 | Image | Still a copy of the text (Q3). |
@@ -97,9 +97,12 @@ This plan needs four names that the user has not chosen. They are proposals (Q12
 | Validation (R2a, R2b) | A conception is proposed until a validator accepts it (`larry validate`, interactive or by id); a withdrawn one is no evidence. Only validators decide: `larry validators add <name>` (anyone adds the first, then only a validator), `LARRY_USER` names who is talking, and the decision records who made it, in the cache and the cloud. A second source never validates by itself: the user asked for this safeguard. |
 | Lessons and rebuild (F7) | 96 sentences in lesson 1. Two rebuilds give the same cache file byte for byte. |
 | Comparisons of form (C1 to C5) | Work; `larry compare`. C5 sees the types now. Not yet stored as bonds (N3). Suites: 104 pairs. |
-| Truth of a concept (R1a) | `larry ask`: true, false or unknown, with the conception and whether it came from the cloud and is still proposed. |
+| Truth of a concept (R1a, K1) | `larry ask`: true, false or unknown, with the conception and whether it came from the cloud and is still proposed. False too when a conception gives the thing another exclusive attribute ("the sky is green" against "the sky is blue"), naming the rule; number words read as digits. Suite: 53 claims. |
+| Grammar (K2) | `Grammar`: patterns of categories with roles in `grammar.txt` (10 patterns, 6 groups); the roles come from the pattern that fits, else by position; `larry grammar` names the pattern or where the sentence breaks. Validated conceptions add their own patterns. Every lesson fits. Suite: 69 sentences. |
+| Tolerance (K3) | `Tolerance`: a sentence off the grammar is read by the nearest pattern within the allowance in `tolerance.txt` (one deviation per four words, at most two), each deviation named; a noun known only with a determiner gets it back; the predicate is made to agree with its subject. Stored as said, thought with as read. Suite: 33 sentences. |
+| Context harness (K4) | `Harness`: each relation of a sentence (attribute of a thing, subject or object of a verb, modifier, complement) is known, plausible or unusual against the conceptions, with what is known instead; `larry harness`; `say`, `ask` and `show` report the unusual. Suite: 25 relations. |
 | Hearing requests (G3a) | `larry say`, `larry chat`: statements stored with a novelty check, conflict report and validation by a second source; questions answered; orders refused; assumptions kept apart; expressions returned; "why?" explains. |
-| Tests | 8 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`. The database and brain tests use a scratch schema of the local server and skip their cloud checks without one. |
+| Tests | 13 test executables, `ctest`, all passing with and without `LARRY_SANITIZE=ON`, with clang and libc++, and without libpq. The database and brain tests use a scratch schema of the local server and skip their cloud checks without one. |
 
 ## 5. The design
 
