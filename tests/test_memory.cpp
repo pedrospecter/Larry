@@ -430,6 +430,61 @@ TEST(sources_and_status_live_in_the_log) {
     CHECK(third.find(d.metadata)->sources == std::vector<std::string>{"read:a,b\tc"});
 }
 
+TEST(bonds_live_in_the_log_both_ways_and_survive_a_clear) {
+    using larry::Bond;
+    using larry::BondEnd;
+    const std::filesystem::path file = fresh("larry_test_bonds.atoms");
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    const Bond forms{b("form of"), BondEnd::entity("Skies"), BondEnd::entity("sky"), {"user:pedro"}};
+    const Bond conflict{b("conflicts with"), BondEnd::atom(c.metadata), BondEnd::atom(d.metadata), {"rule: one colour"}};
+    {
+        Memory memory{file};
+        memory.store(c.atom, c.metadata);
+        memory.store(d.atom, d.metadata);
+        CHECK(memory.count_bonds() == 0);
+        CHECK(memory.bond(forms));
+        CHECK(!memory.bond(forms));  // the same bond again changes nothing
+        CHECK(memory.bond(conflict));
+        CHECK(memory.count_bonds() == 2);
+        // A second origin joins the bond.
+        CHECK(!memory.bond(Bond{b("form of"), BondEnd::entity("skies"), BondEnd::entity("Sky"), {"lesson:forms"}}));
+        CHECK(memory.count_bonds() == 2);
+        CHECK(memory.bonds_from(BondEnd::entity("skies")).size() == 1);
+        CHECK(memory.bonds_from(BondEnd::entity("skies")).front().origins ==
+              (std::vector<std::string>{"user:pedro", "lesson:forms"}));
+        CHECK(memory.bonds_to(BondEnd::entity("sky")).size() == 1);
+        CHECK(memory.bonds_to(BondEnd::entity("skies")).empty());
+        CHECK(memory.bonds_from(BondEnd::entity("sky")).empty());
+        CHECK(memory.bonds_of(BondEnd::entity("sky")).size() == 1);
+        CHECK(memory.bonds_of(BondEnd::atom(d.metadata)).size() == 1);
+        CHECK(memory.bonds_of(BondEnd::atom(d.metadata)).front().kind == b("conflicts with"));
+        CHECK(memory.bonds_to(BondEnd::atom(d.metadata)).front().from == BondEnd::atom(c.metadata));
+        CHECK(memory.bonds_of(BondEnd::atom(sky_clouds().metadata)).empty());
+        CHECK_THROWS(memory.bond(Bond{{}, BondEnd::entity("a"), BondEnd::entity("b"), {}}), std::invalid_argument);
+        CHECK_THROWS(memory.bond(Bond{b("x"), BondEnd::entity(""), BondEnd::entity("b"), {}}), std::invalid_argument);
+        CHECK(memory.find_identity(larry::AtomOperations{}.identity(c.metadata))->id == 1);
+        CHECK(!memory.find_identity(b("nobody")).has_value());
+    }
+    // The log reads back to the same bonds, and a clear keeps them.
+    Memory again{file};
+    CHECK(again.count_bonds() == 2);
+    CHECK(again.bonds_of(BondEnd::entity("sky")).front().origins.size() == 2);
+    CHECK(again.bonds_to(BondEnd::atom(d.metadata)).size() == 1);
+    again.clear();
+    CHECK(again.count() == 0);
+    CHECK(again.count_bonds() == 2);
+    Memory third{file};
+    CHECK(third.count() == 0);
+    CHECK(third.count_bonds() == 2);
+    CHECK(third.bonds_from(BondEnd::entity("skies")).front().to == BondEnd::entity("sky"));
+    // A bond without an origin is a line with an empty origin.
+    CHECK(third.bond(Bond{b("answers"), BondEnd::atom(c.metadata), BondEnd::atom(d.metadata), {}}));
+    Memory fourth{file};
+    CHECK(fourth.count_bonds() == 3);
+    CHECK(fourth.bonds().back().origins.empty());
+}
+
 TEST(clear_keeps_the_validators) {
     const std::filesystem::path file = fresh("larry_test_clear_validators.atoms");
     Memory memory{file};

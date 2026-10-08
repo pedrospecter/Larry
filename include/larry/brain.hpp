@@ -216,15 +216,29 @@ public:
         std::int64_t pulled = 0;       ///< Conceptions the cache lacked.
         std::int64_t redescribed = 0;  ///< Conceptions the cloud held with an older description.
         std::int64_t refreshed = 0;    ///< Cached conceptions whose standing the cloud changed.
+        std::int64_t bonds_pushed = 0; ///< Bonds the cloud lacked (N3).
+        std::int64_t bonds_pulled = 0; ///< Bonds the cache lacked.
         bool operator==(const Synced&) const = default;
     };
 
     /// N2: pushes every conception of the cache that the cloud does not have,
     /// gives the cloud the cache's description where it holds an older one
-    /// (Q28), pulls the cloud's most recent conceptions into the cache, and
-    /// refreshes the standing of the cached ones. Throws when there is no
-    /// cloud.
+    /// (Q28), pulls the cloud's most recent conceptions into the cache,
+    /// refreshes the standing of the cached ones, and exchanges the bonds
+    /// (N3) both ways. Throws when there is no cloud.
     Synced sync(std::int64_t pull);
+
+    /// N3: records a bond in the cache and, with a cloud, in the cloud. True
+    /// when the cache did not have it.
+    bool bond(const Bond& bond);
+
+    /// N3: the bonds at an end, either way: the cache's; when the cache has
+    /// none and there is a cloud, the cloud's, which are cached then.
+    [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end) const;
+
+    /// N3: the conception an atom end names, from the cache, else from the
+    /// cloud; nothing for an entity end or an identity nobody holds.
+    [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
     /// N2c: the cloud is the record. Every cached conception takes the
     /// status, the decision and the reading the cloud holds for it, in one

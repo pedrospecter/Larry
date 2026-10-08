@@ -796,6 +796,57 @@ std::unique_ptr<larry::Database> cloud_database() {
 
 }  // namespace
 
+TEST(a_conflict_is_a_bond_between_the_two_conceptions) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_bonds.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto say = [&](std::string_view text, std::vector<std::string_view> categories = {}) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        if (!taught.empty()) {
+            const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+            cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+            return larry::Reply{};
+        }
+        return brain.hear(ops.from_text(text), "user:pedro");
+    };
+    say("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    say("The door is closed.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(cache.count_bonds() == 0);
+    const larry::Reply conflict = say("The sky is not blue.");
+    CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
+    CHECK(std::ranges::contains(conflict.because, std::string{"bond: conflicts with, recorded (N3)"}));
+    CHECK(cache.count_bonds() == 1);
+    const larry::Description said = assimilation.describe(ops.from_text("The sky is not blue."), &cache);
+    const std::vector<larry::Bond> from_said = brain.bonds_of(larry::BondEnd::atom(said.metadata));
+    CHECK(from_said.size() == 1);
+    if (!from_said.empty()) {
+        CHECK(from_said.front().kind == b("conflicts with"));
+        CHECK(from_said.front().from == larry::BondEnd::atom(said.metadata));
+        CHECK(brain.conception_at(from_said.front().to).has_value());
+        CHECK(brain.conception_at(from_said.front().to)->description.image.bytes == b("The sky is blue."));
+        CHECK(from_said.front().origins.size() == 1);
+        CHECK(!from_said.front().origins.empty() && from_said.front().origins.front().starts_with("comparison: "));
+    }
+    // The other way round too, and the rule's conflict names the rule.
+    const larry::Description blue = assimilation.describe(ops.from_text("The sky is blue."), &cache);
+    CHECK(cache.bonds_to(larry::BondEnd::atom(blue.metadata)).size() == 1);
+    const larry::Reply open = say("The door is open.");
+    CHECK(open.text.starts_with("That conflicts with what I know: The door is closed."));
+    CHECK(cache.count_bonds() == 2);
+    CHECK(cache.bonds().back().origins.front().starts_with("rule: open and closed"));
+    // The same conflict heard again is the same bond.
+    (void)say("The sky is not blue.");
+    CHECK(cache.count_bonds() == 2);
+    CHECK(brain.conception_at(larry::BondEnd::entity("sky")) == std::nullopt);
+}
+
 TEST(the_cache_answers_first_and_the_cloud_second) {
     std::unique_ptr<larry::Database> cloud = cloud_database();
     if (!cloud) {
@@ -870,12 +921,25 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
     const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
-    const auto [pushed, pulled, redescribed, refreshed] = brain.sync(100);
-    CHECK(pushed == 1);
-    CHECK(pulled == 2);  // the cat and the withdrawn moon
+    const larry::Brain::Synced synced_first = brain.sync(100);
+    CHECK(synced_first.pushed == 1);
+    CHECK(synced_first.pulled == 2);  // the cat and the withdrawn moon
     CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
     CHECK(cache.find(cat.metadata)->status == larry::Status::Validated);
     CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // N3: a bond goes to the cloud at once, and the cloud's bonds come to the cache at sync.
+    cloud->run("truncate bonds, bond_origins restart identity cascade");
+    CHECK(brain.bond(larry::Bond{b("form of"), larry::BondEnd::entity("cats"), larry::BondEnd::entity("cat"), {"user:pedro"}}));
+    CHECK(cloud->count_bonds() == 1);
+    CHECK(cloud->bond(larry::Bond{b("conflicts with"), larry::BondEnd::atom(sky.metadata), larry::BondEnd::atom(moon.metadata), {"pi"}}));
+    const larry::Brain::Synced bonded = brain.sync(100);
+    CHECK(bonded.bonds_pushed == 0);
+    CHECK(bonded.bonds_pulled == 1);
+    CHECK(cache.count_bonds() == 2);
+    CHECK(brain.bonds_of(larry::BondEnd::atom(moon.metadata)).size() == 1);
+    CHECK(brain.conception_at(larry::BondEnd::atom(moon.metadata))->description.metadata.bytes == moon.metadata.bytes);
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    cloud->run("truncate bonds, bond_origins restart identity cascade");
     // Q28: the cloud holds an older description of a conception: when the
     // machine describes it anew, the cloud follows, at remember and at sync.
     const larry::Description sun = describe("The sun is hot.", {"determiner", "noun", "auxiliary verb", "adjective"});

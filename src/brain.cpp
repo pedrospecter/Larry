@@ -236,7 +236,51 @@ Brain::Synced Brain::sync(std::int64_t pull) {
         ++out.pulled;
     }
     out.refreshed = refresh();
+    // N3: the bonds, both ways.
+    for (const Bond& bond : memory_->bonds()) {
+        if (cloud_->bond(bond)) {
+            ++out.bonds_pushed;
+        }
+    }
+    for (const Bond& bond : cloud_->bonds()) {
+        if (memory_->bond(bond)) {
+            ++out.bonds_pulled;
+        }
+    }
     return out;
+}
+
+bool Brain::bond(const Bond& bond) {
+    const bool fresh = memory_->bond(bond);
+    if (cloud_ != nullptr) {
+        (void)cloud_->bond(bond);
+    }
+    return fresh;
+}
+
+std::vector<Bond> Brain::bonds_of(const BondEnd& end) const {
+    std::vector<Bond> out = memory_->bonds_of(end);
+    if (out.empty() && cloud_ != nullptr) {
+        tell("searching the cloud for bonds");
+        out = cloud_->bonds_of(end);
+        for (const Bond& bond : out) {
+            (void)memory_->bond(bond);
+        }
+    }
+    return out;
+}
+
+std::optional<StoredAtom> Brain::conception_at(const BondEnd& end) const {
+    if (end.kind != BondEnd::Kind::Atom) {
+        return std::nullopt;
+    }
+    if (const std::optional<StoredAtom> held = memory_->find_identity(end.bytes)) {
+        return held;
+    }
+    if (cloud_ != nullptr) {
+        return cloud_->find_identity(end.bytes);
+    }
+    return std::nullopt;
 }
 
 std::int64_t Brain::refresh() {
@@ -1124,6 +1168,15 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
             reply.because.push_back("rule: " + rule);
         }
         reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
+        // N3: the conflict is a bond between the two conceptions, from the
+        // rule or the comparison that found it.
+        static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};
+        const std::string origin = verdict.rules.empty()
+                                       ? "comparison: the same core with the opposite polarity (R1)"
+                                       : "rule: " + verdict.rules.front();
+        (void)bond(Bond{conflicts, BondEnd::atom(said.metadata),
+                        BondEnd::atom(verdict.because.front().description.metadata), {origin}});
+        reply.because.emplace_back("bond: conflicts with, recorded (N3)");
         return reply;
     }
     reply.text += "Noted.";

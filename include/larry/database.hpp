@@ -113,6 +113,21 @@ public:
     [[nodiscard]] std::int64_t count();
     [[nodiscard]] std::int64_t count_words();
 
+    /// The conception with this identity (Q28), if any.
+    [[nodiscard]] std::optional<StoredAtom> find_identity(const Bytes& identity);
+
+    /// N3: records a bond. True when it is new; the same kind and ends
+    /// again only add their origins.
+    bool bond(const Bond& bond);
+
+    /// N3: the bonds from an end, to an end, either way, and all of them,
+    /// in the order they were recorded.
+    [[nodiscard]] std::vector<Bond> bonds_from(const BondEnd& end);
+    [[nodiscard]] std::vector<Bond> bonds_to(const BondEnd& end);
+    [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end);
+    [[nodiscard]] std::vector<Bond> bonds();
+    [[nodiscard]] std::int64_t count_bonds();
+
     /// One parameter of a query: bytes sent as they are, or as text.
     struct Param {
         Bytes bytes;
@@ -123,6 +138,7 @@ private:
     class Result;
     [[nodiscard]] Result exec(const char* sql, const std::vector<Param>& params = {});
     [[nodiscard]] std::vector<StoredAtom> read_atoms(const Result& result);
+    [[nodiscard]] std::vector<Bond> read_bonds(const Result& result);
     void index(std::int64_t id, const MetadataElectron& metadata);
 
     pg_conn* connection_;

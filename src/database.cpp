@@ -266,8 +266,105 @@ void Database::apply_schema() {
 }
 
 void Database::clear() {
-    // The validators stay: a rebuild forgets atoms, not who may validate.
+    // The validators and the bonds stay: a rebuild forgets atoms, not who
+    // may validate nor what was bonded.
     run("truncate conceptions, sources, words restart identity cascade");
+}
+
+std::optional<StoredAtom> Database::find_identity(const Bytes& identity) {
+    const Result result = exec("select id, metadata, bytes, status, decided_by, reading from conceptions "
+                               "where identity = $1",
+                               {binary(identity)});
+    std::vector<StoredAtom> atoms = read_atoms(result);
+    if (atoms.empty()) {
+        return std::nullopt;
+    }
+    return atoms.front();
+}
+
+std::vector<Bond> Database::read_bonds(const Result& result) {
+    std::vector<Bond> out;
+    for (int row = 0; row < result.rows(); ++row) {
+        const std::int64_t id = result.integer(row, 0);
+        Bond bond;
+        bond.kind = result.bytes(row, 1);
+        const Bytes from_kind = result.bytes(row, 2);
+        const Bytes to_kind = result.bytes(row, 4);
+        bond.from = {bond_end_from(std::string_view{reinterpret_cast<const char*>(from_kind.data()), from_kind.size()})
+                         .value_or(BondEnd::Kind::Entity),
+                     result.bytes(row, 3)};
+        bond.to = {bond_end_from(std::string_view{reinterpret_cast<const char*>(to_kind.data()), to_kind.size()})
+                       .value_or(BondEnd::Kind::Entity),
+                   result.bytes(row, 5)};
+        const Result origins = exec("select origin from bond_origins where bond = $1 order by id", {number(id)});
+        for (int o = 0; o < origins.rows(); ++o) {
+            const Bytes origin = origins.bytes(o, 0);
+            bond.origins.emplace_back(origin.begin(), origin.end());
+        }
+        out.push_back(std::move(bond));
+    }
+    return out;
+}
+
+bool Database::bond(const Bond& bond) {
+    if (bond.kind.empty() || bond.from.bytes.empty() || bond.to.bytes.empty()) {
+        throw std::invalid_argument("Database::bond: a bond needs a kind and two ends");
+    }
+    run("begin");
+    try {
+        const Result inserted = exec(
+            "insert into bonds (kind, from_kind, from_bytes, to_kind, to_bytes) values ($1, $2, $3, $4, $5) "
+            "on conflict (kind, from_kind, from_bytes, to_kind, to_bytes) do nothing returning id",
+            {binary(bond.kind), text(name(bond.from.kind)), binary(bond.from.bytes), text(name(bond.to.kind)),
+             binary(bond.to.bytes)});
+        const bool fresh = inserted.rows() == 1;
+        std::int64_t id = 0;
+        if (fresh) {
+            id = inserted.integer(0, 0);
+        } else {
+            const Result held = exec(
+                "select id from bonds where kind = $1 and from_kind = $2 and from_bytes = $3 and to_kind = $4 "
+                "and to_bytes = $5",
+                {binary(bond.kind), text(name(bond.from.kind)), binary(bond.from.bytes), text(name(bond.to.kind)),
+                 binary(bond.to.bytes)});
+            id = held.integer(0, 0);
+        }
+        for (const std::string& origin : bond.origins) {
+            (void)exec("insert into bond_origins (bond, origin) values ($1, $2) on conflict (bond, origin) do nothing",
+                       {number(id), text(origin)});
+        }
+        run("commit");
+        return fresh;
+    } catch (...) {
+        run("rollback");
+        throw;
+    }
+}
+
+std::vector<Bond> Database::bonds_from(const BondEnd& end) {
+    return read_bonds(exec("select id, kind, from_kind, from_bytes, to_kind, to_bytes from bonds "
+                           "where from_kind = $1 and from_bytes = $2 order by id",
+                           {text(name(end.kind)), binary(end.bytes)}));
+}
+
+std::vector<Bond> Database::bonds_to(const BondEnd& end) {
+    return read_bonds(exec("select id, kind, from_kind, from_bytes, to_kind, to_bytes from bonds "
+                           "where to_kind = $1 and to_bytes = $2 order by id",
+                           {text(name(end.kind)), binary(end.bytes)}));
+}
+
+std::vector<Bond> Database::bonds_of(const BondEnd& end) {
+    return read_bonds(exec("select id, kind, from_kind, from_bytes, to_kind, to_bytes from bonds "
+                           "where (from_kind = $1 and from_bytes = $2) or (to_kind = $1 and to_bytes = $2) order by id",
+                           {text(name(end.kind)), binary(end.bytes)}));
+}
+
+std::vector<Bond> Database::bonds() {
+    return read_bonds(exec("select id, kind, from_kind, from_bytes, to_kind, to_bytes from bonds order by id"));
+}
+
+std::int64_t Database::count_bonds() {
+    return exec("select count(*) from bonds").integer(0, 0);
 }
 
 void Database::index(std::int64_t id, const MetadataElectron& metadata) {

@@ -58,3 +58,27 @@ create table if not exists words (
     unique (conception, position)
 );
 create index if not exists words_word on words (word);
+
+-- Bonds (N3): typed links between two ends, each a conception (by its
+-- identity, Q28) or an entity (a word as the index keys it), and where each
+-- came from: taught ("user:pedro"), or the rule or comparison that produced
+-- it ("rule: ..."). The same kind and ends are one bond. A clear keeps them,
+-- like the validators: a rebuild forgets atoms, not what was bonded.
+create table if not exists bonds (
+    id         bigint      generated always as identity primary key,
+    kind       bytea       not null,
+    from_kind  bytea       not null,
+    from_bytes bytea       not null,
+    to_kind    bytea       not null,
+    to_bytes   bytea       not null,
+    created    timestamptz not null default now(),
+    unique (kind, from_kind, from_bytes, to_kind, to_bytes)
+);
+create index if not exists bonds_from on bonds (from_kind, from_bytes);
+create index if not exists bonds_to on bonds (to_kind, to_bytes);
+create table if not exists bond_origins (
+    id     bigint generated always as identity primary key,
+    bond   bigint not null references bonds (id) on delete cascade,
+    origin bytea  not null,
+    unique (bond, origin)
+);

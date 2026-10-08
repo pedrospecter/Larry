@@ -27,6 +27,7 @@ namespace {
 //   status     <hex metadata> <status> <hex name of who decided>
 //   reading    <hex metadata> <hex sentence as read>
 //   validator  <hex name>
+//   bond       <hex kind> <atom|entity> <hex from> <atom|entity> <hex to> <hex origin>
 // with tabs between the fields. A line finds its conception by the identity
 // of its metadata (Q28): the qualification and the words, not the types, so
 // a conception described anew (its roles corrected) stays one conception,
@@ -52,6 +53,13 @@ std::vector<std::string_view> fields(std::string_view line) {
 
 std::string hex_of(std::string_view text) {
     return hex::encode(std::span{reinterpret_cast<const std::uint8_t*>(text.data()), text.size()});
+}
+
+// The key of a bond's end in the maps: its kind as one byte, then its bytes.
+Bytes end_key(const BondEnd& end) {
+    Bytes key{static_cast<std::uint8_t>(end.kind)};
+    key.insert(key.end(), end.bytes.begin(), end.bytes.end());
+    return key;
 }
 
 std::vector<std::string> sources_of(std::string_view list) {
@@ -94,6 +102,28 @@ std::optional<Status> status_from(std::string_view text) noexcept {
     return std::nullopt;
 }
 
+std::string_view name(BondEnd::Kind kind) noexcept {
+    return kind == BondEnd::Kind::Atom ? "atom" : "entity";
+}
+
+std::optional<BondEnd::Kind> bond_end_from(std::string_view text) noexcept {
+    if (text == "atom") {
+        return BondEnd::Kind::Atom;
+    }
+    if (text == "entity") {
+        return BondEnd::Kind::Entity;
+    }
+    return std::nullopt;
+}
+
+BondEnd BondEnd::atom(const MetadataElectron& metadata) {
+    return {Kind::Atom, AtomOperations{}.identity(metadata)};
+}
+
+BondEnd BondEnd::entity(std::string_view word) {
+    return {Kind::Entity, AtomOperations{}.fold(std::span{reinterpret_cast<const std::uint8_t*>(word.data()), word.size()})};
+}
+
 Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
     std::ifstream in{file_, std::ios::binary};
     if (!in) {
@@ -132,6 +162,27 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (!std::ranges::contains(validators_, text)) {
                 validators_.push_back(std::move(text));
             }
+            continue;
+        }
+        if (tag == "bond") {
+            if (f.size() != 7) {
+                bad("has a bond without its seven fields");
+            }
+            const std::optional<Bytes> kind = hex::decode(f[1]);
+            const std::optional<BondEnd::Kind> from_kind = bond_end_from(f[2]);
+            const std::optional<Bytes> from_bytes = hex::decode(f[3]);
+            const std::optional<BondEnd::Kind> to_kind = bond_end_from(f[4]);
+            const std::optional<Bytes> to_bytes = hex::decode(f[5]);
+            const std::optional<Bytes> origin = hex::decode(f[6]);
+            if (!kind || kind->empty() || !from_kind || !from_bytes || from_bytes->empty() || !to_kind ||
+                !to_bytes || to_bytes->empty() || !origin) {
+                bad("has a bond that is not hex bytes with its ends");
+            }
+            Bond bond{*kind, {*from_kind, *from_bytes}, {*to_kind, *to_bytes}, {}};
+            if (!origin->empty()) {
+                bond.origins.emplace_back(origin->begin(), origin->end());
+            }
+            add_bond(bond, false);
             continue;
         }
         if (tag != "atom" && tag != "describe" && tag != "source" && tag != "status" && tag != "reading") {
@@ -261,9 +312,15 @@ void Memory::append(const std::string& line) {
 }
 
 void Memory::clear() {
-    // The validators stay: a rebuild forgets atoms, not who may validate.
+    // The validators and the bonds stay: a rebuild forgets atoms, not who
+    // may validate nor what was bonded; a bond's atom end is an identity
+    // (Q28), which the lessons give back.
     const std::vector<std::string> validators = std::move(validators_);
     validators_.clear();
+    const std::vector<Bond> bonds = std::move(bonds_);
+    bonds_.clear();
+    bonds_from_.clear();
+    bonds_to_.clear();
     atoms_.clear();
     by_identity_.clear();
     by_metadata_.clear();
@@ -278,6 +335,103 @@ void Memory::clear() {
     for (const std::string& validator : validators) {
         add_validator(validator);
     }
+    for (const Bond& bond : bonds) {
+        add_bond(bond, true);
+    }
+}
+
+std::optional<StoredAtom> Memory::find_identity(const Bytes& identity) const {
+    const auto found = by_identity_.find(identity);
+    if (found == by_identity_.end()) {
+        return std::nullopt;
+    }
+    return read(found->second);
+}
+
+bool Memory::add_bond(const Bond& bond, bool write) {
+    const auto line = [&](std::string_view origin) {
+        return std::format("bond{}{}{}{}{}{}{}{}{}{}{}{}", tab, hex::encode(bond.kind), tab, name(bond.from.kind), tab,
+                           hex::encode(bond.from.bytes), tab, name(bond.to.kind), tab, hex::encode(bond.to.bytes), tab,
+                           hex_of(origin));
+    };
+    const Bytes from_key = end_key(bond.from);
+    if (const auto held = bonds_from_.find(from_key); held != bonds_from_.end()) {
+        for (const std::size_t i : held->second) {
+            Bond& mine = bonds_[i];
+            if (!mine.same(bond)) {
+                continue;
+            }
+            for (const std::string& origin : bond.origins) {
+                if (!std::ranges::contains(mine.origins, origin)) {
+                    if (write) {
+                        append(line(origin));
+                    }
+                    mine.origins.push_back(origin);
+                }
+            }
+            return false;
+        }
+    }
+    if (write) {
+        if (bond.origins.empty()) {
+            append(line(""));
+        }
+        for (const std::string& origin : bond.origins) {
+            append(line(origin));
+        }
+    }
+    bonds_.push_back(bond);
+    bonds_from_[from_key].push_back(bonds_.size() - 1);
+    bonds_to_[end_key(bond.to)].push_back(bonds_.size() - 1);
+    return true;
+}
+
+bool Memory::bond(const Bond& bond) {
+    if (bond.kind.empty() || bond.from.bytes.empty() || bond.to.bytes.empty()) {
+        throw std::invalid_argument("Memory::bond: a bond needs a kind and two ends");
+    }
+    return add_bond(bond, true);
+}
+
+std::vector<Bond> Memory::bonds_from(const BondEnd& end) const {
+    std::vector<Bond> out;
+    if (const auto held = bonds_from_.find(end_key(end)); held != bonds_from_.end()) {
+        for (const std::size_t i : held->second) {
+            out.push_back(bonds_[i]);
+        }
+    }
+    return out;
+}
+
+std::vector<Bond> Memory::bonds_to(const BondEnd& end) const {
+    std::vector<Bond> out;
+    if (const auto held = bonds_to_.find(end_key(end)); held != bonds_to_.end()) {
+        for (const std::size_t i : held->second) {
+            out.push_back(bonds_[i]);
+        }
+    }
+    return out;
+}
+
+std::vector<Bond> Memory::bonds_of(const BondEnd& end) const {
+    std::vector<std::size_t> indexes;
+    const Bytes key = end_key(end);
+    if (const auto held = bonds_from_.find(key); held != bonds_from_.end()) {
+        indexes.insert(indexes.end(), held->second.begin(), held->second.end());
+    }
+    if (const auto held = bonds_to_.find(key); held != bonds_to_.end()) {
+        for (const std::size_t i : held->second) {
+            if (!std::ranges::contains(indexes, i)) {
+                indexes.push_back(i);
+            }
+        }
+    }
+    std::ranges::sort(indexes);
+    std::vector<Bond> out;
+    for (const std::size_t i : indexes) {
+        out.push_back(bonds_[i]);
+    }
+    return out;
 }
 
 void Memory::index(std::int64_t id, const MetadataElectron& metadata) {

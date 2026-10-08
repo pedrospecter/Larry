@@ -269,6 +269,42 @@ TEST(status_changes) {
     db().run("truncate validators restart identity");
 }
 
+TEST(bonds_both_ways_and_through_a_clear) {
+    using larry::Bond;
+    using larry::BondEnd;
+    db().clear();
+    db().run("truncate bonds, bond_origins restart identity cascade");
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    db().store(c.atom, c.metadata, Status::Proposed, "user");
+    db().store(d.atom, d.metadata, Status::Proposed, "user");
+    const Bond forms{b("form of"), BondEnd::entity("Skies"), BondEnd::entity("sky"), {"user:pedro"}};
+    const Bond conflict{b("conflicts with"), BondEnd::atom(c.metadata), BondEnd::atom(d.metadata), {"rule: one colour"}};
+    CHECK(db().count_bonds() == 0);
+    CHECK(db().bond(forms));
+    CHECK(!db().bond(forms));
+    CHECK(db().bond(conflict));
+    CHECK(!db().bond(Bond{b("form of"), BondEnd::entity("skies"), BondEnd::entity("Sky"), {"lesson:forms"}}));
+    CHECK(db().count_bonds() == 2);
+    CHECK(db().bonds_from(BondEnd::entity("skies")).size() == 1);
+    CHECK(db().bonds_from(BondEnd::entity("skies")).front().origins ==
+          (std::vector<std::string>{"user:pedro", "lesson:forms"}));
+    CHECK(db().bonds_to(BondEnd::entity("sky")).size() == 1);
+    CHECK(db().bonds_to(BondEnd::entity("skies")).empty());
+    CHECK(db().bonds_of(BondEnd::entity("sky")).size() == 1);
+    CHECK(db().bonds_of(BondEnd::atom(d.metadata)).size() == 1);
+    CHECK(db().bonds_to(BondEnd::atom(d.metadata)).front().from == BondEnd::atom(c.metadata));
+    CHECK(db().bonds_to(BondEnd::atom(d.metadata)).front().kind == b("conflicts with"));
+    CHECK(db().bonds().size() == 2);
+    CHECK(db().find_identity(AtomOperations{}.identity(c.metadata))->id == 1);
+    CHECK(!db().find_identity(b("nobody")).has_value());
+    CHECK_THROWS(db().bond(Bond{{}, BondEnd::entity("a"), BondEnd::entity("b"), {}}), std::invalid_argument);
+    db().clear();
+    CHECK(db().count() == 0);
+    CHECK(db().count_bonds() == 2);
+    db().run("truncate bonds, bond_origins restart identity cascade");
+}
+
 TEST(open_makes_the_database_when_the_server_lacks_it) {
     // The scratch database must not exist; open() creates it through "postgres".
     db().run("drop database if exists larry_test_open");

@@ -119,4 +119,32 @@ std::int64_t Database::count_words() {
     absent();
 }
 
+std::optional<StoredAtom> Database::find_identity(const Bytes& /*identity*/) {
+    absent();
+}
+
+bool Database::bond(const Bond& /*bond*/) {
+    absent();
+}
+
+std::vector<Bond> Database::bonds_from(const BondEnd& /*end*/) {
+    absent();
+}
+
+std::vector<Bond> Database::bonds_to(const BondEnd& /*end*/) {
+    absent();
+}
+
+std::vector<Bond> Database::bonds_of(const BondEnd& /*end*/) {
+    absent();
+}
+
+std::vector<Bond> Database::bonds() {
+    absent();
+}
+
+std::int64_t Database::count_bonds() {
+    absent();
+}
+
 }  // namespace larry

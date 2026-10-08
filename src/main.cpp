@@ -119,7 +119,12 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                gather the words to learn, and write a lesson
                                draft in lessons/<locale>/drafts/ for you to
                                correct and teach
-  count                        how many conceptions and word uses memory holds
+  bonds [word or sentence]     the bonds (N3) at a word or a conception, either
+                               way, or all of them: kind, both ends, origins
+  bond <from> <kind> <to>      record a bond between two ends: a word, or a
+                               sentence Larry holds as a conception
+  count                        how many conceptions, word uses and bonds
+                               memory holds
   bench [n]                    measure Larry with n generated atoms (10000) in a
                                scratch file: sentences stored and described per
                                second, lookups per second, the time to answer,
@@ -1298,13 +1303,68 @@ int run(std::span<const std::string_view> args) {
         }
         return 0;
     }
+    if (command == "bonds" || command == "bond") {
+        // N3: an end is a word, or a sentence Larry holds as a conception.
+        const auto end_of = [&](std::string_view given) -> larry::BondEnd {
+            const std::string text{given};
+            if (text.find(' ') == std::string::npos) {
+                return larry::BondEnd::entity(text);
+            }
+            const larry::Description d = larry.assimilation.describe(larry.ops.from_text(text), &larry.memory);
+            const larry::BondEnd end = larry::BondEnd::atom(d.metadata);
+            if (!larry.brain.conception_at(end)) {
+                throw std::runtime_error(std::format("I hold no conception \"{}\"; tell it to me first", text));
+            }
+            return end;
+        };
+        const auto end_text = [&](const larry::BondEnd& end) -> std::string {
+            if (end.kind == larry::BondEnd::Kind::Entity) {
+                return std::string(end.bytes.begin(), end.bytes.end());
+            }
+            if (const std::optional<larry::StoredAtom> held = larry.brain.conception_at(end)) {
+                return "\"" + std::string{larry.ops.text(held->description.atom)} + "\"";
+            }
+            return "(a conception I do not hold)";
+        };
+        const auto show = [&](const larry::Bond& b) {
+            std::string origins;
+            for (const std::string& origin : b.origins) {
+                origins += origins.empty() ? origin : ", " + origin;
+            }
+            std::println("{} --{}--> {}{}", end_text(b.from), as_text(b.kind), end_text(b.to),
+                         origins.empty() ? "" : "  (" + origins + ")");
+        };
+        if (command == "bond") {
+            if (rest.size() != 3) {
+                throw std::runtime_error("bond needs <from> <kind> <to>");
+            }
+            const larry::Bond b{larry::Bytes(rest[1].begin(), rest[1].end()), end_of(rest[0]), end_of(rest[2]),
+                                {"user:" + larry.user}};
+            const bool fresh = larry.brain.bond(b);
+            show(b);
+            std::println("{}", fresh ? "recorded" : "already there; your origin added");
+            return 0;
+        }
+        if (rest.size() > 1) {
+            throw std::runtime_error("bonds takes nothing, a word or a sentence in quotes");
+        }
+        const std::vector<larry::Bond> list =
+            rest.empty() ? larry.memory.bonds() : larry.brain.bonds_of(end_of(rest[0]));
+        if (list.empty()) {
+            std::println("no bonds{}", rest.empty() ? "" : " at " + std::string{rest[0]});
+        }
+        for (const larry::Bond& b : list) {
+            show(b);
+        }
+        return 0;
+    }
     if (command == "count") {
-        std::println("{} conceptions, {} word uses, in {}", larry.memory.count(),
-                     larry.memory.count_words(), larry.memory.file().string());
+        std::println("{} conceptions, {} word uses, {} bonds, in {}", larry.memory.count(),
+                     larry.memory.count_words(), larry.memory.count_bonds(), larry.memory.file().string());
         if (larry.cloud) {
             const std::int64_t in_cloud = larry.cloud->count();
-            std::println("{} conceptions, {} word uses, in the cloud", in_cloud,
-                         larry.cloud->count_words());
+            std::println("{} conceptions, {} word uses, {} bonds, in the cloud", in_cloud,
+                         larry.cloud->count_words(), larry.cloud->count_bonds());
             if (in_cloud < larry.memory.count()) {
                 std::println("the cloud may lack some of the cache's conceptions: larry sync pushes them");
             }

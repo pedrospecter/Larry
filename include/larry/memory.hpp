@@ -66,6 +66,39 @@ struct CategoryCount {
     std::int64_t count;
 };
 
+/// One end of a bond (N3): a conception, by its identity (Q28: its
+/// qualification and its words, so a description corrected later is the
+/// same end), or an entity, by its word as the index keys it.
+struct BondEnd {
+    enum class Kind : std::uint8_t { Atom, Entity };
+    Kind kind = Kind::Entity;
+    Bytes bytes;
+    bool operator==(const BondEnd&) const = default;
+    /// The conception this metadata describes.
+    [[nodiscard]] static BondEnd atom(const MetadataElectron& metadata);
+    /// The entity with this word, in any case.
+    [[nodiscard]] static BondEnd entity(std::string_view word);
+};
+
+/// The name of an end's kind, "atom" or "entity": the bytes the file and the
+/// database store; and the kind with this name.
+[[nodiscard]] std::string_view name(BondEnd::Kind kind) noexcept;
+[[nodiscard]] std::optional<BondEnd::Kind> bond_end_from(std::string_view name) noexcept;
+
+/// A typed link between two ends (N3): its kind, its two ends, and where it
+/// came from: taught ("user:pedro"), or the rule or comparison that
+/// produced it ("rule: ..."). The same kind and ends are one bond, with
+/// every origin.
+struct Bond {
+    Bytes kind;  ///< "conflicts with", "form of", "answers", "is a kind of".
+    BondEnd from;
+    BondEnd to;
+    std::vector<std::string> origins;
+    [[nodiscard]] bool same(const Bond& other) const noexcept {
+        return kind == other.kind && from == other.from && to == other.to;
+    }
+};
+
 /// What store() did with an atom.
 enum class Stored : std::uint8_t {
     New,       ///< The atom was stored.
@@ -157,6 +190,22 @@ public:
     [[nodiscard]] std::int64_t count() const noexcept { return static_cast<std::int64_t>(atoms_.size()); }
     [[nodiscard]] std::int64_t count_words() const noexcept { return word_uses_; }
 
+    /// The atom stored under this identity (Q28), if any.
+    [[nodiscard]] std::optional<StoredAtom> find_identity(const Bytes& identity) const;
+
+    /// N3: records a bond, in the file too. True when it is new; the same
+    /// kind and ends again only add their origins. Throws
+    /// std::invalid_argument for a bond without a kind or an end.
+    bool bond(const Bond& bond);
+
+    /// N3: the bonds from an end, to an end, and either way, in the order
+    /// they were recorded.
+    [[nodiscard]] std::vector<Bond> bonds_from(const BondEnd& end) const;
+    [[nodiscard]] std::vector<Bond> bonds_to(const BondEnd& end) const;
+    [[nodiscard]] std::vector<Bond> bonds_of(const BondEnd& end) const;
+    [[nodiscard]] const std::vector<Bond>& bonds() const noexcept { return bonds_; }
+    [[nodiscard]] std::int64_t count_bonds() const noexcept { return static_cast<std::int64_t>(bonds_.size()); }
+
 private:
     struct Record {
         MetadataElectron metadata;
@@ -169,6 +218,8 @@ private:
     };
 
     void append(const std::string& line);
+    /// Adds a bond to the maps, and to the file when `write` is set.
+    bool add_bond(const Bond& bond, bool write);
     void index(std::int64_t id, const MetadataElectron& metadata);
     void unindex(std::int64_t id);
     /// Replaces the description of a record, in the maps and the index.
@@ -182,6 +233,9 @@ private:
     std::map<Bytes, std::vector<WordUse>> words_;
     std::int64_t word_uses_ = 0;
     std::vector<std::string> validators_;
+    std::vector<Bond> bonds_;
+    std::map<Bytes, std::vector<std::size_t>> bonds_from_;  ///< By end key: the bonds from it.
+    std::map<Bytes, std::vector<std::size_t>> bonds_to_;
 };
 
 }  // namespace larry
