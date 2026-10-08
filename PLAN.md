@@ -156,6 +156,28 @@ Nothing in the step is a trained number. This table shows what does the work tha
 
 Tick an item when its "done when" holds. Items are described in section 7. A question number after an item means the item waits for that answer.
 
+**Stage 10 — The next steps, decided with the user (2026-10-08): take these first, in this order, before anything unticked below**
+
+What makes Larry smarter is not one device but four flows, and each item below feeds one of them: more validated knowledge for less of the user's time (the loop study, draft, correct, teach, validate, now through the cloud and n8n); reading a prompt right (one suite of real prompts as the measure, calculations as orders, groups and the image); more kinds of reasoning (rules that fire, quantities, goals that run); and the guard that keeps the user the only one who decides what is true.
+
+- [ ] L1 Lessons in the cloud only (Q45, answered yes): the lesson files leave git, the suites keep their own seeds under `tests/data/<locale>/lessons/`, a fresh clone with `LARRY_DB` rebuilds from the cloud, `larry teach all` teaches every cloud draft at once.
+- [ ] K7 The prompt suite: the user's transcripts as `tests/data/en/prompts.txt`, each line a prompt and the reply it should get; the measure for P2 and M4, run with the brain tests and by `larry measure prompts`.
+- [ ] M4 Calculations as orders: "calculate *", "compute *", "work out *" go to the calculator; the percent sign, thousands separators, decimals with a comma in Portuguese, chained steps with "the result", rounding; "Calculate 17% of 2,340, divide the result by 3, and round to 2 decimals." gives 132.6.
+- [ ] V1 The validator's secret: `LARRY_VALIDATOR_SECRET` in `.env`, its hash in the cloud beside the validator's name; `larry validate` refuses without it; the chat for people never has it (Q47).
+- [ ] P2 Prompts understood, second step: a line of several sentences is one request; the thing proposed keeps what the prompt said of it; the themes of the things named; research on request or on its own (Q44); the model as the second place to search; "summarise X" as a paragraph from what Larry holds (G6b).
+- [ ] T2 Themes, second step: the user names a theme in chat and by `larry theme add`, themes kept as bonds in the cloud, the code theme (Q42), the things' themes in the notices.
+- [ ] W6 Larry for n8n: `--json` on ask, consult, extract, understand and validate list; `larry extract` with a theme and a source name; the model answering the questions of A5 as guesses (Q41); the flow documented in the README.
+- [ ] A8b Groups from the grammar's own places, clauses inside a sentence, the place of an adverb; 70% of the test words attached to the right word.
+- [ ] A9b, G1b The image with the groups: "John gave Mary the milk" and "John gave the milk to Mary" equal, passives, the number question (Q3); G1 from the patterns of stored atoms; the paraphrase suite at 40 pairs.
+- [ ] R4b, R9b Forward chaining when a conception is stored, rules with a variable ("if a bird flies, it has wings"), the general atoms of R5 as rules; bAbI 15 and 16 when the files are there (Q36).
+- [ ] C14b Quantities: "more apples than", counts that change ("Mary has 3 apples. She gives one away." gives 2), bAbI 7.
+- [ ] D2 Code, second step: a function's body as steps (S2), calls across files, "what does X do" and "what calls X" on Larry's own sources, the code theme.
+- [ ] S1b, S2b Goals kept until reached, plans run as commands when every step is one, the state checked after.
+- [ ] N7 The bench again, with themes, orders and understanding in the pipeline; start-up of a million atoms under 30 s.
+- [ ] A12c, G7b Portuguese grows by study and by the cloud lessons; translation through "means the same as" bonds; the Portuguese chat answers the prompt suite in Portuguese.
+
+Milestone 6 (proposed): the prompt suite of K7 passes in full, the chat for a person answers, denies, asks and researches as the user's five points say, and the user validates from n8n with the secret of V1.
+
 **Stage 1 — Foundation**
 - [x] F1 Session instructions
 - [x] F2 Environment script
@@ -291,6 +313,54 @@ Milestone 5: `larry chat` holds a conversation and answers "why?" after any repl
 - [ ] G7 Translation: first step done (G7a), `larry translate <text> pt`, word by word on the image with `to_<locale>.txt`, said by the other constellation's rules and memory; done when the words come from "means the same as" bonds and the suite of A9 translates both ways.
 
 ## 7. The items
+
+### The next steps, the items (Stage 10, decided 2026-10-08)
+
+**L1 · Lessons in the cloud only.** The user's answer to Q45: the cloud is the only place. The files `lessons/en/01_first_sentences.txt` and `lessons/pt/01_primeiras_frases.txt` leave git; the suites that read them (the Portuguese tests, the lesson tests) take seeds under `tests/data/<locale>/lessons/`; `scripts/setup.sh` says that a machine learns from the cloud (`LARRY_DB`, then `larry rebuild`) and that without one it starts empty; `larry lessons push` stays for a file the user writes by hand; `larry teach all` teaches every cloud draft uncorrected and marks them, for the user who wants bulk before care.
+Done when: a fresh clone with `LARRY_DB` and no lesson file rebuilds the memory the user's laptop has, and the four builds pass with no lesson file in git.
+
+**K7 · The prompt suite.** The two transcripts the user sent are the test: each line a prompt and what the reply must be, in `tests/data/en/prompts.txt` ("how are you? | answered: I am well, thank you. And you?"; "Write a 4-sentence description ... | denied: write"; "Who is the second youngest? | Carla."; "Summarise the main findings of the 2019 paper ... | unknown, researched, proposed"). The brain tests run it; `larry measure prompts` prints the share that passes and the failures. Every later item in this stage adds its prompts to the suite before it starts.
+Done when: the suite exists with every prompt of the two transcripts, and the share is in the log. Needs nothing.
+
+**M4 · Calculations as orders.** Today the calculator wakes on a question shape or a bare expression; "Calculate ..." is an order and falls to the command list. `commands.txt` gets "calculate *", "compute *", "work out *" with the operation "calculate", which hands the argument to the calculator; the reader gets the percent sign ("17%"), thousands separators ("2,340"; "2.340" and "2,5" in Portuguese by `arithmetic.txt`), "the result" and "that" as the running value across steps split at "and", "then" and commas, and rounding ("round to 2 decimals", "to the nearest ten"). The reply shows the steps: "17% of 2340 = 397.8; 397.8 / 3 = 132.6; rounded to 2 decimals: 132.6".
+Done when: the transcript's prompt gives 132.6 with its steps, in English and Portuguese, and the suites of M1 to M3 still pass. Needs K7.
+
+**V1 · The validator's secret.** Identity is a name in `LARRY_USER` today, so the guarantee that only the user validates is as strong as the database credentials. A validator gets a secret: `LARRY_VALIDATOR_SECRET` in `.env` (never printed, never in git), and the cloud keeps a salted hash beside the name; `larry validate`, `validators add` and `forget` refuse without the right one; the chat for people and the model never carry it; n8n calls validate with the secret in its own environment. Q47 asks whether each validator has a secret of their own.
+Done when: a wrong or missing secret is refused with a clear message, the cloud records who decided, and the database tests cover it. Needs nothing.
+
+**P2 · Prompts understood, second step.** One line with several sentences is one request: the sentences after a request are its constraints, heard with it, not as separate conceptions. The thing proposed keeps what the prompt said of it ("There is a 2019 paper by Lindqvist and Moreau called ..."). The themes of the things named, not only of the subject. Research on request ("search for it") or on its own, as Q44 is answered. The model (W5) as the second place to search when Wikipedia has nothing, with its answer proposed, never taken. "Summarise X" and "tell me about X" give a paragraph from the conceptions about X, said again from their images (G6b), newest first, five sentences.
+Done when: the prompt suite passes for every prompt of the first transcript. Needs K7, T2.
+
+**T2 · Themes, second step.** The user names a theme: "music is about operas, songs and singers" in chat, or `larry theme add music opera song singer`; the theme is a bond "about" from the word to the theme name, kept in the cloud, so the index is the user's and not only the file's; a conception's theme follows its words' bonds first, then the file; the things a prompt names show their themes; code gets a theme of its own (Q42) so "What is read_file?" looks there first.
+Done when: a theme the user named shows in `larry themes` on another machine, and a prompt about it is routed to it. Needs T1.
+
+**W6 · Larry for n8n.** The user runs the model from n8n and validates by hand; Larry has to be easy to call and read: `--json` on `ask`, `consult`, `extract`, `understand` and `validate list` prints one JSON object (the reply, the because, the theme, the unknown things, the ids), `larry extract <text> --theme <name> --source <name>` proposes under a named source, `larry validate accept <id> --secret` works with V1, and the model answers the questions of A5 ("what category is X in ...?") as guesses stored as guesses (Q41). The README shows the flow: a text arrives, `larry extract` proposes, `larry validate list --json` lists, the user accepts or rejects.
+Done when: the flow runs end to end from a shell script that stands for n8n, in the tests with recorded model answers. Needs V1.
+
+**A8b · Groups from the grammar.** The first step attached 42% of the words right with groups by role; the grammar's own places (@thing, @where, the clauses of a compound statement) say which words go together; a clause inside a complement ("the paper that Lindqvist wrote") attaches to its head; an adverb attaches to the verb or the adjective it stands by; the heads come from the patterns, not from the position.
+Done when: 70% of the test words of the Universal Dependencies English set attach to the right word, and the Portuguese share is on record. Needs K2, A8a.
+
+**A9b, G1b · The image with the groups.** The image takes the groups of A8b, so a thing of several words is one thing in it; a role reordering that keeps the meaning gives one image ("John gave Mary the milk", "John gave the milk to Mary"), a passive the same as its active; the number question (Q3) answered; G1 says an image back by the patterns of stored atoms instead of the fixed order, so a modifier finds its place.
+Done when: the C6 suite has 40 pairs and passes, and the G1 round trip holds for all of them. Needs A8b.
+
+**R4b, R9b · Rules that fire.** When a conception is stored, the rules whose condition it satisfies conclude their results, stored as conceptions with the rule and the condition as their support (R4's forward chaining); a rule with a variable ("if a bird flies, it has wings") binds the variable to the thing of the condition; the general atoms of R5 ("Birds fly.") count as rules for the kinds below them; a withdrawn condition withdraws what it concluded.
+Done when: bAbI tasks 15 and 16 are measured when their files are on the machine (Q36), and the brain suite covers the binding. Needs R9a, R4a.
+
+**C14b · Quantities.** "Tom has more apples than Ana" is an order relation over counts; counts change with what is told ("Mary has 3 apples. She gives one away." gives 2, "She picks two more." gives 4), as states do (R3); "how many" is answered from the latest count.
+Done when: bAbI task 7 is measured, and the suite of counts passes. Needs C14a, M1.
+
+**D2 · Code, second step.** A function's body becomes steps (S2): the calls in order, with what each takes; calls across the files of a directory (`larry code src/`), so "what calls parse_json" and "what does read_file do" are answered; the code theme (T2) keeps the names apart from English words of the same spelling.
+Done when: `larry code src/` on Larry's own sources answers the two questions for every function of `json.cpp`. Needs D1, T2.
+
+**S1b, S2b · Goals kept, plans run.** A goal stays open until R1 says its state holds; a plan whose every step is a command (W3) runs, step by step, and checks the state after each; a goal nobody can reach says so once and waits in the attention queue (S3).
+Done when: "close the door" with a command for it runs and reports the state, and an unreachable goal waits. Needs S1a, S2a, W3.
+
+**N7 · The bench again.** The pipeline grew: themes, orders, understanding, the research; the million-atom bench (F8) runs again with them on, and the start-up of a million atoms, 57.6 s today, goes under 30 s (the hot spots of N2e, again).
+Done when: the numbers are in the log and no target of F8 is lost. Needs the items above.
+
+**A12c, G7b · Portuguese grows.** Portuguese learns the way English does: by study of Portuguese pages into cloud lessons, by the Bosque sentences as lessons where the user wants them, and the translation of G7 takes its words from "means the same as" bonds between the two vocabularies, taught or read, instead of the file alone.
+Done when: the Portuguese chat answers the prompt suite in Portuguese, and a translation of a sentence with a word outside `to_pt.txt` comes from the bonds. Needs A12b, G7a, T2.
+
 
 ### Track F — Foundation
 
@@ -710,7 +780,9 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q42 | Code (D1) enters as sentences in English ("read_file is a function in sample.py."). Should code have a constellation of its own, with its own categories (name, type, call, module) and grammar, or stay in the English one with the names as proper nouns? | Proposed: stay in English for now, since the questions and the answers are English; a constellation of its own when the body of a function is read as steps. | D1, A12 |
 | Q43 | The user says "group constellations according to their theme" and "saving new concepts into constellations"; in the plan a constellation is a language (section 2), and the groups by subject are themes (T1). Does the user want the word "constellation" for the themes too, with the language called something else, or are themes fine? | Proposed: keep constellation for the language and theme for the subject, since both exist now and the files are named after them. | T1, A12 |
 | Q44 | When Larry holds nothing on a thing, the chat asks Wikipedia on its own and keeps the thing as a proposal (P1). Should the research wait for the person to ask ("search for it"), should it run on its own as now, and should a proposal be kept for every unknown thing or only when the person asks about it? | Proposed: as now, since the user asked for research after "I have no knowledge of that"; a proposal for the thing asked about, not for every word. | P1, T1, W1 |
-| Q45 | The lessons live in the cloud now (N2f): the drafts of study and the taught ones, and every lesson file is pushed when taught. Should the lesson files leave git, with the cloud as the only place (a fresh machine would pull them), or stay as the seed that `scripts/setup.sh` and a rebuild without a cloud rely on? | Proposed: stay in git as the seed, since a machine without a cloud still has to learn; the cloud holds everything else. | N2f, F7 |
+| Q45 | The lessons live in the cloud now (N2f): the drafts of study and the taught ones, and every lesson file is pushed when taught. Should the lesson files leave git, with the cloud as the only place (a fresh machine would pull them), or stay as the seed that `scripts/setup.sh` and a rebuild without a cloud rely on? | Answered (2026-10-08): they leave git; the cloud is the only place (L1). | N2f, F7 |
+| Q46 | The prompt suite (K7) is the measure of the next stage. Who writes the reply each prompt must get: the user, as the lessons are the user's, or Larry's author from what the user said in the transcripts, for the user to correct? | Proposed: the author drafts it from the two transcripts; the user corrects it as a lesson. | K7 |
+| Q47 | The validator's secret (V1): one secret for all validators, or one per validator, with the hash beside each name? | Proposed: one per validator, so a secret can be changed without the others. | V1, R2 |
 
 ## 11. Earlier work worth reading
 
@@ -781,3 +853,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | C14a | 26 test executables pass in the four builds; brain: 34 tests, the transcript's puzzle answered "Carla." with its reasons; portuguese: 4 tests, "Quem é a mais nova?" answered. | The puzzle needed no new store: a relation is a bond kind and the order is read from the bonds when asked, so what the person says in the prompt is what Larry reasons with. The reply is traced to the three sentences, as rule 6 asks. |
 | 2026-10-08 | C14a, the gate | 26 test executables pass in the four builds. | The C14a commit went up with a compiler warning in all four builds: the gate said "FAILED; do not commit" and the commit ran anyway, because the commit was chained on a `grep` of the gate's output, whose exit status is 0 whenever it prints, not on the gate itself. Fixed in the next commit, with the chain the rule in CLAUDE.md states: `scripts/check.sh && git commit`. The same slip as the R8a one, in a new shape: the chain has to be on the gate's own exit status. |
 | 2026-10-08 | N2f | 26 test executables pass in the four builds; database: 12 tests, pages and lessons kept, replaced, ordered and left by a clear; lesson: 5 tests; study: the draft in the report. | What a machine keeps is a cache of the conceptions and nothing else now: the pages, the drafts and the taught lessons are in the cloud, so the laptop keeps no files unless it has no cloud. The study report still says where the draft is, which is what the user read and asked about. |
+| 2026-10-08 | Stage 10 planned | No code: the next steps written with the user, fifteen items in order with their "done when", two questions (Q46, Q47), Q45 answered. | The order follows the user's asks of the day: the lessons in the cloud only, one suite of real prompts as the measure, calculations as orders, the validator's secret, then the prompts, the themes, n8n, the groups and the image, the rules, the quantities, the code, the goals, the bench, Portuguese. |
