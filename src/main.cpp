@@ -60,10 +60,12 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                order (a command), an assumption or an
                                expression, by the rules and by the conceptions
                                of the same structure, with the reasons
-  ask <text>                   is a concept true, false or unknown, from the
-                               conceptions in memory; a yes/no question works;
-                               a sentence off the grammar is read as meant
-                               within the tolerance, and the reading shown
+  ask <text>                   answer a question, or judge a claim, and store
+                               nothing: a question gets yes, no, the conception
+                               that answers it or "I don't know"; a claim gets
+                               true, false or I don't know; with the reasons, the
+                               reading of a sentence off the grammar, and what
+                               is unusual in it
   say <text>                   hear one sentence and reply: an affirmation is
                                stored, a question answered, an order refused,
                                an assumption noted, an expression returned
@@ -248,8 +250,8 @@ struct Larry {
         // A cloud with nothing in it gets what the cache holds: the first
         // contact of a machine that already learned.
         if (cloud && cloud->count() == 0 && memory.count() > 0) {
-            const auto [pushed, pulled] = brain.sync(0);
-            std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", pushed);
+            const larry::Brain::Synced synced = brain.sync(0);
+            std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", synced.pushed);
         }
     }
 
@@ -642,43 +644,14 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "ask") {
         if (rest.empty()) {
-            throw std::runtime_error("ask needs a sentence");
+            throw std::runtime_error("ask needs a question or a claim");
         }
-        const larry::Verdict verdict = larry.brain.truth(larry.ops.from_text(join(rest)));
-        switch (verdict.truth) {
-        case larry::Truth::True:
-            std::println("true");
-            break;
-        case larry::Truth::False:
-            std::println("false");
-            break;
-        case larry::Truth::Unknown:
-            std::println("I don't know");
-            break;
-        }
-        for (const larry::StoredAtom& atom : verdict.because) {
-            std::println("because: {}{}{}", larry.ops.text(atom.description.atom),
-                         verdict.from_cloud ? " (from the cloud)" : "",
-                         atom.status == larry::Status::Proposed
-                             ? " (proposed)"
-                             : atom.decided_by.empty()
-                                   ? ""
-                                   : std::format(" (validated by {})", atom.decided_by));
-        }
-        for (const std::string& rule : verdict.rules) {
-            std::println("rule: {}", rule);
-        }
-        for (const larry::StoredAtom& atom : verdict.nearest) {
-            std::println("I know: {}", larry.ops.text(atom.description.atom));
-        }
-        if (!verdict.reading.empty()) {
-            std::println("read as: {}", verdict.reading);
-        }
-        for (const std::string& deviation : verdict.deviations) {
-            std::println("{}: {}", verdict.refused ? "not read" : "deviation", deviation);
-        }
-        for (const std::string& line : verdict.unusual) {
-            std::println("unusual: {}", line);
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Reply reply = larry.brain.answer(sentence);
+            std::println("{}", reply.text);
+            for (const std::string& because : reply.because) {
+                std::println("  because: {}", because);
+            }
         }
         return 0;
     }
@@ -740,8 +713,9 @@ int run(std::span<const std::string_view> args) {
                 sources += sources.empty() ? "" : ", ";
                 sources += s;
             }
-            return std::format("{:>6}  {}  [{}]", atom.id, larry.ops.text(atom.description.atom),
-                               sources.empty() ? "no source" : sources);
+            return std::format("{:>6}  {}  [{}]{}", atom.id, larry.ops.text(atom.description.atom),
+                               sources.empty() ? "no source" : sources,
+                               atom.reading.empty() ? "" : std::format("  (read as: {})", atom.reading));
         };
         if (!larry.brain.is_validator(larry.user)) {
             throw std::runtime_error(std::format(
@@ -823,8 +797,9 @@ int run(std::span<const std::string_view> args) {
         if (!rest.empty()) {
             pull = std::stoll(std::string{rest[0]});
         }
-        const auto [pushed, pulled] = larry.brain.sync(pull);
-        std::println("{} conceptions pushed to the cloud, {} pulled into the cache", pushed, pulled);
+        const larry::Brain::Synced synced = larry.brain.sync(pull);
+        std::println("{} conceptions pushed to the cloud, {} pulled into the cache, {} described anew in the cloud",
+                     synced.pushed, synced.pulled, synced.redescribed);
         std::println("{} conceptions here, {} in the cloud", larry.memory.count(),
                      larry.cloud->count());
         return 0;

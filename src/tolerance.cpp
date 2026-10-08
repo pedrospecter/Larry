@@ -206,9 +206,11 @@ std::vector<Tolerance::MissingDeterminer> Tolerance::missing_determiners(const D
             if (use.category != noun) {
                 continue;
             }
-            // A withdrawn conception teaches nothing (Q27).
+            // A withdrawn conception teaches nothing (Q27), nor does one that
+            // was read as something else (Q29): "Sky is blue." read as "The
+            // sky is blue." is no use of "sky" without a determiner.
             const std::optional<StoredAtom> atom = memory->find_id(use.atom);
-            if (atom && atom->status == Status::Withdrawn) {
+            if (atom && (atom->status == Status::Withdrawn || !atom->reading.empty())) {
                 continue;
             }
             if (use.before_category == determiner) {

@@ -22,11 +22,19 @@ namespace {
 
 // The memory file is a log. Each line is tagged:
 //   atom       <hex metadata> <hex bytes> <status> <hex source>,<hex source>
+//   describe   <hex metadata>
 //   source     <hex metadata> <hex source>
 //   status     <hex metadata> <status> <hex name of who decided>
+//   reading    <hex metadata> <hex sentence as read>
 //   validator  <hex name>
-// with tabs between the fields. The first form of the file had untagged
-// lines of two fields, metadata and bytes, which still read.
+// with tabs between the fields. A line finds its conception by the identity
+// of its metadata (Q28): the qualification and the words, not the types, so
+// a conception described anew (its roles corrected) stays one conception,
+// and "describe" is that: from there on the metadata is this one. A second
+// "atom" line with the same identity, from before describe existed, reads
+// as a describe when its description is complete. The first form of the
+// file had untagged lines of two fields, metadata and bytes, which still
+// read.
 constexpr char tab = '\t';
 
 std::vector<std::string_view> fields(std::string_view line) {
@@ -91,6 +99,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
     if (!in) {
         return;
     }
+    const AtomOperations ops;
     std::size_t number = 0;
     const auto bad = [&](const char* why) {
         throw std::runtime_error(
@@ -125,9 +134,22 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             }
             continue;
         }
+        if (tag != "atom" && tag != "describe" && tag != "source" && tag != "status" && tag != "reading") {
+            bad("has an unknown tag");
+        }
         const std::optional<Bytes> metadata = hex::decode(f[first]);
         if (!metadata) {
             bad("is not an atom");
+        }
+        const MetadataElectron electron{*metadata};
+        Bytes identity;
+        try {
+            identity = ops.identity(electron);
+        } catch (const std::invalid_argument&) {
+            if (tag != "atom") {
+                bad("changes an atom that is not there");
+            }
+            throw;
         }
         if (tag == "atom") {
             if (f.size() < first + 2) {
@@ -137,10 +159,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (!bytes) {
                 bad("is not an atom");
             }
-            if (by_metadata_.contains(*metadata)) {
-                bad("repeats an atom's metadata");
-            }
-            Record record{MetadataElectron{*metadata}, *bytes, Status::Proposed, {}, {}};
+            Record record{electron, *bytes, Status::Proposed, {}, {}, identity, {}};
             if (f.size() > first + 2) {
                 const std::optional<Status> status = status_from(f[first + 2]);
                 if (!status) {
@@ -151,14 +170,36 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (f.size() > first + 3) {
                 record.sources = sources_of(f[first + 3]);
             }
+            if (const auto held = by_identity_.find(identity); held != by_identity_.end()) {
+                // The same conception again, from before Q28: one record, the
+                // later complete description, every source.
+                Record& first_record = atoms_[static_cast<std::size_t>(held->second - 1)];
+                for (std::string& source : record.sources) {
+                    if (!std::ranges::contains(first_record.sources, source)) {
+                        first_record.sources.push_back(std::move(source));
+                    }
+                }
+                if (first_record.metadata.bytes != electron.bytes && ops.complete(electron)) {
+                    describe(held->second, electron);
+                }
+                continue;
+            }
             atoms_.push_back(std::move(record));
             const auto id = static_cast<std::int64_t>(atoms_.size());
+            by_identity_.emplace(identity, id);
             by_metadata_.emplace(*metadata, id);
             index(id, atoms_.back().metadata);
             continue;
         }
-        const auto found = by_metadata_.find(*metadata);
-        if (found == by_metadata_.end() || f.size() < 3) {
+        const auto found = by_identity_.find(identity);
+        if (found == by_identity_.end() || f.size() < 2) {
+            bad("changes an atom that is not there");
+        }
+        if (tag == "describe" && f.size() == 2) {
+            describe(found->second, electron);
+            continue;
+        }
+        if (f.size() < 3) {
             bad("changes an atom that is not there");
         }
         Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
@@ -171,6 +212,12 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (!std::ranges::contains(record.sources, text)) {
                 record.sources.push_back(std::move(text));
             }
+        } else if (tag == "reading" && f.size() == 3) {
+            const std::optional<Bytes> reading = hex::decode(f[2]);
+            if (!reading) {
+                bad("has a reading that is not hex bytes");
+            }
+            record.reading.assign(reading->begin(), reading->end());
         } else if (tag == "status" && f.size() <= 4) {
             const std::optional<Status> status = status_from(f[2]);
             if (!status) {
@@ -218,6 +265,7 @@ void Memory::clear() {
     const std::vector<std::string> validators = std::move(validators_);
     validators_.clear();
     atoms_.clear();
+    by_identity_.clear();
     by_metadata_.clear();
     words_.clear();
     word_uses_ = 0;
@@ -253,47 +301,102 @@ void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
     }
 }
 
+void Memory::unindex(std::int64_t id) {
+    const AtomOperations ops;
+    const Record& record = atoms_[static_cast<std::size_t>(id - 1)];
+    for (const Entity& entity : ops.electrons(record.metadata).entities.entities) {
+        const auto found = words_.find(ops.fold(entity.word));
+        if (found == words_.end()) {
+            continue;
+        }
+        const auto removed = std::erase_if(found->second, [&](const WordUse& use) { return use.atom == id; });
+        word_uses_ -= static_cast<std::int64_t>(removed);
+        if (found->second.empty()) {
+            words_.erase(found);
+        }
+    }
+}
+
+void Memory::describe(std::int64_t id, const MetadataElectron& metadata) {
+    Record& record = atoms_[static_cast<std::size_t>(id - 1)];
+    unindex(id);
+    by_metadata_.erase(record.metadata.bytes);
+    record.metadata = metadata;
+    by_metadata_[metadata.bytes] = id;
+    index(id, metadata);
+}
+
 Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Status status,
                      std::string_view source) {
     const AtomOperations ops;
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);
-    const auto found = by_metadata_.find(metadata.bytes);
-    if (found != by_metadata_.end()) {
+    const Bytes identity = ops.identity(metadata);  // validates before anything is written
+    const auto found = by_identity_.find(identity);
+    if (found != by_identity_.end()) {
         Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
         if (!source.empty() && !std::ranges::contains(record.sources, std::string{source})) {
-            append(std::format("source{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
+            append(std::format("source{}{}{}{}", tab, hex::encode(record.metadata.bytes), tab,
                                hex_of(source)));
             record.sources.emplace_back(source);
         }
         return std::ranges::equal(record.bytes, bytes) ? Stored::Same : Stored::SameForm;
     }
-    (void)ops.electrons(metadata);  // validate before anything is written
     Bytes copy(bytes.begin(), bytes.end());
     append(std::format("atom{}{}{}{}{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
                        hex::encode(copy), tab, name(status), tab,
                        source.empty() ? std::string{} : hex_of(source)));
-    Record record{metadata, std::move(copy), status, {}, {}};
+    Record record{metadata, std::move(copy), status, {}, {}, identity, {}};
     if (!source.empty()) {
         record.sources.emplace_back(source);
     }
     atoms_.push_back(std::move(record));
     const auto id = static_cast<std::int64_t>(atoms_.size());
+    by_identity_.emplace(identity, id);
     by_metadata_.emplace(metadata.bytes, id);
     index(id, metadata);
     return Stored::New;
 }
 
+bool Memory::redescribe(const MetadataElectron& metadata) {
+    const AtomOperations ops;
+    const auto found = by_identity_.find(ops.identity(metadata));
+    if (found == by_identity_.end()) {
+        return false;
+    }
+    if (atoms_[static_cast<std::size_t>(found->second - 1)].metadata.bytes == metadata.bytes) {
+        return false;
+    }
+    append(std::format("describe{}{}", tab, hex::encode(metadata.bytes)));
+    describe(found->second, metadata);
+    return true;
+}
+
 bool Memory::set_status(const MetadataElectron& metadata, Status status, std::string_view by) {
-    const auto found = by_metadata_.find(metadata.bytes);
-    if (found == by_metadata_.end()) {
+    const AtomOperations ops;
+    const auto found = by_identity_.find(ops.identity(metadata));
+    if (found == by_identity_.end()) {
         return false;
     }
     Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
     if (record.status != status || record.decided_by != by) {
-        append(std::format("status{}{}{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
+        append(std::format("status{}{}{}{}{}{}", tab, hex::encode(record.metadata.bytes), tab,
                            name(status), tab, hex_of(by)));
         record.status = status;
         record.decided_by = std::string{by};
+    }
+    return true;
+}
+
+bool Memory::set_reading(const MetadataElectron& metadata, std::string_view reading) {
+    const AtomOperations ops;
+    const auto found = by_identity_.find(ops.identity(metadata));
+    if (found == by_identity_.end()) {
+        return false;
+    }
+    Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
+    if (record.reading != reading) {
+        append(std::format("reading{}{}{}{}", tab, hex::encode(record.metadata.bytes), tab, hex_of(reading)));
+        record.reading = std::string{reading};
     }
     return true;
 }
@@ -318,6 +421,7 @@ StoredAtom Memory::read(std::int64_t id) const {
     out.status = record.status;
     out.sources = record.sources;
     out.decided_by = record.decided_by;
+    out.reading = record.reading;
     Description& d = out.description;
     d.atom = ops.from_text(
         std::string_view{reinterpret_cast<const char*>(record.bytes.data()), record.bytes.size()});
@@ -331,8 +435,9 @@ StoredAtom Memory::read(std::int64_t id) const {
 }
 
 std::optional<StoredAtom> Memory::find(const MetadataElectron& metadata) const {
-    const auto found = by_metadata_.find(metadata.bytes);
-    if (found == by_metadata_.end()) {
+    const AtomOperations ops;
+    const auto found = by_identity_.find(ops.identity(metadata));
+    if (found == by_identity_.end()) {
         return std::nullopt;
     }
     return read(found->second);

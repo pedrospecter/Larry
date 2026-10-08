@@ -69,7 +69,7 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
 }
 
 bool Brain::learn_grammar(const StoredAtom& atom) {
-    if (grammar_ == nullptr || atom.status != Status::Validated) {
+    if (grammar_ == nullptr || atom.status != Status::Validated || !atom.reading.empty()) {
         return false;
     }
     std::vector<Bytes> categories;
@@ -101,13 +101,36 @@ void Brain::cache(const StoredAtom& atom) const {
     }
     if (fresh) {
         memory_->set_status(d.metadata, atom.status, atom.decided_by);
+        if (!atom.reading.empty()) {
+            memory_->set_reading(d.metadata, atom.reading);
+        }
     }
 }
 
-Stored Brain::remember(const Description& d, Status status, std::string_view source) {
+Stored Brain::remember(const Description& d, Status status, std::string_view source,
+                       std::string_view reading) {
+    const AtomOperations ops;
     const Stored stored = memory_->store(d.atom, d.metadata, status, source);
+    const bool complete = stored != Stored::New && ops.complete(d.metadata);
+    if (complete) {
+        memory_->redescribe(d.metadata);
+    }
+    if (stored == Stored::New && !reading.empty()) {
+        memory_->set_reading(d.metadata, reading);
+    }
     if (cloud_ != nullptr) {
-        cloud_->store(d.atom, d.metadata, status, source);
+        const Stored in_cloud = cloud_->store(d.atom, d.metadata, status, source);
+        if (in_cloud != Stored::New && ops.complete(d.metadata)) {
+            if (const std::optional<StoredAtom> held = cloud_->find(d.metadata);
+                held && held->description.metadata.bytes != d.metadata.bytes) {
+                cloud_->redescribe(held->id, d.metadata);
+            }
+        }
+        if (in_cloud == Stored::New && !reading.empty()) {
+            if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
+                cloud_->set_reading(held->id, reading);
+            }
+        }
     }
     return stored;
 }
@@ -164,14 +187,24 @@ bool Brain::set_status(const MetadataElectron& metadata, Status status, std::str
     return any;
 }
 
-std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
+Brain::Synced Brain::sync(std::int64_t pull) {
     if (cloud_ == nullptr) {
         throw std::runtime_error("Brain::sync: there is no cloud; set LARRY_DB");
     }
-    std::int64_t pushed = 0;
+    const AtomOperations ops;
+    Synced out;
+    std::int64_t& pushed = out.pushed;
     for (const StoredAtom& atom : memory_->all()) {
         const Description& d = atom.description;
-        if (cloud_->find(d.metadata)) {
+        if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
+            // The cloud has it: the cache's description wins when it is newer and complete.
+            if (held->description.metadata.bytes != d.metadata.bytes && ops.complete(d.metadata) &&
+                cloud_->redescribe(held->id, d.metadata)) {
+                ++out.redescribed;
+            }
+            if (held->reading.empty() && !atom.reading.empty()) {
+                cloud_->set_reading(held->id, atom.reading);
+            }
             continue;
         }
         if (atom.sources.empty()) {
@@ -180,22 +213,26 @@ std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
         for (const std::string& source : atom.sources) {
             cloud_->store(d.atom, d.metadata, atom.status, source);
         }
-        if (!atom.decided_by.empty()) {
+        if (!atom.decided_by.empty() || !atom.reading.empty()) {
             if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
-                cloud_->set_status(held->id, atom.status, atom.decided_by);
+                if (!atom.decided_by.empty()) {
+                    cloud_->set_status(held->id, atom.status, atom.decided_by);
+                }
+                if (!atom.reading.empty()) {
+                    cloud_->set_reading(held->id, atom.reading);
+                }
             }
         }
         ++pushed;
     }
-    std::int64_t pulled = 0;
     for (const StoredAtom& atom : cloud_->recent(pull)) {
         if (memory_->find(atom.description.metadata)) {
             continue;
         }
         cache(atom);
-        ++pulled;
+        ++out.pulled;
     }
-    return {pushed, pulled};
+    return out;
 }
 
 std::vector<Bytes> Brain::spellings(const Bytes& word) const {
@@ -673,6 +710,14 @@ std::vector<StoredAtom> Brain::answers(const Description& question) const {
 }
 
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
+    return respond(sentence, source, true);
+}
+
+Reply Brain::answer(const Sentence& sentence) {
+    return respond(sentence, "", false);
+}
+
+Reply Brain::respond(const Sentence& sentence, std::string_view source, bool store) {
     const AtomOperations ops;
     // What was said is what gets stored; what was meant, by the reading
     // within the tolerance (K3), is what Larry thinks with.
@@ -716,8 +761,14 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         reply.because.emplace_back("rule: orders wait for S1");
         return reply;
     }
+    const std::string read_as = reading.changed ? std::string{ops.text(d.atom)} : std::string{};
     if (qualification == "assumption") {
-        remember(said, Status::Proposed, source);
+        if (!store) {
+            reply.text += "That is an assumption: I do not judge it.";
+            reply.because.emplace_back("rule: an assumption is kept apart from the truths");
+            return reply;
+        }
+        remember(said, Status::Proposed, source, read_as);
         reply.stored = true;
         reply.text += "Noted as an assumption, not as a truth.";
         reply.because.emplace_back("rule: an assumption is kept apart from the truths");
@@ -761,9 +812,42 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         }
         return reply;
     }
-    // An affirmation: what does memory hold already? (C16, first step)
+    // A claim to judge, when nothing is stored: true, false or I don't know,
+    // with the conception, its standing, the rule and the nearest conceptions.
     const Verdict verdict = truth(d);
-    const Stored stored = remember(said, Status::Proposed, source);
+    if (!store) {
+        switch (verdict.truth) {
+        case Truth::True:
+            reply.text += "true";
+            break;
+        case Truth::False:
+            reply.text += "false";
+            break;
+        case Truth::Unknown:
+            reply.text += "I don't know";
+            break;
+        }
+        for (const StoredAtom& atom : verdict.because) {
+            reply.because.push_back(
+                (verdict.from_cloud ? "cloud: " : "") + text_of(atom) +
+                (atom.status == Status::Proposed  ? " (proposed)"
+                 : atom.status == Status::Withdrawn ? " (withdrawn)"
+                 : atom.decided_by.empty()          ? ""
+                                                    : std::format(" (validated by {})", atom.decided_by)));
+        }
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
+        }
+        for (const StoredAtom& atom : verdict.nearest) {
+            reply.because.push_back("nearest: " + text_of(atom));
+        }
+        if (verdict.truth == Truth::Unknown && !verdict.nearest.empty()) {
+            reply.text += ". I know: " + text_of(verdict.nearest.front());
+        }
+        return reply;
+    }
+    // An affirmation: what does memory hold already? (C16, first step)
+    const Stored stored = remember(said, Status::Proposed, source, read_as);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {
         reply.text += stored == Stored::New ? "I know. " + text_of(verdict.because.front())

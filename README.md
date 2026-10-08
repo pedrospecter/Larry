@@ -64,11 +64,18 @@ qualified, an affirmation (a declaration), a question, an order (a command),
 an assumption or an expression, by the rules and by the conceptions of the
 same structure, with the reasons (`larry qualify`).
 
+## Ask Larry something
+
+    ./build/larry chat                       # a line at a time: questions, statements, "why?", "bye"
+    ./build/larry ask "Is the sky blue?"     # one question or claim: the answer, and why; nothing stored
+    ./build/larry say "The sea is wide."     # one sentence: Larry replies and stores what it heard
+
 ## Try
 
     ./build/larry show "the grass is green"
     ./build/larry compare "the sky is blue" "the sea is blue"
-    ./build/larry ask "Is the sky blue?"
+    ./build/larry ask "Is the sky blue?"       # Yes.
+    ./build/larry ask "What is the sky?"       # The sky is blue.
     ./build/larry ask "the sky is green"       # false, because the sky is blue
     ./build/larry say "The skyy is blue."      # Did you mean "sky"?
     ./build/larry say "Sky are blue."          # I read it as "The sky is blue."

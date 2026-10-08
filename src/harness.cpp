@@ -127,7 +127,12 @@ std::vector<Relation> Harness::relations(const Description& d) const {
         folded.push_back(ops.fold(e.word));
     }
     std::vector<Relation> out;
+    // A question word stands for what is asked ("Who went?"): no relation of its own.
     const auto add = [&](std::string_view kind, std::size_t head, std::size_t dependent) {
+        if (std::ranges::contains(rules_->question_words(), folded[head]) ||
+            std::ranges::contains(rules_->question_words(), folded[dependent])) {
+            return;
+        }
         out.push_back(Relation{bytes_of(kind), folded[head], folded[dependent], head, dependent});
     };
     // The heads: the first thing with the subject role, the first verb (else
@@ -154,6 +159,13 @@ std::vector<Relation> Harness::relations(const Description& d) const {
         }
         if (object_head == n && roles[i] == object && is_thing(category)) {
             object_head = i;
+        }
+    }
+    // A negated sentence says what is not: "The sky is not green" makes
+    // green no attribute of the sky, so it has no relation to judge.
+    for (const Bytes& word : folded) {
+        if (std::ranges::contains(rules_->negation_words(), word)) {
+            return out;
         }
     }
     // A question that opens with a question word asks for the attribute:

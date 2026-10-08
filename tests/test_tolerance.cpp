@@ -327,17 +327,25 @@ TEST(the_brain_thinks_with_the_reading_and_stores_what_was_said) {
     const larry::Reply plain = brain.hear(ops.from_text("The door is closed."), "user:pedro");
     CHECK(plain.text == "I already know that.");
     CHECK(plain.because.size() == 1);
-    // What was stored as said now counts as a use without a determiner: "Sky
-    // is blue." is known, so "sky" is no longer known with "the" alone, until
-    // a validator withdraws it.
-    CHECK(brain.truth(ops.from_text("Sky is green.")).reading.empty());
-    cache.add_validator("pedro");
+    // What was stored as said carries its reading (Q29), so it is no use of
+    // "sky" without a determiner: "Sky is green." is still read as meant.
     const std::optional<larry::StoredAtom> as_said = cache.find(describe_with.describe(ops.from_text("Sky is blue."), &cache).metadata);
     CHECK(as_said.has_value());
     if (as_said) {
-        CHECK(brain.decide(as_said->description.metadata, larry::Status::Withdrawn, "pedro"));
+        CHECK(as_said->reading == "The sky is blue.");
     }
     CHECK(brain.truth(ops.from_text("Sky is green.")).reading == "The sky is green.");
+    // A sentence stored as said without a reading does count: "Snow is white."
+    CHECK(brain.hear(ops.from_text("Sky is bright."), "user:pedro").text.starts_with("I read it as \"The sky is bright.\"."));
+    const std::optional<larry::StoredAtom> bright = cache.find(describe_with.describe(ops.from_text("Sky is bright."), &cache).metadata);
+    CHECK(bright.has_value() && bright->reading == "The sky is bright.");
+    // A validated conception with a reading teaches the grammar nothing.
+    cache.add_validator("pedro");
+    if (bright) {
+        const std::size_t patterns = own.size();
+        CHECK(brain.decide(bright->description.metadata, larry::Status::Validated, "pedro"));
+        CHECK(own.size() == patterns);
+    }
 }
 
 int main() {

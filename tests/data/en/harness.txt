@@ -15,7 +15,6 @@ known | The old dog is slow. | slow, attribute of dog
 known | Mary went to the kitchen. | mary, subject of went
 known | Mary went to the kitchen. | kitchen, complement of to
 known | Tom is a teacher. | teacher, attribute of tom
-known | The sky is not blue. | blue, attribute of sky
 #
 # Plausible: the word is known in that relation of other things.
 plausible | The sea is wide. | wide, attribute of sea
@@ -26,7 +25,9 @@ plausible | Dogs fly. | dogs, subject of fly
 plausible | The old cat is slow. | old, modifier of cat
 plausible | Mary went to the garden. | garden, complement of to
 #
-# Unusual: the word was never seen in that relation.
+# Unusual: the word was never seen in that relation. "The sky is not green." is in
+# memory, and says nothing of what the sky is.
+unusual | The sky is green. | green, attribute of sky
 unusual | The sea is vast. | vast, attribute of sea
 unusual | The sky is old. | old, attribute of sky
 plausible | The sky is wet. | wet, attribute of sky

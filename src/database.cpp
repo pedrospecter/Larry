@@ -84,7 +84,7 @@ Database::Param number(std::int64_t value) {
 const char* const select_conceptions =
     "select c.id, c.metadata, c.bytes, c.status, "
     "(select string_agg(encode(s.source, 'hex'), ',' order by s.id) "
-    " from sources s where s.conception = c.id), c.decided_by "
+    " from sources s where s.conception = c.id), c.decided_by, c.reading "
     "from conceptions c";
 
 }  // namespace
@@ -244,6 +244,25 @@ void Database::apply_schema() {
         throw std::runtime_error(std::format("Database: cannot read {}", file.string()));
     }
     run(std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}});
+    // Q28: conceptions from before the identity existed get theirs; two rows
+    // with one identity are one conception: the first keeps its description,
+    // takes the sources of the other, and the other goes.
+    const AtomOperations ops;
+    const Result without = exec("select id, metadata from conceptions where identity is null order by id");
+    for (int row = 0; row < without.rows(); ++row) {
+        const std::int64_t id = without.integer(row, 0);
+        const Bytes identity = ops.identity(MetadataElectron{without.bytes(row, 1)});
+        const Result held = exec("select id from conceptions where identity = $1", {binary(identity)});
+        if (held.rows() == 0) {
+            (void)exec("update conceptions set identity = $2 where id = $1", {number(id), binary(identity)});
+            continue;
+        }
+        const std::int64_t keeper = held.integer(0, 0);
+        (void)exec("insert into sources (conception, source) select $1, source from sources where conception = $2 "
+                   "on conflict (conception, source) do nothing",
+                   {number(keeper), number(id)});
+        (void)exec("delete from conceptions where id = $1", {number(id)});
+    }
 }
 
 void Database::clear() {
@@ -278,20 +297,21 @@ Stored Database::store(const Sentence& atom, const MetadataElectron& metadata, S
                        std::string_view source) {
     const AtomOperations ops;
     (void)ops.electrons(metadata);  // validate before anything is written
+    const Bytes identity = ops.identity(metadata);
     run("begin");
     try {
         const Result inserted =
-            exec("insert into conceptions (metadata, bytes, status) values ($1, $2, $3) "
-                 "on conflict (metadata) do nothing returning id",
-                 {binary(metadata.bytes), binary(ops.bytes(atom)), text(name(status))});
+            exec("insert into conceptions (identity, metadata, bytes, status) values ($1, $2, $3, $4) "
+                 "on conflict (identity) do nothing returning id",
+                 {binary(identity), binary(metadata.bytes), binary(ops.bytes(atom)), text(name(status))});
         std::int64_t id = 0;
         Stored outcome = Stored::New;
         if (inserted.rows() == 1) {
             id = inserted.integer(0, 0);
             index(id, metadata);
         } else {
-            const Result existing = exec("select id, bytes from conceptions where metadata = $1",
-                                         {binary(metadata.bytes)});
+            const Result existing = exec("select id, bytes from conceptions where identity = $1",
+                                         {binary(identity)});
             id = existing.integer(0, 0);
             const Bytes stored = existing.bytes(0, 1);
             outcome = std::ranges::equal(stored, ops.bytes(atom)) ? Stored::Same : Stored::SameForm;
@@ -332,6 +352,8 @@ std::vector<StoredAtom> Database::read_atoms(const Result& result) {
                           .value_or(Status::Proposed);
         const Bytes by = result.bytes(row, 5);
         atom.decided_by.assign(by.begin(), by.end());
+        const Bytes reading = result.bytes(row, 6);
+        atom.reading.assign(reading.begin(), reading.end());
         if (!result.null(row, 4)) {
             const Bytes list = result.bytes(row, 4);
             std::string_view rest{reinterpret_cast<const char*>(list.data()), list.size()};
@@ -353,13 +375,34 @@ std::vector<StoredAtom> Database::read_atoms(const Result& result) {
 }
 
 std::optional<StoredAtom> Database::find(const MetadataElectron& metadata) {
+    const AtomOperations ops;
     std::vector<StoredAtom> found = read_atoms(
-        exec((std::string{select_conceptions} + " where c.metadata = $1").c_str(),
-             {binary(metadata.bytes)}));
+        exec((std::string{select_conceptions} + " where c.identity = $1").c_str(),
+             {binary(ops.identity(metadata))}));
     if (found.empty()) {
         return std::nullopt;
     }
     return std::move(found.front());
+}
+
+bool Database::redescribe(std::int64_t id, const MetadataElectron& metadata) {
+    const AtomOperations ops;
+    (void)ops.electrons(metadata);  // validate before anything is written
+    const Result held = exec("select metadata from conceptions where id = $1", {number(id)});
+    if (held.rows() == 0 || held.bytes(0, 0) == metadata.bytes) {
+        return false;
+    }
+    run("begin");
+    try {
+        (void)exec("update conceptions set metadata = $2 where id = $1", {number(id), binary(metadata.bytes)});
+        (void)exec("delete from words where conception = $1", {number(id)});
+        index(id, metadata);
+        run("commit");
+        return true;
+    } catch (...) {
+        run("rollback");
+        throw;
+    }
 }
 
 std::optional<StoredAtom> Database::find_id(std::int64_t id) {
@@ -409,6 +452,10 @@ std::vector<StoredAtom> Database::with_status(Status status) {
 void Database::set_status(std::int64_t id, Status status, std::string_view by) {
     (void)exec("update conceptions set status = $2, decided_by = $3 where id = $1",
                {number(id), text(name(status)), text(by)});
+}
+
+void Database::set_reading(std::int64_t id, std::string_view reading) {
+    (void)exec("update conceptions set reading = $2 where id = $1", {number(id), text(reading)});
 }
 
 std::vector<std::string> Database::validators() {

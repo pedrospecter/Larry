@@ -31,6 +31,10 @@ using larry::Verdict;
 
 namespace {
 
+Bytes b(std::string_view text) {
+    return Bytes(text.begin(), text.end());
+}
+
 const larry::BaseRules& rules() {
     static const larry::BaseRules instance{larry::Language::English};
     return instance;
@@ -256,6 +260,35 @@ TEST(hear_answers_questions) {
     CHECK(say("Where did Mary go?").text == "I don't know.");
     CHECK(say("What is the door?").text.starts_with("I don't know."));  // "not closed" is no answer
     CHECK(say("What is the sky?").because == (std::vector<std::string>{"The sky is blue."}));
+}
+
+TEST(answer_replies_to_questions_and_judges_claims_without_storing) {
+    const larry::Memory& memory = hearing_brain().memory();
+    const larry::AtomOperations ops;
+    larry::Brain& brain = hearing_brain();
+    const std::int64_t before = memory.count();
+    CHECK(brain.answer(ops.from_text("Is the sky blue?")).text == "Yes.");
+    CHECK(brain.answer(ops.from_text("Is the sky blue?")).because == (std::vector<std::string>{"The sky is blue."}));
+    CHECK(brain.answer(ops.from_text("Is the door closed?")).text == "No.");
+    CHECK(brain.answer(ops.from_text("What is the sky?")).text == "The sky is blue.");
+    CHECK(brain.answer(ops.from_text("Who is Tom?")).text == "Tom is a teacher.");
+    CHECK(brain.answer(ops.from_text("Is the moon made of cheese?")).text == "I don't know.");
+    // A claim is judged, with the conception and its standing.
+    const larry::Reply claim = brain.answer(ops.from_text("The sky is blue."));
+    CHECK(claim.text == "true");
+    CHECK(claim.because == (std::vector<std::string>{"The sky is blue. (proposed)"}));
+    CHECK(!claim.stored);
+    const larry::Reply wrong = brain.answer(ops.from_text("The door is closed."));
+    CHECK(wrong.text == "false");
+    CHECK(std::ranges::contains(wrong.because, std::string{"The door is not closed. (proposed)"}));
+    const larry::Reply unknown = brain.answer(ops.from_text("Mary went to the garden."));
+    CHECK(unknown.text == "I don't know. I know: Mary went to the kitchen.");
+    CHECK(std::ranges::contains(unknown.because, std::string{"nearest: Mary went to the kitchen."}));
+    // The rest is answered in kind, and nothing is stored.
+    CHECK(brain.answer(ops.from_text("Suppose the sky is red.")).text == "That is an assumption: I do not judge it.");
+    CHECK(brain.answer(ops.from_text("Close the door.")).text == "I cannot do that yet.");
+    CHECK(brain.answer(ops.from_text("Hello!")).text == "Hello!");
+    CHECK(memory.count() == before);
 }
 
 TEST(hear_stores_affirmations_and_checks_novelty) {
@@ -696,12 +729,55 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
     const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
-    const auto [pushed, pulled] = brain.sync(100);
+    const auto [pushed, pulled, redescribed] = brain.sync(100);
     CHECK(pushed == 1);
     CHECK(pulled == 2);  // the cat and the withdrawn moon
     CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
     CHECK(cache.find(cat.metadata)->status == larry::Status::Validated);
-    CHECK(brain.sync(100) == std::make_pair(std::int64_t{0}, std::int64_t{0}));
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // Q28: the cloud holds an older description of a conception: when the
+    // machine describes it anew, the cloud follows, at remember and at sync.
+    const larry::Description sun = describe("The sun is hot.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    larry::Description older = sun;
+    older.entities.entities[3].types = {b("positive"), b("object")};
+    older.type.bytes = b("subject subject predicate object / neutral");
+    older.metadata = ops.metadata(older.category, older.type, older.entities);
+    CHECK(older.metadata.bytes != sun.metadata.bytes);
+    CHECK(cloud->store(older.atom, older.metadata, larry::Status::Proposed, "pi") == larry::Stored::New);
+    const std::int64_t in_cloud = cloud->count();
+    CHECK(brain.remember(sun, larry::Status::Proposed, "lesson:3") == larry::Stored::New);
+    CHECK(cloud->count() == in_cloud);
+    CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
+    CHECK(cloud->find(sun.metadata)->sources == (std::vector<std::string>{"pi", "lesson:3"}));
+    CHECK(cloud->redescribe(cloud->find(sun.metadata)->id, older.metadata));
+    const larry::Brain::Synced synced = brain.sync(100);
+    CHECK(synced.redescribed == 1);
+    CHECK(synced.pushed == 0);
+    CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // Q29: a reading goes with the conception to the cloud, at remember and at sync.
+    const larry::Description plain = describe("Sky is grey.", {"noun", "auxiliary verb", "adjective"});
+    CHECK(brain.remember(plain, larry::Status::Proposed, "user:pedro", "The sky is grey.") == larry::Stored::New);
+    CHECK(cache.find(plain.metadata)->reading == "The sky is grey.");
+    CHECK(cloud->find(plain.metadata)->reading == "The sky is grey.");
+    const larry::Description other = describe("Sea is wet.", {"noun", "auxiliary verb", "adjective"});
+    cache.store(other.atom, other.metadata, larry::Status::Proposed, "user:pedro");
+    cache.set_reading(other.metadata, "The sea is wet.");
+    CHECK(brain.sync(100).pushed == 1);
+    CHECK(cloud->find(other.metadata)->reading == "The sea is wet.");
+    // And back: a reading in the cloud comes into a cache that lacks the conception.
+    const larry::Description third = describe("Moon is white.", {"noun", "auxiliary verb", "adjective"});
+    cloud->store(third.atom, third.metadata, larry::Status::Proposed, "pi");
+    cloud->set_reading(cloud->find(third.metadata)->id, "The moon is white.");
+    CHECK(brain.sync(100).pulled == 1);
+    CHECK(cache.find(third.metadata)->reading == "The moon is white.");
+    // A description that is not complete never replaces one that is.
+    larry::Description guessed = sun;
+    guessed.entities.entities[3].types.push_back(b("guessed"));
+    guessed.metadata = ops.metadata(guessed.category, guessed.type, guessed.entities);
+    CHECK(brain.remember(guessed, larry::Status::Proposed, "user:ana") == larry::Stored::Same);
+    CHECK(cache.find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
+    CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
     cloud->run("drop schema if exists larry_test_brain cascade");
 }
 

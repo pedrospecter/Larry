@@ -127,10 +127,23 @@ public:
     /// expression is answered in kind.
     [[nodiscard]] Reply hear(const Sentence& sentence, std::string_view source = "user");
 
+    /// Answers a question or judges a claim, and stores nothing: what `larry
+    /// ask` does. A question gets yes, no, the conception that fills its gap
+    /// or "I don't know"; a claim gets true, false or I don't know; an
+    /// assumption is not judged, an order not done, an expression returned.
+    /// The reply carries the conceptions and rules it came from, the reading
+    /// of the sentence when it deviated, and what is unusual in it.
+    [[nodiscard]] Reply answer(const Sentence& sentence);
+
     /// Stores a conception in the cache and, when there is a cloud, in the
     /// cloud. What the cache says about it is the result. It stays proposed:
-    /// only a validator decides (R2, first step, the user's safeguard).
-    Stored remember(const Description& d, Status status, std::string_view source);
+    /// only a validator decides (R2, first step, the user's safeguard). A
+    /// conception already there takes this description when it differs and
+    /// is complete (Q28): the machine describes, the record follows. With a
+    /// reading (Q29), the sentence as Larry read it when it differed from
+    /// what was said, the conception is noted as read that way.
+    Stored remember(const Description& d, Status status, std::string_view source,
+                    std::string_view reading = "");
 
     /// The validators: the names allowed to validate or withdraw, from the
     /// cloud when there is one, else from the cache.
@@ -157,10 +170,19 @@ public:
     /// decided. False when neither has it. decide() is the guarded way.
     bool set_status(const MetadataElectron& metadata, Status status, std::string_view by = "");
 
+    /// What sync did.
+    struct Synced {
+        std::int64_t pushed = 0;       ///< Conceptions the cloud lacked.
+        std::int64_t pulled = 0;       ///< Conceptions the cache lacked.
+        std::int64_t redescribed = 0;  ///< Conceptions the cloud held with an older description.
+        bool operator==(const Synced&) const = default;
+    };
+
     /// N2: pushes every conception of the cache that the cloud does not have,
-    /// and pulls the cloud's most recent ones into the cache. Gives the two
-    /// counts. Throws when there is no cloud.
-    std::pair<std::int64_t, std::int64_t> sync(std::int64_t pull);
+    /// gives the cloud the cache's description where it holds an older one
+    /// (Q28), and pulls the cloud's most recent conceptions into the cache.
+    /// Throws when there is no cloud.
+    Synced sync(std::int64_t pull);
 
     /// R1 (first step): the conceptions that answer a question that opens
     /// with a question word: those whose core has the known words of the
@@ -201,12 +223,16 @@ public:
 
     /// K2: adds the pattern of a validated conception to the grammar: its
     /// categories with their roles, named after the sentence. False when
-    /// there is no grammar, the conception is not validated, a category or
-    /// role is missing, or the grammar already gives those roles.
+    /// there is no grammar, the conception is not validated or was read as
+    /// something else (Q29), a category or role is missing, or the grammar
+    /// already gives those roles.
     bool learn_grammar(const StoredAtom& atom);
     [[nodiscard]] const Cognition& cognition() const noexcept { return cognition_; }
 
 private:
+    /// hear() with a source and answer() without one: the one loop, which
+    /// stores what it hears only when `store` is set.
+    [[nodiscard]] Reply respond(const Sentence& sentence, std::string_view source, bool store);
     [[nodiscard]] std::vector<Bytes> expanded_words(const Description& d) const;
     [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
     /// The exclusive group two different words share, or empty: "colour".

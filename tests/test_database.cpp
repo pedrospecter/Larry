@@ -4,11 +4,13 @@
 #include "larry/database.hpp"
 
 #include "larry/atom_operations.hpp"
+#include "larry/hex.hpp"
 
 #include "check.hpp"
 
 #include <cstdlib>
 #include <exception>
+#include <format>
 #include <memory>
 #include <span>
 #include <string>
@@ -104,6 +106,74 @@ TEST(the_same_atom_again_only_adds_its_source) {
     const AtomOperations ops;
     CHECK(ops.text(db().find(other.metadata)->description.atom) == "The sky is blue.");
     CHECK(db().find(other.metadata)->sources.size() == 3);
+}
+
+TEST(the_same_words_with_other_types_are_one_conception) {
+    db().clear();
+    const AtomOperations ops;
+    const Description first = sky_blue();
+    Description second = sky_blue();
+    second.entities.entities[1].types = {b("singular"), b("subject")};
+    second.entities.entities[3].types = {b("positive"), b("attribute")};
+    second.type.bytes = b("subject subject predicate attribute / neutral");
+    second.metadata = ops.metadata(second.category, second.type, second.entities);
+    CHECK(db().store(first.atom, first.metadata, Status::Proposed, "lesson:test") == Stored::New);
+    CHECK(db().store(second.atom, second.metadata, Status::Proposed, "user:pedro") == Stored::Same);
+    CHECK(db().count() == 1);
+    const auto held = db().find(second.metadata);
+    CHECK(held.has_value());
+    if (!held) {
+        return;
+    }
+    CHECK(held->description.metadata.bytes == first.metadata.bytes);
+    CHECK(held->sources == (std::vector<std::string>{"lesson:test", "user:pedro"}));
+    CHECK(db().redescribe(held->id, second.metadata));
+    CHECK(!db().redescribe(held->id, second.metadata));
+    CHECK(!db().redescribe(held->id + 1000, second.metadata));
+    CHECK(db().find(first.metadata)->description.metadata.bytes == second.metadata.bytes);
+    CHECK(db().count_words() == 4);
+    CHECK(db().uses(b("sky")).size() == 1);
+    CHECK(db().find_prefix(second.metadata.bytes).size() == 1);
+    CHECK(db().find_prefix(first.metadata.bytes).empty());
+    // Rows from before the identity existed get theirs on apply_schema, and
+    // two rows of one conception merge into the first, with every source.
+    db().run("update conceptions set identity = null");
+    db().run(std::format("insert into conceptions (metadata, bytes, status) values (decode('{}', 'hex'), "
+                         "decode('{}', 'hex'), 'proposed')",
+                         larry::hex::encode(first.metadata.bytes), larry::hex::encode(b("The sky is blue."))));
+    db().run("insert into sources (conception, source) select max(id), 'read:old' from conceptions");
+    CHECK(db().count() == 2);
+    db().apply_schema();
+    CHECK(db().count() == 1);
+    const auto merged = db().find(first.metadata);
+    CHECK(merged.has_value());
+    if (merged) {
+        CHECK(merged->id == held->id);
+        CHECK(merged->description.metadata.bytes == second.metadata.bytes);
+        CHECK(merged->sources == (std::vector<std::string>{"lesson:test", "user:pedro", "read:old"}));
+    }
+    CHECK(db().count_words() == 4);
+    // Applying the schema again changes nothing.
+    db().apply_schema();
+    CHECK(db().count() == 1);
+}
+
+TEST(the_reading_is_a_column) {
+    db().clear();
+    const Description d = describe("Sky is blue.", {"Sky", "is", "blue"}, {"noun", "auxiliary verb", "adjective"});
+    CHECK(db().store(d.atom, d.metadata, Status::Proposed, "user:pedro") == Stored::New);
+    const auto held = db().find(d.metadata);
+    CHECK(held.has_value());
+    if (!held) {
+        return;
+    }
+    CHECK(held->reading.empty());
+    db().set_reading(held->id, "The sky is blue.");
+    CHECK(db().find(d.metadata)->reading == "The sky is blue.");
+    CHECK(db().find_id(held->id)->reading == "The sky is blue.");
+    CHECK(db().all().front().reading == "The sky is blue.");
+    db().set_reading(held->id, "");
+    CHECK(db().find(d.metadata)->reading.empty());
 }
 
 TEST(find_prefix_all_recent_and_containing) {

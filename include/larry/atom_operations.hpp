@@ -49,6 +49,17 @@ public:
     /// the bytes were not written by metadata().
     [[nodiscard]] Electrons electrons(const MetadataElectron& metadata) const;
 
+    /// The identity of a conception (Q28): its qualification and its words as
+    /// written, from the metadata. Two descriptions of the same sentence with
+    /// other types or roles have the same identity, so the grammar may
+    /// correct a role without making a second conception. Throws
+    /// std::invalid_argument when the bytes were not written by metadata().
+    [[nodiscard]] Bytes identity(const MetadataElectron& metadata) const;
+
+    /// Whether every entity in the metadata has a category and none is
+    /// guessed: a description worth keeping over an earlier one.
+    [[nodiscard]] bool complete(const MetadataElectron& metadata) const;
+
     /// A word as the word index keys it: ASCII letters in lower case, every
     /// other byte as it is.
     [[nodiscard]] Bytes fold(std::span<const std::uint8_t> word) const;

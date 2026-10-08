@@ -51,6 +51,10 @@ Stored Database::store(const Sentence& /*atom*/, const MetadataElectron& /*metad
     absent();
 }
 
+bool Database::redescribe(std::int64_t /*id*/, const MetadataElectron& /*metadata*/) {
+    absent();
+}
+
 std::optional<StoredAtom> Database::find(const MetadataElectron& /*metadata*/) {
     absent();
 }
@@ -76,6 +80,10 @@ std::vector<StoredAtom> Database::with_status(Status /*status*/) {
 }
 
 void Database::set_status(std::int64_t /*id*/, Status /*status*/, std::string_view /*by*/) {
+    absent();
+}
+
+void Database::set_reading(std::int64_t /*id*/, std::string_view /*reading*/) {
     absent();
 }
 

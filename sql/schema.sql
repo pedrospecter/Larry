@@ -2,10 +2,15 @@
 -- rule 3: every table has an id key, and anything Larry reads is bytea).
 
 -- Conceptions: the atoms Larry holds. The neural network finds one by its
--- metadata, so the metadata is unique and indexed; bytes is the sentence.
--- status is proposed, validated or withdrawn (R2, first step).
+-- identity (Q28): its qualification and its words, taken from the metadata,
+-- so a description with corrected types or roles stays the same conception;
+-- the metadata is the current description; bytes is the sentence. status is
+-- proposed, validated or withdrawn (R2, first step). identity is filled by
+-- Larry on first contact for rows from before it existed (schema v3), and
+-- rows that turn out to be the same conception are merged then.
 create table if not exists conceptions (
     id         bigint      generated always as identity primary key,
+    identity   bytea,
     metadata   bytea       not null unique,
     bytes      bytea       not null,
     status     bytea       not null,
@@ -13,6 +18,11 @@ create table if not exists conceptions (
     created    timestamptz not null default now()
 );
 alter table conceptions add column if not exists decided_by bytea not null default '';
+alter table conceptions add column if not exists identity bytea;
+create unique index if not exists conceptions_identity on conceptions (identity);
+-- reading (Q29): the sentence as Larry read it when it was stored, when that
+-- differed from what was said; empty when it was read as said.
+alter table conceptions add column if not exists reading bytea not null default '';
 
 -- The validators: the only people who validate or withdraw a conception. The
 -- user adds themself once; Larry refuses a decision from anyone else.
