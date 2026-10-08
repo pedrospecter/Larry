@@ -1316,6 +1316,33 @@ TEST(a_guess_by_analogy_when_nothing_answers) {
     CHECK(brain.answer(ops.from_text("Robins fly.")).text == "probably true");
 }
 
+TEST(a_plan_is_the_chain_of_actions_told) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_plan.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    CHECK(brain.plan("open the door").steps.empty());
+    CHECK(brain.plan("open the door").text() == "I know no way to open the door.");
+    for (const char* text : {"To open the door, turn the key.", "To turn the key, hold the key.",
+                             "To hold the key, pick up the key.", "To bake bread, knead the dough.",
+                             "To knead the dough, mix the flour and the water."}) {
+        (void)brain.hear(ops.from_text(text), "user:pedro");
+    }
+    const larry::Brain::Plan door = brain.plan("open the door");
+    CHECK(door.steps == (std::vector<std::string>{"pick up the key", "hold the key", "turn the key", "open the door"}));
+    CHECK(door.because.size() == 3);
+    CHECK(door.text() == "To open the door: 1. pick up the key 2. hold the key 3. turn the key 4. open the door");
+    CHECK(brain.plan("Turn the key").steps == (std::vector<std::string>{"pick up the key", "hold the key", "turn the key"}));
+    CHECK(brain.plan("bake bread").steps == (std::vector<std::string>{"mix the flour and the water", "knead the dough", "bake bread"}));
+    CHECK(brain.plan("fly").steps.empty());
+    // A circle stops.
+    (void)brain.hear(ops.from_text("To sleep, rest."), "user:pedro");
+    (void)brain.hear(ops.from_text("To rest, sleep."), "user:pedro");
+    CHECK(brain.plan("sleep").steps == (std::vector<std::string>{"rest", "sleep"}));
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";

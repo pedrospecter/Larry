@@ -276,6 +276,19 @@ public:
     };
     [[nodiscard]] std::optional<Guess> analogy(const Description& question) const;
 
+    /// S2 (first step): a plan for a goal from the actions Larry was told,
+    /// sentences of the form "To open the door, turn the key.": what must
+    /// be done before, step by step, from the first thing to do to the goal.
+    /// Empty when no action reaches the goal; bounded to six steps and no
+    /// step twice.
+    struct Plan {
+        std::string goal;
+        std::vector<std::string> steps;      ///< In order, the goal last.
+        std::vector<StoredAtom> because;     ///< The action conceptions used.
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Plan plan(std::string_view goal) const;
+
     /// A11 (first step): the sentence with its third-person pronouns replaced
     /// by what they refer to in the conceptions heard before (the molecule
     /// being heard newest first, then the atoms in play, then the cache):

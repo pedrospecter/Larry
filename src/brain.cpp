@@ -331,6 +331,75 @@ std::vector<Bytes> Brain::chain(const Bytes& from, const Bytes& to, int steps) c
     return {};
 }
 
+std::string Brain::Plan::text() const {
+    if (steps.empty()) {
+        return "I know no way to " + goal + ".";
+    }
+    std::string out = "To " + goal + ":";
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        out += std::format(" {}. {}", i + 1, steps[i]);
+    }
+    return out;
+}
+
+Brain::Plan Brain::plan(std::string_view goal) const {
+    const AtomOperations ops;
+    Plan out;
+    out.goal = std::string{goal};
+    const auto lower = [](std::string text) {
+        for (char& c : text) {
+            c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+        }
+        while (!text.empty() && (text.back() == '.' || text.back() == ' ' || text.back() == '!')) {
+            text.pop_back();
+        }
+        while (!text.empty() && text.front() == ' ') {
+            text.erase(text.begin());
+        }
+        return text;
+    };
+    // The actions: "To <goal>, <action>." as conceptions, newest first.
+    struct Action {
+        std::string goal;
+        std::string action;
+        StoredAtom atom;
+    };
+    std::vector<Action> actions;
+    for (const StoredAtom& atom : newest_first()) {
+        if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn) {
+            continue;
+        }
+        const std::string text{ops.text(atom.description.atom)};
+        const std::size_t comma = text.find(',');
+        if (comma == std::string::npos || !(text.starts_with("To ") || text.starts_with("to "))) {
+            continue;
+        }
+        actions.push_back({lower(text.substr(3, comma - 3)), lower(text.substr(comma + 1)), atom});
+    }
+    // Backwards from the goal: what to do, then what to do before that.
+    std::vector<std::string> chain;  // the goal first, the first thing to do last
+    std::string wanted = lower(std::string{goal});
+    for (int depth = 0; depth < 6; ++depth) {
+        const auto action = std::ranges::find(actions, wanted, &Action::goal);
+        if (action == actions.end()) {
+            break;
+        }
+        if (std::ranges::contains(chain, action->action) || action->action == wanted) {
+            break;  // a circle
+        }
+        if (chain.empty()) {
+            chain.push_back(wanted);
+        }
+        chain.push_back(action->action);
+        out.because.push_back(action->atom);
+        wanted = action->action;
+    }
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        out.steps.push_back(*it);
+    }
+    return out;
+}
+
 std::string Brain::Guess::reason() const {
     const std::string a(word.begin(), word.end());
     const std::string b(other.begin(), other.end());

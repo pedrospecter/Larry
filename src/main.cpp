@@ -129,6 +129,9 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conversation, with its conceptions in order
   molecule <name>              one molecule: its conceptions in order, who said
                                each and when
+  plan <goal>                  a plan for a goal (S2) from the actions Larry was
+                               told ("To open the door, turn the key."): the
+                               steps in order, the goal last
   think [seconds]              what Larry does with no input (S7): finds the
                                conflicts among its conceptions, proposes
                                general atoms from examples as assumptions
@@ -1506,6 +1509,17 @@ int run(std::span<const std::string_view> args) {
                 larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
             std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
                          held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
+    if (command == "plan") {
+        if (rest.empty()) {
+            throw std::runtime_error("plan needs a goal");
+        }
+        const larry::Brain::Plan p = larry.brain.plan(join(rest));
+        std::println("{}", p.text());
+        for (const larry::StoredAtom& atom : p.because) {
+            std::println("  because: {}", larry.ops.text(atom.description.atom));
         }
         return 0;
     }
