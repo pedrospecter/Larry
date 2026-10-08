@@ -107,6 +107,14 @@ bool is_azure(std::string_view host) {
            lower(host.substr(host.size() - suffix.size())) == suffix;
 }
 
+// A host on this machine: a connection to it fails at once or not at all.
+bool is_local(std::string_view host) {
+    const std::string h = lower(host);
+    return h.empty() || h == "localhost" || h == "127.0.0.1" || h == "::1" || h.starts_with('/');
+}
+
+constexpr std::string_view timeout = "connect_timeout=10";
+
 }  // namespace
 
 std::string libpq_connection(std::string_view given, std::string_view default_database) {
@@ -120,8 +128,13 @@ std::string libpq_connection(std::string_view given, std::string_view default_da
         const std::size_t at = out.find('@');
         const std::size_t slash = at == std::string::npos ? std::string::npos : out.find('/', at);
         const std::string host = at == std::string::npos ? std::string{} : out.substr(at + 1, slash == std::string::npos ? std::string::npos : slash - at - 1);
-        if (is_azure(host.substr(0, host.find(':'))) && lower(out).find("sslmode=") == std::string::npos) {
+        const std::string name = host.substr(0, host.find(':'));
+        if (is_azure(name) && lower(out).find("sslmode=") == std::string::npos) {
             out += out.find('?') == std::string::npos ? "?sslmode=require" : "&sslmode=require";
+        }
+        if (!is_local(name) && lower(out).find("connect_timeout=") == std::string::npos) {
+            out += out.find('?') == std::string::npos ? "?" : "&";
+            out += timeout;
         }
         return out;
     }
@@ -160,6 +173,7 @@ std::string libpq_connection(std::string_view given, std::string_view default_da
     std::string out;
     std::string host;
     bool has_sslmode = false;
+    bool has_timeout = false;
     for (auto& [given_key, value] : pairs) {
         const std::string key = libpq_key(given_key);
         if (key.empty()) {
@@ -180,12 +194,19 @@ std::string libpq_connection(std::string_view given, std::string_view default_da
         if (key == "host") {
             host = value;
         }
+        if (key == "connect_timeout") {
+            has_timeout = true;
+        }
         out += out.empty() ? "" : " ";
         out += key + '=' + quoted(value);
     }
     if (!has_sslmode && is_azure(host)) {
         out += out.empty() ? "" : " ";
         out += "sslmode=require";
+    }
+    if (!has_timeout && !is_local(host)) {
+        out += out.empty() ? "" : " ";
+        out += timeout;
     }
     return out;
 }

@@ -13,7 +13,9 @@ namespace larry {
 /// database means `default_database`; a value with spaces or quotes is quoted
 /// the way libpq reads it; keys libpq does not know are dropped. For a host
 /// on Azure without an SSL mode, sslmode=require is added, because Azure
-/// requires it. Empty in gives empty out.
+/// requires it. For a host that is not this machine without a timeout,
+/// connect_timeout=10 is added, so a cloud out of reach does not hold Larry
+/// for minutes. Empty in gives empty out.
 [[nodiscard]] std::string libpq_connection(std::string_view given,
                                            std::string_view default_database = "larry");
 
