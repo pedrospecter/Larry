@@ -15,6 +15,7 @@
 #include "larry/tolerance.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -246,6 +247,14 @@ public:
     /// yes/no question.
     [[nodiscard]] std::vector<Core> statements(const Description& question) const;
 
+    /// G4a: what to call with a short line while the brain does something
+    /// slow (a search in the cloud), so that a wait is never empty.
+    using Notice = std::function<void(std::string_view)>;
+    void notice(Notice on_notice) {
+        notice_ = std::move(on_notice);
+        last_notice_.clear();
+    }
+
     [[nodiscard]] Memory& memory() const noexcept { return *memory_; }
     [[nodiscard]] Database* cloud() const noexcept { return cloud_; }
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
@@ -279,6 +288,14 @@ private:
     /// Puts a conception the cloud gave into the cache.
     void cache(const StoredAtom& atom) const;
 
+    /// Says it once: the same notice twice in a row is one wait.
+    void tell(std::string_view what) const {
+        if (notice_ && what != last_notice_) {
+            last_notice_ = std::string{what};
+            notice_(what);
+        }
+    }
+
     const BaseRules* rules_;
     Grammar* grammar_;
     Assimilation assimilation_;
@@ -288,6 +305,8 @@ private:
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;
+    Notice notice_;
+    mutable std::string last_notice_;
 };
 
 }  // namespace larry

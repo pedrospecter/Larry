@@ -241,6 +241,7 @@ std::int64_t Brain::refresh() {
     if (cloud_ == nullptr) {
         return 0;
     }
+    tell("asking the cloud for its standings");
     const AtomOperations ops;
     std::map<Bytes, Database::Standing> record;
     for (Database::Standing& s : cloud_->standings()) {
@@ -300,6 +301,9 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
     }
     std::vector<std::int64_t> ids;
     for (const Bytes& spelling : spellings(*rarest)) {
+        if (cloud) {
+            tell("searching the cloud");
+        }
         std::vector<StoredAtom> found = cloud ? cloud_->containing(spelling) : memory_->containing(spelling);
         for (StoredAtom& atom : found) {
             if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn &&
@@ -490,6 +494,9 @@ Qualifying Brain::qualify(const Description& d) const {
             break;
         }
         std::vector<std::int64_t> seen;
+        if (cloud) {
+            tell("searching the cloud for sentences of the same structure");
+        }
         for (const Entity& e : d.entities.entities) {
             const Bytes word = ops.fold(e.word);
             for (StoredAtom& atom : cloud ? cloud_->containing(word) : memory_->containing(word)) {
@@ -860,6 +867,7 @@ Reply Brain::answer(const Sentence& sentence) {
 
 Reply Brain::respond(const Sentence& sentence, std::string_view source, bool store) {
     const AtomOperations ops;
+    last_notice_.clear();
     // What was said is what gets stored; what was meant, by the reading
     // within the tolerance (K3), is what Larry thinks with.
     const Description said = assimilation_.describe(sentence, memory_);

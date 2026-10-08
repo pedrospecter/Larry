@@ -847,6 +847,15 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cloud->set_reading(cloud->find(third.metadata)->id, "The moon is white.");
     CHECK(brain.sync(100).pulled == 1);
     CHECK(cache.find(third.metadata)->reading == "The moon is white.");
+    // G4a: a search in the cloud says so.
+    std::vector<std::string> notices;
+    brain.notice([&](std::string_view what) { notices.emplace_back(what); });
+    CHECK(brain.truth(ops.from_text("the moon is made of cheese")).truth == Truth::Unknown);
+    CHECK(notices == (std::vector<std::string>{"searching the cloud"}));  // once, not once a word
+    notices.clear();
+    CHECK(brain.truth(ops.from_text("the sky is blue")).truth == Truth::True);  // the cache answers
+    CHECK(notices.empty());
+    brain.notice({});
     // N2c: the cloud is the record. A decision taken there reaches the cache
     // at refresh, and so does a reading; what the cache alone holds stays.
     cloud->set_status(cloud->find(grass.metadata)->id, larry::Status::Withdrawn, "pedro");
