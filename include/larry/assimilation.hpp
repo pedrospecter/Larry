@@ -3,6 +3,7 @@
 #include "larry/base_rules.hpp"
 #include "larry/description.hpp"
 #include "larry/electron.hpp"
+#include "larry/forms.hpp"
 #include "larry/sentence.hpp"
 
 #include <cstddef>
@@ -71,6 +72,12 @@ public:
     [[nodiscard]] Emotion emotion(const Description& d) const;
 
     [[nodiscard]] const Grammar* grammar() const noexcept { return grammar_; }
+    [[nodiscard]] const Forms& forms() const noexcept { return forms_; }
+
+    /// A4: the form a word is, when its base is known to memory (with the
+    /// category the ending gives) or to the dictionary, or when it is an
+    /// irregular pair. The word as written, in any case.
+    [[nodiscard]] std::optional<Form> form_of(const Bytes& word, const Memory* memory) const;
 
 
 private:
@@ -86,6 +93,8 @@ private:
                                                const std::vector<Span>& tokens) const;
 
     const BaseRules* rules_;
+
+    Forms forms_;
     const Dictionary* dictionary_;
     const Grammar* grammar_;
     std::vector<std::string> punctuation_;

@@ -242,6 +242,14 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// N6: working memory, the atoms now in play, newest first: what was
+    /// heard and stored, and the conceptions that answered or came nearest.
+    /// Bounded; the candidates for an answer are looked for here before
+    /// the word index, so the lookup starts from what is in play.
+    [[nodiscard]] const std::vector<StoredAtom>& working() const noexcept { return working_; }
+    void forget_working() { working_.clear(); }
+    static constexpr std::size_t working_limit = 32;
+
     /// N5: the neighbours of a described sentence or a word in the cache,
     /// nearest first (Memory::spread), through the word index and the
     /// bonds; the cloud is not walked, so this is what the machine knows.
@@ -332,8 +340,13 @@ private:
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;
 
     /// The conceptions of the cache or the cloud that contain the rarest word
-    /// of a core, affirmations only.
+    /// of a core, affirmations only; from the cache, the ones in play first (N6).
     [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
+    /// truth() and answers() without the working memory: what they decide.
+    [[nodiscard]] Verdict decide(const Description& claim) const;
+    [[nodiscard]] std::vector<StoredAtom> search_answers(const Description& question) const;
+    /// N6: puts an atom at the front of the working memory, within its bound.
+    void bring_into_play(const StoredAtom& atom) const;
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.
@@ -361,6 +374,7 @@ private:
     Notice notice_;
     mutable std::string last_notice_;
     Bytes molecule_;  ///< N4: what is remembered joins it, when it is named.
+    mutable std::vector<StoredAtom> working_;  ///< N6: the atoms in play, newest first.
 };
 
 }  // namespace larry

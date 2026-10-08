@@ -123,6 +123,9 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conversation, with its conceptions in order
   molecule <name>              one molecule: its conceptions in order, who said
                                each and when
+  forms <word>                 what the word is a form of (A4): its base, the
+                               category and feature its ending or its irregular
+                               pair gives, the rule, and its "form of" bonds
   near <word or sentence>      the neighbours in memory (N5), nearest first:
                                the conceptions that share its words, the words
                                and conceptions it is bonded to, two steps out;
@@ -386,6 +389,9 @@ std::string source(const larry::EntityNote& note) {
         return out;
     }
     case larry::Source::Guess: {
+        if (!note.form.empty()) {
+            return "guess from the form: " + note.form;  // A4
+        }
         std::string out = "guess from the context:";
         for (const larry::Bytes& candidate : note.candidates) {
             out += ' ';
@@ -1354,6 +1360,30 @@ int run(std::span<const std::string_view> args) {
                 larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
             std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
                          held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
+    if (command == "forms") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("forms needs one word");
+        }
+        const larry::Bytes word(rest[0].begin(), rest[0].end());
+        const std::optional<larry::Form> form = larry.assimilation.form_of(word, &larry.memory);
+        if (form) {
+            std::println("{} is a form of {}: {} {}, by {}", as_text(form->word), as_text(form->base),
+                         as_text(form->category), as_text(form->feature), form->rule);
+        } else if (const std::optional<larry::Form> alone = larry.assimilation.forms().by_ending(word)) {
+            std::println("{} has the ending of a {} ({}), base unknown: {}", rest[0], as_text(alone->category),
+                         as_text(alone->feature), as_text(alone->base));
+        } else {
+            std::println("{} is a form of nothing I know", rest[0]);
+        }
+        for (const larry::Form& candidate : larry.assimilation.forms().candidates(word)) {
+            std::println("  tried: {} as {} {} ({})", as_text(candidate.base), as_text(candidate.category),
+                         as_text(candidate.feature), candidate.rule);
+        }
+        for (const larry::Bond& b : larry.brain.bonds_of(larry::BondEnd::entity(rest[0]))) {
+            std::println("  bond: {} --{}--> {}", as_text(b.from.bytes), as_text(b.kind), as_text(b.to.bytes));
         }
         return 0;
     }

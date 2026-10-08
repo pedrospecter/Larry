@@ -1,0 +1,34 @@
+# A4: a held-out list of forms. Fields are separated by " | ": the form, its base,
+# the category and the feature the form has. The bases are known to the test with
+# the category given here; "none" as base means the word is a form of nothing.
+skies | sky | noun | plural
+flies | fly | noun | plural
+cats | cat | noun | plural
+boxes | box | noun | plural
+dishes | dish | noun | plural
+cities | city | noun | plural
+walks | walk | verb | third person
+goes | go | verb | third person
+tries | try | verb | third person
+walked | walk | verb | past
+loved | love | verb | past
+stopped | stop | verb | past
+tried | try | verb | past
+walking | walk | verb | progressive
+loving | love | verb | progressive
+running | run | verb | progressive
+taller | tall | adjective | comparative
+larger | large | adjective | comparative
+bigger | big | adjective | comparative
+happier | happy | adjective | comparative
+tallest | tall | adjective | superlative
+largest | large | adjective | superlative
+happiest | happy | adjective | superlative
+went | go | verb | past
+children | child | noun | plural
+was | be | auxiliary verb | past
+better | good | adjective | comparative
+mice | mouse | noun | plural
+sky | none
+run | none
+this | none

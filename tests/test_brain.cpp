@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
+#include <format>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -308,7 +309,8 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(say("The sea is blue.").text == "Noted. I take \"sea\" as noun.");
     CHECK(say("Zorp.").text == "Noted. What is \"Zorp\"?");
     const larry::Reply conflict = say("The sky is not blue.");
-    CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
+    // N6: the paraphrase "the sky is blue", said last, is in play and answers first.
+    CHECK(conflict.text.starts_with("That conflicts with what I know: the sky is blue"));
     CHECK(conflict.stored);
     const larry::Reply unknown = say("The sky is azure.");
     CHECK(unknown.text.starts_with("Noted. \"azure\" was never attribute of sky; of sky I know as attribute of: blue (proposed)"));
@@ -818,11 +820,15 @@ TEST(a_conflict_is_a_bond_between_the_two_conceptions) {
     };
     say("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
     say("The door is closed.", {"determiner", "noun", "auxiliary verb", "adjective"});
-    CHECK(cache.count_bonds() == 0);
+    // A4 bonds the forms ("is" to "be") too: count the conflicts alone.
+    const auto conflicts = [&] {
+        return std::ranges::count_if(cache.bonds(), [](const larry::Bond& bond) { return bond.kind == b("conflicts with"); });
+    };
+    CHECK(conflicts() == 0);
     const larry::Reply conflict = say("The sky is not blue.");
     CHECK(conflict.text.starts_with("That conflicts with what I know: The sky is blue."));
     CHECK(std::ranges::contains(conflict.because, std::string{"bond: conflicts with, recorded (N3)"}));
-    CHECK(cache.count_bonds() == 1);
+    CHECK(conflicts() == 1);
     const larry::Description said = assimilation.describe(ops.from_text("The sky is not blue."), &cache);
     const std::vector<larry::Bond> from_said = brain.bonds_of(larry::BondEnd::atom(said.metadata));
     CHECK(from_said.size() == 1);
@@ -839,11 +845,11 @@ TEST(a_conflict_is_a_bond_between_the_two_conceptions) {
     CHECK(cache.bonds_to(larry::BondEnd::atom(blue.metadata)).size() == 1);
     const larry::Reply open = say("The door is open.");
     CHECK(open.text.starts_with("That conflicts with what I know: The door is closed."));
-    CHECK(cache.count_bonds() == 2);
+    CHECK(conflicts() == 2);
     CHECK(cache.bonds().back().origins.front().starts_with("rule: open and closed"));
     // The same conflict heard again is the same bond.
     (void)say("The sky is not blue.");
-    CHECK(cache.count_bonds() == 2);
+    CHECK(conflicts() == 2);
     CHECK(brain.conception_at(larry::BondEnd::entity("sky")) == std::nullopt);
 }
 
@@ -885,6 +891,51 @@ TEST(what_is_heard_joins_the_molecule) {
     brain.molecule({});
     (void)brain.hear(ops.from_text("The hill is blue."), "user:pedro");
     CHECK(cache.molecule(chat)->members.size() == 3);
+}
+
+TEST(working_memory_holds_what_is_in_play) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+        return d;
+    };
+    const larry::Description sky = teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is wide.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.working().empty());  // a lesson taught straight into the cache is not in play
+    // What was heard and stored is in play, newest first.
+    CHECK(brain.hear(ops.from_text("The grass is green."), "user:pedro").stored);
+    CHECK(brain.working().size() == 1);
+    CHECK(brain.working().front().description.image.bytes == b("The grass is green."));
+    // What answered a question is in play.
+    CHECK(brain.answer(ops.from_text("Is the sky blue?")).text == "Yes.");
+    CHECK(brain.working().size() == 2);
+    CHECK(brain.working().front().description.metadata.bytes == sky.metadata.bytes);
+    // The same atom again moves to the front, not in twice.
+    (void)brain.hear(ops.from_text("The grass is green."), "user:pedro");
+    CHECK(brain.working().size() == 2);
+    CHECK(brain.working().front().description.image.bytes == b("The grass is green."));
+    // What is in play answers first: a question about the sky finds the sky's conception among the candidates first.
+    const larry::Verdict verdict = brain.truth(ops.from_text("the sky is blue"));
+    CHECK(verdict.truth == Truth::True);
+    // The bound holds.
+    for (int i = 0; i < 40; ++i) {
+        (void)brain.hear(ops.from_text(std::format("Thing{} is here.", i)), "user:pedro");
+    }
+    CHECK(brain.working().size() == larry::Brain::working_limit);
+    CHECK(brain.working().front().description.image.bytes == b("Thing39 is here."));
+    brain.forget_working();
+    CHECK(brain.working().empty());
 }
 
 TEST(the_cache_answers_first_and_the_cloud_second) {
@@ -969,13 +1020,14 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     CHECK(brain.sync(100) == larry::Brain::Synced{});
     // N3: a bond goes to the cloud at once, and the cloud's bonds come to the cache at sync.
     cloud->run("truncate bonds, bond_origins restart identity cascade");
+    const std::int64_t forms_held = cache.count_bonds();  // A4: "is" is a form of "be", bonded at remember
     CHECK(brain.bond(larry::Bond{b("form of"), larry::BondEnd::entity("cats"), larry::BondEnd::entity("cat"), {"user:pedro"}}));
     CHECK(cloud->count_bonds() == 1);
     CHECK(cloud->bond(larry::Bond{b("conflicts with"), larry::BondEnd::atom(sky.metadata), larry::BondEnd::atom(moon.metadata), {"pi"}}));
     const larry::Brain::Synced bonded = brain.sync(100);
-    CHECK(bonded.bonds_pushed == 0);
+    CHECK(bonded.bonds_pushed == forms_held);  // the cloud lacked the form bonds since the truncate
     CHECK(bonded.bonds_pulled == 1);
-    CHECK(cache.count_bonds() == 2);
+    CHECK(cache.count_bonds() == forms_held + 2);
     CHECK(brain.bonds_of(larry::BondEnd::atom(moon.metadata)).size() == 1);
     CHECK(brain.conception_at(larry::BondEnd::atom(moon.metadata))->description.metadata.bytes == moon.metadata.bytes);
     CHECK(brain.sync(100) == larry::Brain::Synced{});

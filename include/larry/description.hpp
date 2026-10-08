@@ -32,6 +32,9 @@ struct EntityNote {
     /// For a word neither memory nor the dictionary knows: the dictionary
     /// words one typing slip away, as a spell checker suggests them.
     std::vector<Bytes> near;
+    /// A4: when the category came from the word's form: "skies is a form of
+    /// sky (ending ies (y + ies))". The source is Guess then.
+    std::string form;
 };
 
 /// A sentence with all of its electrons: what assimilation produces, what the

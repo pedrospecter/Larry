@@ -92,6 +92,12 @@ public:
         return forms_;
     }
 
+    /// Irregular forms taught as pairs (A4), from irregular.txt: the form,
+    /// and "base:category:feature" ("went" and "go:verb:past").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& irregular() const noexcept {
+        return irregular_;
+    }
+
     /// Pronouns and their features ("first person;singular"), from pronouns.txt.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& pronouns() const noexcept {
         return pronouns_;
@@ -196,6 +202,7 @@ private:
     std::vector<std::pair<Bytes, Bytes>> contractions_;
     std::vector<std::pair<Bytes, Bytes>> endings_;
     std::vector<std::pair<Bytes, Bytes>> forms_;
+    std::vector<std::pair<Bytes, Bytes>> irregular_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;
     std::vector<std::pair<Bytes, Bytes>> auxiliaries_;
     std::vector<std::pair<Bytes, Bytes>> emotions_;

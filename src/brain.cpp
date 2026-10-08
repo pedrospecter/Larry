@@ -137,6 +137,21 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
             }
         }
     }
+    // N6: what was just remembered is in play.
+    if (const std::optional<StoredAtom> held = memory_->find(d.metadata)) {
+        bring_into_play(*held);
+    }
+    // A4: each word that is a form of a known word is bonded to it, "form of".
+    if (stored == Stored::New) {
+        static const Bytes form_of{'f', 'o', 'r', 'm', ' ', 'o', 'f'};
+        for (const Entity& entity : d.entities.entities) {
+            if (const std::optional<Form> form = assimilation_.form_of(entity.word, memory_)) {
+                (void)bond(Bond{form_of, BondEnd::entity(std::string_view{reinterpret_cast<const char*>(form->word.data()), form->word.size()}),
+                                BondEnd::entity(std::string_view{reinterpret_cast<const char*>(form->base.data()), form->base.size()}),
+                                {"rule: " + form->rule}});
+            }
+        }
+    }
     // N4: the conception joins the molecule being heard, said again or not.
     if (!molecule_.empty()) {
         const Bytes identity = ops.identity(d.metadata);
@@ -420,18 +435,39 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
             rarest = &word;
         }
     }
-    std::vector<std::int64_t> ids;
-    for (const Bytes& spelling : spellings(*rarest)) {
+    std::vector<Bytes> taken;  // metadata of what is in `out` already
+    const auto take = [&](StoredAtom& atom) {
+        if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn ||
+            std::ranges::contains(taken, atom.description.metadata.bytes)) {
+            return;
+        }
+        taken.push_back(atom.description.metadata.bytes);
+        out.push_back(std::move(atom));
+    };
+    const std::vector<Bytes> wanted = spellings(*rarest);
+    if (!cloud) {
+        // N6: the atoms in play first, when they hold the word; as the cache
+        // holds them now, since the record rules (a standing may have changed).
+        const AtomOperations ops;
+        for (const StoredAtom& atom : working_) {
+            const bool holds = std::ranges::any_of(atom.description.entities.entities, [&](const Entity& e) {
+                return std::ranges::contains(wanted, ops.fold(e.word));
+            });
+            if (!holds) {
+                continue;
+            }
+            if (std::optional<StoredAtom> fresh = memory_->find(atom.description.metadata)) {
+                take(*fresh);
+            }
+        }
+    }
+    for (const Bytes& spelling : wanted) {
         if (cloud) {
             tell("searching the cloud");
         }
         std::vector<StoredAtom> found = cloud ? cloud_->containing(spelling) : memory_->containing(spelling);
         for (StoredAtom& atom : found) {
-            if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn &&
-                std::ranges::find(ids, atom.id) == ids.end()) {
-                ids.push_back(atom.id);
-                out.push_back(std::move(atom));
-            }
+            take(atom);
         }
     }
     return out;
@@ -673,6 +709,28 @@ Verdict Brain::truth(const Sentence& claim) const {
 }
 
 Verdict Brain::truth(const Description& claim) const {
+    Verdict verdict = decide(claim);
+    // N6: what decided it, and what came nearest, is in play now.
+    for (const StoredAtom& atom : verdict.because) {
+        bring_into_play(atom);
+    }
+    for (const StoredAtom& atom : verdict.nearest) {
+        bring_into_play(atom);
+    }
+    return verdict;
+}
+
+void Brain::bring_into_play(const StoredAtom& atom) const {
+    std::erase_if(working_, [&](const StoredAtom& held) {
+        return held.description.metadata.bytes == atom.description.metadata.bytes;
+    });
+    working_.insert(working_.begin(), atom);
+    if (working_.size() > working_limit) {
+        working_.resize(working_limit);
+    }
+}
+
+Verdict Brain::decide(const Description& claim) const {
     Verdict verdict;
     std::vector<Core> forms;
     if (claim.category.bytes == bytes_of("question")) {
@@ -811,6 +869,14 @@ Verdict Brain::truth(const Description& claim) const {
 }
 
 std::vector<StoredAtom> Brain::answers(const Description& question) const {
+    std::vector<StoredAtom> out = search_answers(question);
+    for (const StoredAtom& atom : out) {
+        bring_into_play(atom);  // N6
+    }
+    return out;
+}
+
+std::vector<StoredAtom> Brain::search_answers(const Description& question) const {
     std::vector<StoredAtom> out;
     const std::vector<Bytes> words = expanded_words(question);
     if (words.size() < 2 || !in(rules_->question_words(), words.front())) {
@@ -1265,10 +1331,15 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         const std::string_view word{reinterpret_cast<const char*>(entity.word.data()),
                                     entity.word.size()};
         if (d.notes[i].source == Source::Guess) {
-            reply.text += std::format(" I take \"{}\" as {}.", word,
+            reply.text += std::format(" I take \"{}\" as {}{}.", word,
                                       std::string_view{reinterpret_cast<const char*>(entity.category.data()),
-                                                       entity.category.size()});
-            reply.because.emplace_back("rule: an unknown word takes the category of known words in the same context, as a guess (A6)");
+                                                       entity.category.size()},
+                                      d.notes[i].form.empty() ? std::string{} : ", by its form");
+            if (d.notes[i].form.empty()) {
+                reply.because.emplace_back("rule: an unknown word takes the category of known words in the same context, as a guess (A6)");
+            } else {
+                reply.because.emplace_back("rule: " + d.notes[i].form + " (A4)");
+            }
         } else if (d.notes[i].source == Source::Unknown && !asked) {
             reply.text += std::format(" What is \"{}\"?", word);
             reply.because.emplace_back("rule: Larry asks about a word it does not know (A5)");
