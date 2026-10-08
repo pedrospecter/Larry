@@ -287,7 +287,7 @@ TEST(answer_replies_to_questions_and_judges_claims_without_storing) {
     CHECK(std::ranges::contains(unknown.because, std::string{"nearest: Mary went to the kitchen."}));
     // The rest is answered in kind, and nothing is stored.
     CHECK(brain.answer(ops.from_text("Suppose the sky is red.")).text == "That is an assumption: I do not judge it.");
-    CHECK(brain.answer(ops.from_text("Close the door.")).text.starts_with("I cannot do that yet. I can:"));
+    CHECK(brain.answer(ops.from_text("Close the door.")).text.starts_with("That would make: The door is closed."));  // S1
     CHECK(brain.answer(ops.from_text("Hello!")).text == "Hello!");
     CHECK(memory.count() == before);
 }
@@ -685,7 +685,7 @@ TEST(orders_that_are_commands_are_matched_with_their_arguments) {
     CHECK(brain.memory().count() == before);
     const larry::Reply order = brain.hear(ops.from_text("Close the window."), "user:pedro");
     CHECK(!order.command.has_value());
-    CHECK(order.text.starts_with("I cannot do that yet. I can: search for *, define *,"));
+    CHECK(order.text.starts_with("That would make: The window is closed. I know no way to close the window."));  // S1
     CHECK(brain.answer(ops.from_text("Count the conceptions.")).command.has_value());
 }
 
@@ -757,7 +757,7 @@ TEST(recognition_says_what_a_sentence_is_and_feels) {
 TEST(hear_handles_orders_assumptions_and_expressions) {
     const larry::Memory& memory = hearing_brain().memory();
     const larry::Reply order = say("Close the window.");
-    CHECK(order.text.starts_with("I cannot do that yet. I can:"));
+    CHECK(order.text.starts_with("That would make: The window is closed."));  // S1: the goal, and no way known
     CHECK(!order.stored);
     const std::int64_t before = memory.count();
     const larry::Reply assumption = say("Suppose the sky is green.");
@@ -1571,6 +1571,83 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     CHECK(cache.find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
     CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
     cloud->run("drop schema if exists larry_test_brain cascade");
+}
+
+TEST(an_order_is_a_goal_and_a_rule_is_an_atom) {
+    const larry::AtomOperations ops;
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_goals.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::Assimilation assimilation{rules()};
+    const auto describe = [&](std::string_view text) { return assimilation.describe(ops.from_text(text), &cache); };
+    // The words, taught, so the orders are orders and the claims are read.
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, "lesson:test");
+    };
+    teach("Close the window.", {"verb", "determiner", "noun"});
+    teach("Open the gate.", {"verb", "determiner", "noun"});
+    teach("Turn the handle.", {"verb", "determiner", "noun"});
+    teach("Paint the wall.", {"verb", "determiner", "noun"});
+    teach("The door is open.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The street is long.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Snow falls.", {"noun", "verb"});
+    teach("Rain is water.", {"noun", "auxiliary verb", "noun"});
+    teach("The sun shines.", {"determiner", "noun", "verb"});
+    // S1: the goal from goals.txt, and from the participle of the verb.
+    CHECK(brain.goal_of(describe("Close the door.")) == std::optional<std::string>{"The door is closed."});
+    CHECK(brain.goal_of(describe("Turn on the light.")) == std::optional<std::string>{"The light is on."});
+    CHECK(brain.goal_of(describe("Paint the fence.")) == std::optional<std::string>{"The fence is painted."});
+    // Not satisfied, no plan: the goal is said, and no way is known.
+    larry::Reply closing = brain.hear(ops.from_text("Close the door."), "user:pedro");
+    CHECK(closing.text.starts_with("That would make: The door is closed."));
+    CHECK(closing.text.find("I know no way to") != std::string::npos);
+    // Satisfied: said so.
+    (void)brain.hear(ops.from_text("The door is closed."), "user:pedro");
+    closing = brain.hear(ops.from_text("Close the door."), "user:pedro");
+    CHECK(closing.text == "That would make: The door is closed. That is so already: The door is closed.");
+    // A plan, when actions are told (S2).
+    (void)brain.hear(ops.from_text("To open the window, turn the handle."), "user:pedro");
+    const larry::Reply opening = brain.hear(ops.from_text("Open the window."), "user:pedro");
+    CHECK(opening.text.starts_with("That would make: The window is open. To open the window:"));
+    CHECK(opening.text.find("turn the handle") != std::string::npos);
+    // R9: a rule as an atom makes its result true when its condition holds.
+    (void)brain.hear(ops.from_text("If rain falls, the street is wet."), "user:pedro");
+    CHECK(brain.answer(ops.from_text("Is the street wet?")).text.starts_with("I don't know."));
+    const std::optional<larry::Brain::Rule> rule =
+        brain.rule_of(*cache.find(describe("If rain falls, the street is wet.").metadata));
+    CHECK(rule.has_value());
+    if (rule) {
+        CHECK(rule->condition == "rain falls");
+        CHECK(rule->result == "the street is wet");
+    }
+    // R6: the explanation of the result is the condition, unknown as yet.
+    std::vector<larry::Brain::Explanation> why = brain.explain(describe("The street is wet."));
+    CHECK(why.size() == 1);
+    if (!why.empty()) {
+        CHECK(why.front().assumption == "Rain falls.");
+        CHECK(why.front().known == Truth::Unknown);
+    }
+    (void)brain.hear(ops.from_text("Rain falls."), "user:pedro");
+    const larry::Reply wet = brain.answer(ops.from_text("Is the street wet?"));
+    CHECK(wet.text == "Yes.");
+    CHECK(std::ranges::any_of(wet.because, [](const std::string& b) { return b.find("(R9)") != std::string::npos; }));
+    why = brain.explain(describe("The street is wet."));
+    CHECK(!why.empty() && why.front().known == Truth::True);
+    // A rule with "then", and a negated result: false by the rule.
+    (void)brain.hear(ops.from_text("If the sun shines then the street is not wet."), "user:pedro");
+    const std::optional<larry::Brain::Rule> then_rule =
+        brain.rule_of(*cache.find(describe("If the sun shines then the street is not wet.").metadata));
+    CHECK(then_rule.has_value());
+    if (then_rule) {
+        CHECK(then_rule->condition == "the sun shines");
+        CHECK(then_rule->result == "the street is not wet");
+    }
 }
 
 int main() {

@@ -657,6 +657,33 @@ TEST(a_sentence_comes_back_from_its_image) {
     CHECK(assimilation().word_form(b("blue"), b("adjective"), b("plural"), nullptr) == b("blue"));
 }
 
+TEST(words_attach_to_their_heads) {
+    // A8 (first step): the groups by role, each word to its group's head, the
+    // heads to the main verb, or to the attribute after a copula, as the
+    // treebanks have it.
+    const auto heads = [&](std::string_view text, std::vector<std::string_view> categories) {
+        const larry::Description d = taught(text, std::move(categories));
+        std::vector<std::string> out;
+        for (const std::size_t h : assimilation().attachments(d)) {
+            out.push_back(h == larry::Assimilation::root ? "root"
+                                                         : std::string(d.entities.entities[h].word.begin(),
+                                                                       d.entities.entities[h].word.end()));
+        }
+        return out;
+    };
+    CHECK(heads("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"}) ==
+          (std::vector<std::string>{"sky", "blue", "blue", "root"}));
+    CHECK(heads("Mary went to the garden.", {"proper noun", "verb", "preposition", "determiner", "noun"}) ==
+          (std::vector<std::string>{"went", "root", "garden", "garden", "went"}));
+    CHECK(heads("The big dog chased the cat.", {"determiner", "adjective", "noun", "verb", "determiner", "noun"}) ==
+          (std::vector<std::string>{"dog", "dog", "chased", "root", "cat", "chased"}));
+    CHECK(heads("The sky is very blue.", {"determiner", "noun", "auxiliary verb", "adverb", "adjective"}) ==
+          (std::vector<std::string>{"sky", "blue", "blue", "blue", "root"}));
+    CHECK(heads("Mary and John went home.", {"proper noun", "conjunction", "proper noun", "verb", "noun"}) ==
+          (std::vector<std::string>{"went", "John", "Mary", "root", "went"}));
+    CHECK(heads("Birds can fly.", {"noun", "auxiliary verb", "verb"}) == (std::vector<std::string>{"fly", "fly", "root"}));
+}
+
 int main() {
     return larry::test::run();
 }

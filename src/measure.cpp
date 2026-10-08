@@ -87,14 +87,16 @@ std::vector<UdSentence> read_conllu(const std::filesystem::path& file) {
             const std::size_t first = std::stoull(fields[0].substr(0, dash));
             const std::size_t last = std::stoull(fields[0].substr(dash + 1));
             if (last >= first) {
-                current.tokens.push_back({fields[1], {}, last - first + 1});
+                current.tokens.push_back({fields[1], {}, last - first + 1, 0, 0});
             }
             continue;
         }
         if (!all_digits(fields[0])) {
             continue;  // an empty node "1.1", or not a token
         }
-        current.tokens.push_back({fields[1], fields[3], 0});
+        const std::size_t id = std::stoull(fields[0]);
+        const std::size_t head = fields.size() > 6 && all_digits(fields[6]) ? std::stoull(fields[6]) : 0;
+        current.tokens.push_back({fields[1], fields[3], 0, id, head});
     }
     flush();
     return out;
@@ -122,8 +124,9 @@ std::optional<Aligned> align(const UdSentence& sentence, const Assimilation& ass
     if (atoms.size() != 1) {
         return std::nullopt;  // Larry cuts it elsewhere: not comparable
     }
-    Aligned out{atoms.front(), {}};
+    Aligned out{atoms.front(), {}, {}};
     const EntitiesElectron entities = assimilation.entities(out.atom);
+    std::vector<std::pair<std::size_t, std::size_t>> spans;  // the token indexes [first, last] of each entity
     std::size_t j = 0;
     for (const Entity& entity : entities.entities) {
         const std::string wanted = without_spaces(std::string_view{reinterpret_cast<const char*>(entity.word.data()), entity.word.size()});
@@ -146,6 +149,7 @@ std::optional<Aligned> align(const UdSentence& sentence, const Assimilation& ass
                         return std::nullopt;
                     }
                     out.categories.push_back(category);
+                    spans.emplace_back(k + 1, k + token.covers);
                     j = k + 1 + token.covers;
                     matched = true;
                     break;
@@ -165,6 +169,7 @@ std::optional<Aligned> align(const UdSentence& sentence, const Assimilation& ass
                     return std::nullopt;
                 }
                 out.categories.push_back(std::move(category));
+                spans.emplace_back(j, k);
                 j = k + 1;
                 matched = true;
                 break;
@@ -177,15 +182,44 @@ std::optional<Aligned> align(const UdSentence& sentence, const Assimilation& ass
             return std::nullopt;
         }
     }
+    // A8: the entity each entity attaches to. The entity's own head token is
+    // the one whose head lies outside its span; its head's entity is the
+    // attachment, the root when the head is 0.
+    const auto entity_of_token = [&](std::size_t id) -> std::size_t {
+        for (std::size_t e = 0; e < spans.size(); ++e) {
+            for (std::size_t t = spans[e].first; t <= spans[e].second && t < sentence.tokens.size(); ++t) {
+                if (sentence.tokens[t].covers == 0 && sentence.tokens[t].id == id) {
+                    return e;
+                }
+            }
+        }
+        return Aligned::root;
+    };
+    for (std::size_t e = 0; e < spans.size(); ++e) {
+        std::size_t head = 0;
+        bool found = false;
+        for (std::size_t t = spans[e].first; t <= spans[e].second && t < sentence.tokens.size(); ++t) {
+            const UdToken& token = sentence.tokens[t];
+            if (token.covers > 0 || token.upos == "PUNCT") {
+                continue;
+            }
+            if (token.head == 0 || entity_of_token(token.head) != e) {
+                head = token.head;
+                found = true;
+                break;
+            }
+        }
+        out.heads.push_back(!found || head == 0 ? Aligned::root : entity_of_token(head));
+    }
     return out;
 }
 
 std::string Score::text() const {
     return std::format("taught {} sentences ({} words): {:.1f}% of {} test words right, {:.1f}% unknown, "
-                       "{} test sentences ({} not aligned), in {:.1f} s",
+                       "{:.1f}% attached to the right word, {} test sentences ({} not aligned), in {:.1f} s",
                        taught, taught_words, accuracy() * 100.0, scored,
                        scored == 0 ? 0.0 : 100.0 * static_cast<double>(unknown) / static_cast<double>(scored),
-                       sentences, skipped, seconds);
+                       attachment() * 100.0, sentences, skipped, seconds);
 }
 
 std::vector<Score> measure(const BaseRules& rules, const std::vector<UdSentence>& train,
@@ -251,6 +285,14 @@ std::vector<Score> measure(const BaseRules& rules, const std::vector<UdSentence>
                     ++score.unknown;
                 } else if (pick == a.categories[i]) {
                     ++score.correct;
+                }
+            }
+            // A8: the attachments, from Larry's groups against the treebank's heads.
+            const std::vector<std::size_t> attachments = assimilation.attachments(d);
+            for (std::size_t i = 0; i < a.heads.size() && i < attachments.size(); ++i) {
+                ++score.attachable;
+                if (attachments[i] == a.heads[i]) {
+                    ++score.attached;
                 }
             }
         }

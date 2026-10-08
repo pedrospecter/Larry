@@ -232,7 +232,7 @@ Milestone 2g (reached 2026-10-08): `larry ask "How many minutes are there in 3 h
 - [x] A5 Guided assimilation: one question per word Larry cannot describe from memory; `larry answer` teaches the answer.
 - [x] A6 Free assimilation (Q7): measured on the Universal Dependencies English test set with `larry measure`; the curve is in the log, the target is Q34. A6b: the most specific context chooses among a word's categories; 90.6% with the dictionary.
 - [x] A7 Entity types and atom type (Q1, Q2): the suite labelled by hand (`tests/data/en/types.txt`) passes with the grammar.
-- [ ] A8 Groups and roles (Q2)
+- [ ] A8 Groups and roles (Q2): first step done (A8a), groups by role with a head each and the attachments measured: 42.5% of the English test words and 41.9% of the Portuguese attached to the right word; target proposed in the text.
 
 Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, and its accuracy on a public test set is on record: 78.4% of the words of the Universal Dependencies English test set right from memory alone after 3,000 taught sentences, 81.8% with the dictionary (log of 2026-10-08, A6); 84.5% and 88.0% with the most specific context, 89.1% and 90.6% after all the training sentences (A6b).
 
@@ -256,10 +256,10 @@ Milestone 3: Larry answers questions about what it was told, says "I don't know"
 **Stage 7 — Reasoning**
 - [ ] R4 Chaining: first step done (R4a), "is a kind of" bonds chain to answer what no conception says; done when concluded atoms are stored with their support (R2) and bAbI tasks 2, 3 and 15 are measured (Q36).
 - [ ] R5 Rules from examples (Q7): first step done (R5a), "Birds fly." proposed as an assumption from two kinds of bird that fly, withdrawn by a counter-example; done when the held-out suite and bAbI task 16 are measured (Q36).
-- [ ] R6 Best explanation
+- [ ] R6 Best explanation: first step done (R6a), `larry explain` proposes the condition of a rule whose result is the observation, and says whether it is known; done when several explanations are ranked and one is chosen.
 - [ ] R7 Numbers, sets and space
 - [ ] R8 Analogy as a step, with C13: first step done (R8a), a guess carried from the nearest conception that differs in one word of the same kind; the share on the suite is in the log.
-- [ ] R9 Rules as atoms
+- [ ] R9 Rules as atoms: first step done (R9a), a stored sentence that opens with a word of `conditions.txt` is a rule, and its result is true when its condition is; done when rules are learned from examples and revised.
 
 Milestone 4: the bAbI scores for tasks 1 to 18 are on record. Tasks 19 and 20 come with planning (S2).
 
@@ -269,12 +269,12 @@ Milestone 4: the bAbI scores for tasks 1 to 18 are on record. Tasks 19 and 20 co
 - [ ] G3 Conversation (Q13)
 - [ ] G4 Explaining
 - [x] G5 Asking: Larry asks about a word it cannot describe (A5) and about a conflict it cannot settle (R2c).
-- [ ] G6 Longer output
+- [ ] G6 Longer output: first step done (G6a), "tell me about X" says each conception again from its image (G1); done when a molecule is summarized and steps are given in order from a plan.
 
 Milestone 5: `larry chat` holds a conversation and answers "why?" after any reply.
 
 **Stage 9 — Self-direction and breadth**
-- [ ] S1 Goals from orders
+- [ ] S1 Goals from orders: first step done (S1a), an order is the state that would satisfy it (`goals.txt`, else the participle), said so already or planned (S2); done when the goal is kept until it is reached.
 - [ ] S2 Planning: first step done (S2a), a plan is the chain of actions told as "To <goal>, <action>."; done when a suite of small planning problems passes and bAbI tasks 19 and 20 are measured (Q36).
 - [x] S3 Attention: first step, `larry attention` lists what Larry would think about; the CPU budget is `think`'s.
 - [x] S4 Knowing what it knows: `larry know <word>`, `Brain::knowledge`.
@@ -359,6 +359,7 @@ First step done (A7a): features from the word's form and category (regular endin
 
 **A8 · Groups and roles.** Work out which entities belong together ("the blue sky") and which entity depends on which (the subject of the verb). Larry learns this as patterns from taught atoms (C4) and applies the most specific pattern that matches.
 Done when: the share of words attached to the right word on the Universal Dependencies English test set is recorded. Set a target after the first measurement. Needs A7, C4.
+First step done (A8a, `Assimilation::attachments`, `larry groups`): the entities of one role form a group, split before a preposition and at a conjunction; a group's head is its last noun, proper noun, pronoun or numeral (its last adjective for an attribute), and the other words of the group attach to it; the heads attach to the main verb, a preposition to its own group's head, an auxiliary to the main verb; with a copula and an attribute the attribute's head holds the sentence and the subject and the copula attach to it, as the treebanks have it; a modifier attaches to the attribute after it, else to what holds the sentence; a conjunction to the group after it, whose head attaches to the group before. `larry measure` scores the attachments against the treebank's heads (the entity's token whose head lies outside the entity, followed to its entity): 42.5% of the English test words attached to the right word after all the lessons (42.1% after 3,000), 41.9% of the Portuguese. The first number is on record; target proposed: 70%, through clauses (a verb inside a complement, "that" clauses), the place of adverbs, and the patterns of C4. Not yet: groups from the grammar's own @thing places (K2), nested clauses, and the groups in the image (A9).
 
 **A9 · Image.** Make the image the form in which two sentences that say the same thing are equal. Proposed: words in their base form, roles in a fixed order, references replaced by what they refer to, and negation and time kept as marks.
 Done when: in a suite of sentence pairs, every pair that means the same has equal images and every pair that does not has different images. Needs A4, A8, Q3.
@@ -524,6 +525,7 @@ Done when: a suite with held-out cases passes, and bAbI task 16 is measured. Nee
 First step done (R5a): `Brain::propose` takes each thing with two or more kinds (the "is a kind of" bonds, A10), gathers what the kinds are said to do or be (the affirmations whose subject is the kind, singular or plural, with the defining sentences left out) and, when two or more kinds share a saying, proposes it of the whole kind in the plural ("Sparrows fly." and "Robins fly." give "Birds fly."), stored as an assumption with the examples as its source, never as a truth: "Do birds fly?" stays unknown until the user decides. A counter-example among the kinds ("Penguins do not fly.") stops the proposal, and withdraws it when it was made before. Not yet: a held-out suite, narrowing instead of withdrawing ("birds fly, but penguins"), bAbI task 16.
 
 **R6 · Best explanation.** Given an observation and stored conditions, propose the assumption that would explain it: "the street is wet" and "if it rains the street is wet" give the assumption "it rained".
+First step done (R6a, `Brain::explain`, `larry explain`): for each rule (R9) whose result is the observation, by the core (R1), the condition is the assumption that would explain it, said as a sentence ("It rains."), with what is known of it (true, false or unknown, by R1). "The street is wet." after "If it rains, the street is wet." gives "Perhaps It rains."; once "It rains." is told, the explanation is known true. Not yet: the time ("it rained"), several explanations ranked by what else they explain, and an explanation stored as an assumption for the user to judge.
 Done when: a suite passes, and each proposal is stored as an assumption, never as a truth.
 
 **R7 · Numbers, sets and space.** Count, add, compare, list, and relate positions and sizes.
@@ -534,6 +536,7 @@ Done when: on a suite of cases that no stored rule covers, the measured share of
 First step done (R8a): when neither a conception nor a chain answers a question or a claim, `Brain::analogy` looks for the conceptions with the same words but one, where the two words are kinds of the same thing by the bonds of A10 ("a robin" and "a sparrow", both birds) or forms of one word (A4), and carries the answer over: "Probably yes." or "Probably no.", with the analogy as the reason and the rule that a guess is no truth. Suite: `tests/data/en/analogy.txt`, the share in the log. Not yet: C13 (the four-atom comparison), several differing words, and a guess stored as a guess.
 
 **R9 · Rules as atoms.** Reasoning rules are stored as atoms (assumptions and conditions), so Larry can be taught how to reason in plain sentences and can inspect and revise its own rules.
+First step done (R9a, `Brain::rule_of`, `Brain::rules_about`): a stored sentence that opens with a word of `conditions.txt` ("if", "when"; Portuguese "se", "quando") is a rule, read as its condition and its result, split at the first comma or at the closer the file pairs with the opener ("then", "então"). When no conception answers a claim, `decide` looks for the rules whose result is the claim (every word of the claim in the result, then the same core) and whose condition holds (by `decide` again, two rules deep at most, so a circle of rules ends): the claim is true, or false when the result is its negation, with the rule and the condition's evidence as what it came from, and the rule named in the reply ("the rule ... applies, since ... holds (R9)"). "If it rains, the street is wet." and "It rains." make "Is the street wet?" Yes. A rule is a conception like any other: taught, proposed, validated or withdrawn by the user, and read back from the cache or the cloud. Not yet: rules with a variable ("if a bird flies, it has wings"), rules learned from examples (R5 proposes them as general atoms; they could become rules), and forward chaining when an atom is stored (R4).
 Done when: a rule taught in one sentence changes Larry's answers with no change to the code.
 
 ### Track G — Generation and dialogue (goal 3)
@@ -556,6 +559,7 @@ First step done (G3a, `Brain::hear`, `larry say`, `larry chat`): an affirmation 
 Done (G5): a gap is a word Larry cannot describe from memory: "What is "Zorp"?" when it hears one, and one question per such word when it reads a text (A5, `larry read`, `larry answer`); a conflict it cannot settle by Q14 ends with "Which is true: "..." or "..."?" (R2c), and `larry validate` is where the user answers.
 
 **G6 · Longer output.** Summarize a molecule, describe a thing from everything known about it, and give steps in order.
+First step done (G6a): "tell me about X" (W3) says each conception about X again from its image (G1, `Brain::restate`), newest first, five at most, instead of quoting them; the plan of S2 already gives steps in order. Not yet: a molecule summarized, and one sentence from several conceptions ("The sky is blue and high").
 
 **G7 · Translation.** Generate in one constellation from an image assimilated in another. Needs A12.
 Note (2026-10-08): with two constellations the image (A9) is the missing piece; the kinds bonds are shared by name across languages only when the words are the same, so translation needs "means the same as" bonds between the two vocabularies, taught or read.
@@ -573,6 +577,7 @@ Done (A3b): `Brain::recognize` gives the kind in the user's words (statement, qu
 This track is research. The methods are proposals, and several will need to change once they are tried.
 
 **S1 · Goals from orders.** An order becomes a goal: the state that would satisfy it (C11).
+First step done (S1a, `Brain::goal_of`, `Brain::goal`, `larry goal`): `goals.txt` pairs the shape of an order with the state that satisfies it ("close *" and "* is closed"; Portuguese "fecha *" and "* está fechada"); an order that fits no line takes the thing, the first copula of `copulas.txt` and the participle of the verb by A4 backwards ("Paint the fence." gives "The fence is painted."). The goal is judged by R1: so already ("That is so already"), or planned by S2 from the actions told ("To open the window: turn the handle, open the window"), or no way known. An order that matches no command (W3) gets this reply now instead of "I cannot do that yet". Not yet: the goal kept until it is reached, the gender of the thing in Portuguese ("o livro está fechada" would be wrong), and C11 as a comparison between any order and any state.
 
 **S2 · Planning.** Actions are atoms that say what must hold before and what holds after. Larry searches, within a bound, for a sequence of actions that reaches the goal.
 Done when: bAbI tasks 19 and 20 are measured and a suite of small planning problems passes.
@@ -675,6 +680,7 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q37 | "he" and "she" both take the latest name (A11a), since Larry knows no gender of names. Should a base rule file list common first names with a gender (`names.txt`), or should gender come from the lessons ("Mary is a woman")? | Done as a names file (A11b): `names.txt` per constellation, with the bAbI names and the common ones; a name the file does not know fits either pronoun. A gender taught in a lesson ("Mary is a woman") is the next step, through A10's kinds. | A11 |
 | Q38 | S5 is measured on MCTest (160 and 500 children's stories with questions), which is not on this machine. Can the user put the MCTest files under `content/mctest/`? The runner would read them as `larry babi` reads the bAbI stories. | Proposed: yes, when S5 is next. | S5 |
 | Q39 | A12 asks that `src/` hold nothing of either language. After A12a it still holds: "where", "is", "are", "was", "were" and "in" of the state questions (R3), "and" of the joined subjects (A11), the do-support "do", "does", "did" (R1), and the replies ("Yes.", "No.", "I don't know.", "Probably yes."). Should these move to rule files (articles.txt, copulas.txt, replies.txt) one by one, or should the English words stay as Larry's own vocabulary like the categories? | Proposed: move them; the categories and the roles are Larry's, the words of a sentence are the language's. Done for the replies (G2a, `replies.txt`), the pronouns of the references (A11b, `references.txt`), the articles (A9a, `articles.txt`) and the copulas of the roles (A9a, `copulas.txt`); the rest still waits. | A12, G7 |
+| Q40 | "It rains." has no thing that "it" stands for, but A11 reads "it" as the latest common noun phrase said before ("The street rains."), so a rule told as "If it rains, ..." after other sentences is read wrong (found by the R9 test, which says "If rain falls, ..." instead). Should a verb list name the verbs whose "it" stands for nothing (rain, snow, seem, happen), as data per constellation, or should "it" never refer when the sentence has nothing else that it could be? | Proposed: a file `impersonal.txt` of such verbs, read by A11 before it refers. | A11, R9 |
 
 ## 11. Earlier work worth reading
 
@@ -737,3 +743,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | A12b | 24 test executables pass in the four builds; measure: 4 tests, with a Portuguese tiny treebank. `LARRY_LANGUAGE=pt larry measure 3000 all` on Bosque (19,990 test words in 1,088 aligned sentences, 79 not aligned): from memory alone 84.0% after 3,000 sentences and 87.6% after all 6,544, unknown 0.9 and 0.4%; with the dictionary 86.7 and 87.9%, unknown 0.6 and 0.3%. English again, with a slip word guessed from context: 88.4 and 90.8% with the dictionary (88.0 and 90.6 before), unknown 1.2 and 0.8%. | The Portuguese numbers sit close to the English ones with half the lessons, the same rules of A6 and a smaller dictionary: the technique carries over. The Portuguese dictionary comes from the same treebank as the lessons, so "with the dictionary" after all the lessons adds little there; Moby is independent of the English lessons. A slip word left unknown was a loss with no gain: the question is kept, the guess is added. |
 | 2026-10-08 | A9a, C6 | 24 test executables pass in the four builds; cognition: 14 tests, the C6 suite of 19 pairs; assimilation: 12 tests. | The image is text and costs no store: it is made from the description when a comparison needs it, which keeps the cloud schema as it is. The image already makes "isn't" and "is not", "three" and "3", "skies" and "sky (plural)" equal where they should be; what it cannot do yet is reorder roles, which is A8's work. |
 | 2026-10-08 | G1a, G2b | 24 test executables pass in the four builds; assimilation: 13 tests, the round trip over the 38 sentences of the C6 suite, 0 failures; forms: 5 tests; brain: 29 tests with the short answers. | Generation is the image read backwards with the same files assimilation reads forwards (endings, irregular pairs, auxiliaries, articles): no new data for English or Portuguese. The article comes from memory, so a word Larry never met takes none; the modifier's place is the first visible gap. "What is the sky?" answers "Blue." now: shorter, and still traced to the conception. |
+| 2026-10-08 | A8a, S1a, R9a, R6a, G6a | 24 test executables pass in the four builds; assimilation: 14 tests, 6 attachment cases; measure: 4 tests; brain: 30 tests. `larry measure 3000 all`: 42.1% and 42.5% of the English test words attached to the right word (3,000 and all the lessons), 41.9% of the Portuguese; the categories unchanged. | The attachment share is low, as the first number of a position rule on treebank sentences of twenty words should be: the roles come from one verb per sentence, and most treebank sentences have more. It is on record, which is what A8 asked first. A rule as an atom cost nothing new in the store: it is a conception whose first word is in a file, read when a claim has no direct answer. |

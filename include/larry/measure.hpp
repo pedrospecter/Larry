@@ -20,6 +20,8 @@ struct UdToken {
     std::string form;
     std::string upos;         ///< "NOUN", "VERB", "PUNCT", ...; empty for a multiword token.
     std::size_t covers = 0;   ///< A multiword token ("1-2 do"): how many of the tokens that follow it spells.
+    std::size_t id = 0;       ///< The token's number in its sentence, from 1; 0 for a multiword token.
+    std::size_t head = 0;     ///< The number of the token it attaches to; 0 for the root (A8).
 };
 struct UdSentence {
     std::string text;
@@ -42,6 +44,11 @@ struct UdSentence {
 struct Aligned {
     Sentence atom;
     std::vector<Bytes> categories;  ///< One per entity.
+    /// A8: one per entity, the entity it attaches to by the treebank, or
+    /// `root` when it attaches to nothing: the head of the entity's tokens
+    /// (the one whose head lies outside the entity), followed to its head.
+    std::vector<std::size_t> heads;
+    static constexpr std::size_t root = static_cast<std::size_t>(-1);
 };
 [[nodiscard]] std::optional<Aligned> align(const UdSentence& sentence, const Assimilation& assimilation);
 
@@ -55,11 +62,17 @@ struct Score {
     std::int64_t unknown = 0;       ///< Test words Larry gave no category.
     std::int64_t sentences = 0;     ///< Test sentences aligned.
     std::int64_t skipped = 0;       ///< Test sentences not aligned.
+    std::int64_t attachable = 0;    ///< A8: test words with a head to compare.
+    std::int64_t attached = 0;      ///< A8: of them, attached to the right word by Larry's groups.
     double seconds = 0;
     [[nodiscard]] double accuracy() const noexcept {
         return scored == 0 ? 0 : static_cast<double>(correct) / static_cast<double>(scored);
     }
-    /// "taught 1000 sentences (14212 words): 71.2% of 24852 test words right, 18.3% unknown, in 1.2 s".
+    [[nodiscard]] double attachment() const noexcept {
+        return attachable == 0 ? 0 : static_cast<double>(attached) / static_cast<double>(attachable);
+    }
+    /// "taught 1000 sentences (14212 words): 71.2% of 24852 test words right, 18.3% unknown, 61.0% attached
+    /// to the right word, in 1.2 s".
     [[nodiscard]] std::string text() const;
 };
 

@@ -131,6 +131,9 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry ask "Do robins fly?"        # Probably yes: robins and sparrows are both kinds of bird, and sparrows fly (R8)
     ./build/larry think 2                     # S7: conflicts found, general atoms proposed (R5), what waits (S3)
     ./build/larry attention                   # the words to ask about, the conflicts to settle, the proposals
+    ./build/larry groups "The big dog chased the cat."   # each word and the word it attaches to (A8)
+    ./build/larry goal "Close the door."      # That would make: The door is closed. ... and the plan, or no way known (S1, S2)
+    ./build/larry explain "The street is wet."   # Perhaps It rains. because: If it rains, the street is wet. (R6, R9)
     ./build/larry plan "open the door"        # S2: the steps, from "To open the door, turn the key." and the like
     LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"   # 5: the second constellation, Portuguese (A12)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left

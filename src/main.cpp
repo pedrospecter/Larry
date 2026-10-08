@@ -65,6 +65,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
   compare <text> <text>        compare two sentences: C1 to C5
+  groups <text>                A8: the word each word attaches to, by its group
+  goal <order>                 S1: the state the order would make, whether it
+                               is so already, and the plan to reach it (S2)
+  explain <observation>        R6: the assumption that would explain it, from
+                               the rules Larry holds ("If it rains, ...", R9)
   grammar <text>               which grammar pattern each sentence fits and the
                                role of each word, or where it breaks and what
                                was expected there; "grammar" alone lists the
@@ -719,7 +724,7 @@ std::string execute(Larry& larry, const larry::Command& command) {
             if (atom.status == larry::Status::Withdrawn || as_text(atom.description.category.bytes) != "affirmation") {
                 continue;
             }
-            out += std::format("{}{}", out.empty() ? "" : " ", larry.ops.text(atom.description.atom));
+            out += std::format("{}{}", out.empty() ? "" : " ", larry.brain.restate(atom));  // G6: said again (G1)
             if (++shown == 5) {
                 break;
             }
@@ -993,6 +998,63 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "rebuild") {
         larry.rebuild(true);
+        return 0;
+    }
+    if (command == "groups") {
+        if (rest.empty()) {
+            throw std::runtime_error("groups needs a sentence");
+        }
+        // A8: each word, and the word it attaches to.
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(join(rest)), &larry.memory);
+        const std::vector<std::size_t> heads = larry.assimilation.attachments(d);
+        for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+            const larry::Entity& e = d.entities.entities[i];
+            const std::string head = heads[i] == larry::Assimilation::root
+                                         ? std::string{"root"}
+                                         : std::string(d.entities.entities[heads[i]].word.begin(),
+                                                       d.entities.entities[heads[i]].word.end());
+            std::println("{:<16} -> {}", std::string(e.word.begin(), e.word.end()), head);
+        }
+        return 0;
+    }
+    if (command == "goal") {
+        if (rest.empty()) {
+            throw std::runtime_error("goal needs an order");
+        }
+        // S1: the state the order would make, whether it is so, and the plan.
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(join(rest)), &larry.memory);
+        const std::optional<larry::Brain::Goal> g = larry.brain.goal(d);
+        if (!g) {
+            std::println("{}", larry.brain.say("cannot do"));
+            return 0;
+        }
+        std::println("{}", std::vformat(larry.brain.say("goal"), std::make_format_args(g->state)));
+        if (g->satisfied) {
+            std::println("{}", std::vformat(larry.brain.say("already so"), std::make_format_args(g->state)));
+        } else {
+            std::println("{}", g->plan.text());
+        }
+        for (const std::string& because : g->because) {
+            std::println("  because: {}", because);
+        }
+        return 0;
+    }
+    if (command == "explain") {
+        if (rest.empty()) {
+            throw std::runtime_error("explain needs an observation");
+        }
+        // R6: the assumption that would explain it, from the rules (R9).
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(join(rest)), &larry.memory);
+        const std::vector<larry::Brain::Explanation> found = larry.brain.explain(d);
+        if (found.empty()) {
+            std::println("{}", larry.brain.say("no explanation"));
+            return 0;
+        }
+        for (const larry::Brain::Explanation& e : found) {
+            std::println("{}", std::vformat(larry.brain.say("perhaps"), std::make_format_args(e.assumption)));
+            std::println("  because: {}", larry.ops.text(e.rule.atom.description.atom));
+            std::println("  known: {}", e.known == larry::Truth::True ? "true" : e.known == larry::Truth::False ? "false" : "unknown");
+        }
         return 0;
     }
     if (command == "grammar") {

@@ -249,6 +249,9 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     CHECK(assimilation().sentence_of(azul.image, &cache) == "O céu é azul.");
     const larry::Description nao = assimilation().describe(ops.from_text("O céu não é azul."), &cache);
     CHECK(assimilation().sentence_of(nao.image, &cache) == "O céu não é azul.");
+    // S1: the goal of an order from the Portuguese goals.txt.
+    CHECK(brain.goal_of(assimilation().describe(ops.from_text("Fecha a porta."), &cache)) ==
+          std::optional<std::string>{"A porta está fechada."});
 }
 
 int main() {

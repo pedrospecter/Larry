@@ -1,0 +1,5 @@
+# Condições (R9, R6): a palavra que abre uma condição, '=', a palavra que pode abrir o resultado
+# ("Se chove, então a rua está molhada."); uma vírgula faz o mesmo.
+7365=656e74c3a36f
+7175616e646f=656e74c3a36f
+73656d70726520717565=656e74c3a36f
