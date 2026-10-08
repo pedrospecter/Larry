@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <array>
 #include <map>
 #include <span>
 #include <string>
@@ -464,13 +465,97 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
                 d.notes[i].near = std::move(near);
             }
         }
+        // A6 (the most specific context): a word memory knows with several
+        // categories takes the one its own uses have in the most specific
+        // context that matches: the same words on both sides, then the same
+        // word on one side, then the same categories on both sides, then on
+        // one side, then the most used. A level decides when it has votes and
+        // one winner; a tie falls to the next level. Two passes: the first
+        // decides by the context alone, so the second sees the categories the
+        // first chose on its neighbours; the second may fall to the most used.
+        // The word stays Open (it is known, with several categories), with the
+        // chosen category first among its candidates and the level in the note.
+        static const std::array<std::string_view, 7> levels = {
+            "the words on both sides", "the word before",     "the word after",  "the categories on both sides",
+            "the category before",     "the category after", "the most used"};
+        for (const bool last : {false, true}) {
+            for (std::size_t i = 0; i < n; ++i) {
+                EntityNote& note = d.notes[i];
+                if (note.source != Source::Open || note.candidates.empty() || !d.entities.entities[i].category.empty()) {
+                    continue;
+                }
+                const std::vector<WordUse>& uses = memory->uses(ops.fold(d.entities.entities[i].word));
+                if (uses.empty()) {
+                    continue;  // the dictionary's candidates: no use of its own to read
+                }
+                const Bytes before = i > 0 ? ops.fold(d.entities.entities[i - 1].word) : Bytes{};
+                const Bytes after = i + 1 < n ? ops.fold(d.entities.entities[i + 1].word) : Bytes{};
+                const Bytes& before_category = i > 0 ? d.entities.entities[i - 1].category : before;
+                const Bytes& after_category = i + 1 < n ? d.entities.entities[i + 1].category : after;
+                std::array<std::map<Bytes, std::int64_t>, 7> votes;
+                for (const WordUse& use : uses) {
+                    if (!std::ranges::contains(note.candidates, use.category)) {
+                        continue;
+                    }
+                    // At the start or the end of the sentence the neighbour is
+                    // empty, and an empty neighbour in a use is the same place.
+                    const bool word_before = use.before == before;
+                    const bool word_after = use.after == after;
+                    const bool category_before = i == 0 ? use.before.empty()
+                                                        : (!before_category.empty() && use.before_category == before_category);
+                    const bool category_after = i + 1 == n ? use.after.empty()
+                                                           : (!after_category.empty() && use.after_category == after_category);
+                    if (word_before && word_after) {
+                        ++votes[0][use.category];
+                    }
+                    if (word_before) {
+                        ++votes[1][use.category];
+                    }
+                    if (word_after) {
+                        ++votes[2][use.category];
+                    }
+                    if (category_before && category_after) {
+                        ++votes[3][use.category];
+                    }
+                    if (category_before) {
+                        ++votes[4][use.category];
+                    }
+                    if (category_after) {
+                        ++votes[5][use.category];
+                    }
+                    ++votes[6][use.category];
+                }
+                const std::size_t deepest = last ? votes.size() : votes.size() - 1;
+                for (std::size_t level = 0; level < deepest; ++level) {
+                    std::vector<std::pair<std::int64_t, Bytes>> ranked;
+                    for (const auto& [category, count] : votes[level]) {
+                        ranked.emplace_back(count, category);
+                    }
+                    std::ranges::sort(ranked, [](const auto& a, const auto& b) { return a.first > b.first; });
+                    if (ranked.empty() || (ranked.size() > 1 && ranked[0].first == ranked[1].first)) {
+                        continue;
+                    }
+                    d.entities.entities[i].category = ranked.front().second;
+                    note.context = levels[level];
+                    std::vector<Bytes> ordered{ranked.front().second};
+                    for (const Bytes& candidate : note.candidates) {
+                        if (candidate != ranked.front().second) {
+                            ordered.push_back(candidate);
+                        }
+                    }
+                    note.candidates = std::move(ordered);
+                    break;
+                }
+            }
+        }
         // A6 (first step): an unknown or open word takes the category that
         // known words have in the same context, the words before and after
         // it, when the votes have one winner. It is a guess, marked as one.
         // For an open word only its candidates may win.
         for (std::size_t i = 0; i < n; ++i) {
             const bool open = d.notes[i].source == Source::Open;
-            if ((d.notes[i].source != Source::Unknown && !open) || !d.notes[i].near.empty()) {
+            if ((d.notes[i].source != Source::Unknown && !open) || !d.notes[i].near.empty() ||
+                !d.entities.entities[i].category.empty()) {
                 continue;
             }
             const std::vector<Bytes> allowed = d.notes[i].candidates;

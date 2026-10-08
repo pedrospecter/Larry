@@ -200,8 +200,9 @@ std::vector<Score> measure(const BaseRules& rules, const std::vector<UdSentence>
             ++score.sentences;
             for (std::size_t i = 0; i < a.categories.size() && i < d.entities.entities.size(); ++i) {
                 Bytes pick = d.entities.entities[i].category;
-                if (i < d.notes.size() && d.notes[i].source == Source::Open && !d.notes[i].candidates.empty()) {
-                    // The most used of the categories memory gives it.
+                if (pick.empty() && i < d.notes.size() && d.notes[i].source == Source::Open &&
+                    !d.notes[i].candidates.empty()) {
+                    // Nothing chose (a tie): the most used of the categories memory gives it.
                     std::int64_t most = -1;
                     for (const CategoryCount& c : memory.categories_of(ops.fold(d.entities.entities[i].word))) {
                         if (c.count > most && std::ranges::contains(d.notes[i].candidates, c.category)) {

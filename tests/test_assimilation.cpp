@@ -286,15 +286,19 @@ TEST(describe_from_memory) {
     // Capitals do not matter: "the" was taught as "The".
     CHECK(assimilation().describe(ops().from_text("the grass"), &memory).notes[0].source ==
           larry::Source::Memory);
-    // A word with two categories: the context chooses one as a guess ("the _ is"
-    // holds nouns); without a context to choose, it stays open with both.
+    // A word with two categories stays open, and the most specific context among
+    // its own uses chooses (A6): "run" after a determiner was a noun. Without a
+    // context, the most used decides, and a tie leaves the category empty.
     const larry::Description open = assimilation().describe(ops().from_text("The run is tall."), &memory);
-    CHECK(open.notes[1].source == larry::Source::Guess);
+    CHECK(open.notes[1].source == larry::Source::Open);
     CHECK(open.entities.entities[1].category == (Bytes{'n', 'o', 'u', 'n'}));
+    CHECK(open.notes[1].context == "the category before");
+    CHECK(open.notes[1].candidates.front() == (Bytes{'n', 'o', 'u', 'n'}));
     const larry::Description alone = assimilation().describe(ops().from_text("Run"), &memory);
     CHECK(alone.notes[0].source == larry::Source::Open);
     CHECK(alone.notes[0].candidates.size() == 2);
     CHECK(alone.entities.entities[0].category.empty());
+    CHECK(alone.notes[0].context.empty());
     // An unknown word is unknown.
     const larry::Description unknown = assimilation().describe(ops().from_text("The sky is azure."), &memory);
     CHECK(unknown.notes[3].source == larry::Source::Guess);  // from the context, see below
@@ -304,6 +308,23 @@ TEST(describe_from_memory) {
     // Memory makes the question rule work: "Is" is an auxiliary verb.
     const larry::Description question = assimilation().describe(ops().from_text("Is the sky blue"), &memory);
     CHECK(question.category.bytes == (Bytes{'q', 'u', 'e', 's', 't', 'i', 'o', 'n'}));
+    // The most specific context beats the most used: "watch" is a verb twice
+    // and a noun once, but between "the" and "is" it was the noun.
+    teach("The watch is old.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("I watch the sky.", {"pronoun", "verb", "determiner", "noun"});
+    teach("You watch the sea.", {"pronoun", "verb", "determiner", "noun"});
+    const larry::Description watch = assimilation().describe(ops().from_text("The watch is new."), &memory);
+    CHECK(watch.notes[1].source == larry::Source::Open);
+    CHECK(watch.entities.entities[1].category == (Bytes{'n', 'o', 'u', 'n'}));
+    CHECK(watch.notes[1].context == "the words on both sides");
+    // One side: "we watch" has no use, but a pronoun before it had the verb.
+    const larry::Description we = assimilation().describe(ops().from_text("We watch the moon."), &memory);
+    CHECK(we.entities.entities[1].category == (Bytes{'v', 'e', 'r', 'b'}));
+    CHECK(we.notes[1].context == "the word after");
+    // No context at all: the most used, the verb.
+    const larry::Description bare = assimilation().describe(ops().from_text("Watch"), &memory);
+    CHECK(bare.entities.entities[0].category == (Bytes{'v', 'e', 'r', 'b'}));
+    CHECK(bare.notes[0].context == "the most used");
 }
 
 namespace {

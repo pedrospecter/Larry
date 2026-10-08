@@ -429,6 +429,9 @@ std::string source(const larry::EntityNote& note) {
             out += ' ';
             out += as_text(candidate);
         }
+        if (!note.context.empty()) {
+            out += "; " + note.context + " picks " + std::string{as_text(note.candidates.front())};  // A6
+        }
         return out;
     }
     case larry::Source::Guess: {
