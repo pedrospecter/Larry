@@ -23,6 +23,8 @@ struct Lesson {
 /// Throws std::runtime_error with the line number when the file is not in
 /// this form.
 [[nodiscard]] std::vector<Lesson> read_lessons(const std::filesystem::path& file);
+/// The same from a text, named in the errors ("the cloud lesson sky").
+[[nodiscard]] std::vector<Lesson> read_lessons_text(std::string_view text, std::string_view name);
 
 /// The lesson files of a language in lessons/<locale>/, in name order: the
 /// fixed order a rebuild assimilates them in.

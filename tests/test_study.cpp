@@ -122,6 +122,9 @@ TEST(an_article_studies_into_facts_words_and_a_draft) {
     // The draft, in the lesson format, reads as lessons once it is corrected.
     CHECK(report.draft == drafts / "sea.txt");
     CHECK(std::filesystem::exists(report.draft));
+    CHECK(report.draft_name == "sea");
+    CHECK(report.draft_text == contents(report.draft));  // the draft is in the report too (N2f: the cloud keeps it)
+    CHECK(report.draft_in_cloud.empty());
     const std::string draft = contents(report.draft);
     CHECK(draft.starts_with("# Draft lesson from \"Sea\" (https://en.wikipedia.org/wiki/Sea), studied "));
     CHECK(draft.find("# Words to learn (2, most used first): mammals (adjective, guessed from context), old english (proper noun, guessed from context)") != std::string::npos);

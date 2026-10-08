@@ -62,7 +62,12 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   classify <file or text>      what each sentence of content is: a fact, context,
                                a question, an instruction, speech, a heading, a
                                reference or a fragment, and why
-  teach <file>                 tell every lesson in a lesson file: a sentence,
+  lessons [push | pull <name> [dir] | show <name>]
+                               N2f: the lesson files here and the lessons in the
+                               cloud (drafts of study, taught ones); push puts
+                               the files in the cloud, pull writes one out to
+                               correct it, show prints it
+  teach <file or name>                 tell every lesson in a lesson file: a sentence,
                                then the category of each entity, in order
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
@@ -348,6 +353,8 @@ larry::Language language_from_environment() {
     return larry::Language::English;
 }
 
+std::string content_of(const std::filesystem::path& file);
+
 struct Larry {
     std::string user{user_name()};
     larry::Constellation constellation{language_from_environment()};
@@ -396,19 +403,21 @@ struct Larry {
         }
     }
 
-    /// Stores every lesson in a lesson file.
-    Tally teach(const std::filesystem::path& file, bool verbose) {
+    /// The locale of the constellation, as the cloud keys pages and lessons.
+    [[nodiscard]] std::string locale() const { return std::string{larry::locale(constellation.language())}; }
+
+    /// Stores every lesson of a text in the lesson format, named as its
+    /// source says ("lesson:<name>").
+    Tally teach_text(std::string_view text, const std::string& name, bool verbose) {
         Tally tally;
-        for (const larry::Lesson& lesson : larry::read_lessons(file)) {
+        for (const larry::Lesson& lesson : larry::read_lessons_text(text, name)) {
             larry::Description d;
             try {
                 d = assimilation.describe(ops.from_text(lesson.sentence), &memory, lesson.categories);
             } catch (const std::invalid_argument& e) {
-                throw std::runtime_error(
-                    std::format("{} line {}: {}", file.string(), lesson.line, e.what()));
+                throw std::runtime_error(std::format("{} line {}: {}", name, lesson.line, e.what()));
             }
-            const larry::Stored stored =
-                brain.remember(d, larry::Status::Proposed, "lesson:" + file.filename().string());
+            const larry::Stored stored = brain.remember(d, larry::Status::Proposed, "lesson:" + name);
             tally.add(stored);
             if (verbose) {
                 std::println("{:<10} {}", stored_name(stored), lesson.sentence);
@@ -417,13 +426,40 @@ struct Larry {
         return tally;
     }
 
-    /// Empties memory and teaches every lesson file, in name order (F7).
+    /// Stores every lesson in a lesson file; with a cloud, the file goes
+    /// there too, as a taught lesson under its name (N2f): the cloud is the
+    /// record of the lessons as of the conceptions.
+    Tally teach(const std::filesystem::path& file, bool verbose) {
+        const std::string text = content_of(file);
+        const Tally tally = teach_text(text, file.filename().string(), verbose);
+        if (cloud) {
+            try {
+                cloud->store_lesson(locale(), file.stem().string(), text, "taught");
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: the cloud did not keep the lesson {}: {}", file.stem().string(), e.what());
+            }
+        }
+        return tally;
+    }
+
+    /// Teaches a lesson the cloud holds, by name, and marks it taught.
+    Tally teach_from_cloud(const larry::Database::CloudLesson& lesson, bool verbose) {
+        const Tally tally = teach_text(lesson.text, lesson.name + ".txt", verbose);
+        cloud->set_lesson_status(locale(), lesson.name, "taught");
+        return tally;
+    }
+
+    /// Empties memory and teaches every lesson file, in name order (F7), then
+    /// the taught lessons of the cloud that are no file here, in the order
+    /// they were taught (N2f).
     void rebuild(bool verbose) {
         memory.clear();
         Tally total;
         const std::vector<std::filesystem::path> files =
             larry::lesson_files(constellation.language());
+        std::vector<std::string> names;
         for (const std::filesystem::path& file : files) {
+            names.push_back(file.stem().string());
             const Tally tally = teach(file, false);
             if (verbose) {
                 std::println("{:<40} {} lessons, {} stored", file.filename().string(),
@@ -431,8 +467,26 @@ struct Larry {
             }
             total.add(tally);
         }
+        std::size_t from_cloud = 0;
+        if (cloud) {
+            try {
+                for (const larry::Database::CloudLesson& lesson : cloud->lessons(locale())) {
+                    if (lesson.status != "taught" || std::ranges::contains(names, lesson.name)) {
+                        continue;
+                    }
+                    const Tally tally = teach_text(lesson.text, lesson.name + ".txt", false);
+                    ++from_cloud;
+                    if (verbose) {
+                        std::println("{:<40} {} lessons, {} stored (cloud)", lesson.name, tally.sentences, tally.stored);
+                    }
+                    total.add(tally);
+                }
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: the cloud did not give its lessons: {}", e.what());
+            }
+        }
         if (verbose) {
-            std::println("{} lesson files", files.size());
+            std::println("{} lesson files, {} lessons from the cloud", files.size(), from_cloud);
             total.print();
             std::println("{} conceptions, {} word uses, in {}", memory.count(),
                          memory.count_words(), memory.file().string());
@@ -647,19 +701,36 @@ larry::StudyReport study(Larry& larry, std::string_view what) {
             name = file.stem().string();
             source = file.string();
         }
+    } else if (std::optional<larry::Page> held = larry.cloud ? larry.cloud->page(larry.locale(), what) : std::nullopt) {
+        // N2f: the cloud holds the page already.
+        text = held->text;
+        name = held->title;
+        source = held->source;
     } else {
         const larry::Web web{larry.constellation.language()};
         show_notice("fetching \"" + std::string{what} + "\"");
-        const larry::Page page = web.fetch(what);
+        const larry::Page page = web.fetch(what, larry.cloud == nullptr);
         text = page.text;
         name = page.title;
         source = page.source;
-        std::println(stderr, "larry: kept \"{}\" in {}", page.title, page.file.string());
+        if (larry.cloud) {
+            larry.cloud->store_page(larry.locale(), page);
+            std::println(stderr, "larry: kept \"{}\" in the cloud as {}", page.title, larry::Web::slug(page.title));
+        } else {
+            std::println(stderr, "larry: kept \"{}\" in {}", page.title, page.file.string());
+        }
     }
     const larry::Content content{larry.rules};
     const larry::Study study{larry.rules, content};
-    return study.study(text, name, source, larry.brain,
-                       larry::Study::drafts_directory(larry.constellation.language()));
+    // N2f: with a cloud the draft goes there, to pull, correct and teach; else to lessons/<locale>/drafts.
+    larry::StudyReport report = study.study(text, name, source, larry.brain,
+                                            larry.cloud ? std::filesystem::path{}
+                                                        : larry::Study::drafts_directory(larry.constellation.language()));
+    if (larry.cloud && !report.draft_text.empty()) {
+        larry.cloud->store_lesson(larry.locale(), report.draft_name, report.draft_text, "draft");
+        report.draft_in_cloud = report.draft_name;
+    }
+    return report;
 }
 
 /// W3: does a command and gives what it says, one line or several. The
@@ -1091,10 +1162,80 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "teach") {
         if (rest.size() != 1) {
-            throw std::runtime_error("teach needs one lesson file");
+            throw std::runtime_error("teach needs one lesson file, or the name of a lesson in the cloud");
         }
-        larry.teach(rest[0], true).print();
+        if (std::filesystem::exists(rest[0])) {
+            larry.teach(rest[0], true).print();
+            return 0;
+        }
+        // N2f: a lesson the cloud holds, by its name.
+        if (!larry.cloud) {
+            throw std::runtime_error(std::format("no file {} and no cloud to hold a lesson of that name", rest[0]));
+        }
+        const std::optional<larry::Database::CloudLesson> lesson = larry.cloud->lesson(larry.locale(), rest[0]);
+        if (!lesson) {
+            throw std::runtime_error(std::format("no file {} and no lesson of that name in the cloud (larry lessons)", rest[0]));
+        }
+        larry.teach_from_cloud(*lesson, true).print();
+        std::println("the cloud lesson {} is taught", lesson->name);
         return 0;
+    }
+    if (command == "lessons") {
+        // N2f: the lessons: the files here and the ones in the cloud; push
+        // puts the files in the cloud, pull writes one out to correct it.
+        const std::vector<std::filesystem::path> files = larry::lesson_files(larry.constellation.language());
+        if (rest.empty()) {
+            for (const std::filesystem::path& file : files) {
+                std::println("{:<40} file, {} lessons", file.filename().string(), larry::read_lessons(file).size());
+            }
+            if (larry.cloud) {
+                for (const larry::Database::CloudLesson& lesson : larry.cloud->lessons(larry.locale())) {
+                    std::println("{:<40} cloud, {}, written {}{}", lesson.name, lesson.status, lesson.written,
+                                 lesson.taught.empty() ? "" : ", taught " + lesson.taught);
+                }
+            } else {
+                std::println("(no cloud: the drafts of study go to {})", larry::Study::drafts_directory(larry.constellation.language()).string());
+            }
+            return 0;
+        }
+        const std::string_view what = rest.front();
+        if (what == "push") {
+            if (!larry.cloud) {
+                throw std::runtime_error("lessons push needs the cloud (LARRY_DB)");
+            }
+            for (const std::filesystem::path& file : files) {
+                larry.cloud->store_lesson(larry.locale(), file.stem().string(), content_of(file), "taught");
+                std::println("{:<40} pushed", file.stem().string());
+            }
+            std::println("{} lesson files in the cloud", files.size());
+            return 0;
+        }
+        if (what == "pull" || what == "show") {
+            if (rest.size() < 2) {
+                throw std::runtime_error(std::format("lessons {} needs the name of a lesson", what));
+            }
+            if (!larry.cloud) {
+                throw std::runtime_error("the cloud holds the lessons to pull or show (LARRY_DB)");
+            }
+            const std::optional<larry::Database::CloudLesson> lesson = larry.cloud->lesson(larry.locale(), rest[1]);
+            if (!lesson) {
+                throw std::runtime_error(std::format("no lesson {} in the cloud (larry lessons)", rest[1]));
+            }
+            if (what == "show") {
+                std::print("{}", lesson->text);
+                return 0;
+            }
+            const std::filesystem::path dir = rest.size() > 2 ? std::filesystem::path{rest[2]}
+                                                              : larry::Study::drafts_directory(larry.constellation.language());
+            std::filesystem::create_directories(dir);
+            const std::filesystem::path file = dir / (lesson->name + ".txt");
+            std::ofstream out{file, std::ios::binary | std::ios::trunc};
+            out << lesson->text;
+            std::println("{} ({}) written to {}; correct it, then: larry teach {}", lesson->name, lesson->status,
+                         file.string(), file.string());
+            return 0;
+        }
+        throw std::runtime_error("lessons takes nothing, push, pull <name> [directory] or show <name>");
     }
     if (command == "rebuild") {
         larry.rebuild(true);
@@ -1810,10 +1951,16 @@ int run(std::span<const std::string_view> args) {
             throw std::runtime_error("fetch needs a title or a url");
         }
         const larry::Web web{larry.constellation.language()};
-        const larry::Page page = web.fetch(join(rest));
+        const larry::Page page = web.fetch(join(rest), larry.cloud == nullptr);
         const std::vector<larry::Sentence> sentences = larry.assimilation.sentences(page.text);
-        std::println("{}: {} bytes, {} sentences, kept in {}", page.title, page.text.size(), sentences.size(),
-                     page.file.string());
+        if (larry.cloud) {
+            larry.cloud->store_page(larry.locale(), page);  // N2f: the cloud keeps it
+            std::println("{}: {} bytes, {} sentences, kept in the cloud as {}", page.title, page.text.size(),
+                         sentences.size(), larry::Web::slug(page.title));
+        } else {
+            std::println("{}: {} bytes, {} sentences, kept in {}", page.title, page.text.size(), sentences.size(),
+                         page.file.string());
+        }
         std::println("source: {}", page.source);
         return 0;
     }

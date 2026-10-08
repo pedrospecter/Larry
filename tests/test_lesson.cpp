@@ -115,6 +115,16 @@ TEST(every_lesson_in_the_repository_is_sound) {
     CHECK(failed == 0);
 }
 
+TEST(lessons_read_from_a_text_as_from_a_file) {
+    // N2f: a lesson in the cloud is a text; the same reader, named in its errors.
+    const std::vector<larry::Lesson> lessons =
+        larry::read_lessons_text("# a comment\nThe sky is blue.\ndeterminer, noun, auxiliary verb, adjective\n\nBirds fly.\nnoun, verb\n", "cloud:test");
+    CHECK(lessons.size() == 2);
+    CHECK(lessons.size() == 2 && lessons[0].sentence == "The sky is blue." && lessons[0].categories.size() == 4);
+    CHECK(lessons.size() == 2 && lessons[1].sentence == "Birds fly." && lessons[1].line == 5);
+    CHECK_THROWS(larry::read_lessons_text("The sky is blue.\n", "cloud:test"), std::runtime_error);
+}
+
 int main() {
     return larry::test::run();
 }

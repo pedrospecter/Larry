@@ -33,7 +33,10 @@ struct StudyReport {
     std::size_t unusual = 0;        ///< Facts with a relation never seen before.
     std::vector<WordToLearn> words;
     std::vector<std::string> facts;  ///< The facts, as said.
-    std::filesystem::path draft;     ///< The lesson draft written for the user.
+    std::filesystem::path draft;     ///< The lesson draft written for the user, when a directory was given.
+    std::string draft_name;          ///< The draft's name: the slug of the title ("sea").
+    std::string draft_text;          ///< The draft, in the lesson format; empty when there were no facts.
+    std::string draft_in_cloud;      ///< N2f: the name the draft was kept under in the cloud, when it was.
 
     /// The report as lines of text.
     [[nodiscard]] std::vector<std::string> lines() const;
@@ -54,9 +57,11 @@ public:
     Study(const BaseRules& rules, const Content& content);
 
     /// Studies a text under a name, from a source (a URL, a file), with the
-    /// brain that holds the memory, and writes the draft into the directory.
+    /// brain that holds the memory, and writes the draft into the directory
+    /// when one is given; the draft is in the report either way (the cloud
+    /// keeps it when there is one, N2f).
     [[nodiscard]] StudyReport study(std::string_view text, std::string_view name, std::string_view source,
-                                    Brain& brain, const std::filesystem::path& drafts) const;
+                                    Brain& brain, const std::filesystem::path& drafts = {}) const;
 
     /// Where drafts go: lessons/<locale>/drafts, or LARRY_DRAFTS_DIR.
     [[nodiscard]] static std::filesystem::path drafts_directory(Language language);

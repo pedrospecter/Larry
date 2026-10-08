@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <format>
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -39,17 +40,23 @@ std::vector<Bytes> split_categories(std::string_view line) {
 }  // namespace
 
 std::vector<Lesson> read_lessons(const std::filesystem::path& file) {
-    std::ifstream in{file};
+    std::ifstream in{file, std::ios::binary};
     if (!in) {
         throw std::runtime_error(std::format("Lessons: cannot read {}", file.string()));
     }
+    const std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+    return read_lessons_text(text, file.string());
+}
+
+std::vector<Lesson> read_lessons_text(std::string_view text, std::string_view name) {
+    std::istringstream in{std::string{text}};
     std::vector<Lesson> out;
     std::size_t number = 0;
     Lesson pending;
     bool have_sentence = false;
     const auto bad = [&](std::size_t line, const char* why) {
         throw std::runtime_error(
-            std::format("Lessons: {} line {}: {}", file.string(), line, why));
+            std::format("Lessons: {} line {}: {}", name, line, why));
     };
     for (std::string raw; std::getline(in, raw);) {
         ++number;

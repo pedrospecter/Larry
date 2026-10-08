@@ -69,8 +69,9 @@ public:
     [[nodiscard]] std::string text_of(std::string_view title_or_url) const;
 
     /// Keeps a page under directory()/<name>.txt, with "# source:", "# fetched:"
-    /// and "# title:" on the first lines, and gives it back.
-    [[nodiscard]] Page fetch(std::string_view title_or_url) const;
+    /// and "# title:" on the first lines, and gives it back; with `keep_file`
+    /// off, gives it back without writing it (the cloud keeps it, N2f).
+    [[nodiscard]] Page fetch(std::string_view title_or_url, bool keep_file = true) const;
 
     /// The English meanings of a word, from Wiktionary: the parts of speech it
     /// has, as Larry's categories, each with its first definitions.
