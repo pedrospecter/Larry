@@ -25,6 +25,7 @@ namespace {
 //   describe   <hex metadata>
 //   source     <hex metadata> <hex source>
 //   status     <hex metadata> <status> <hex name of who decided>
+//   reading    <hex metadata> <hex sentence as read>
 //   validator  <hex name>
 // with tabs between the fields. A line finds its conception by the identity
 // of its metadata (Q28): the qualification and the words, not the types, so
@@ -133,7 +134,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             }
             continue;
         }
-        if (tag != "atom" && tag != "describe" && tag != "source" && tag != "status") {
+        if (tag != "atom" && tag != "describe" && tag != "source" && tag != "status" && tag != "reading") {
             bad("has an unknown tag");
         }
         const std::optional<Bytes> metadata = hex::decode(f[first]);
@@ -158,7 +159,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (!bytes) {
                 bad("is not an atom");
             }
-            Record record{electron, *bytes, Status::Proposed, {}, {}, identity};
+            Record record{electron, *bytes, Status::Proposed, {}, {}, identity, {}};
             if (f.size() > first + 2) {
                 const std::optional<Status> status = status_from(f[first + 2]);
                 if (!status) {
@@ -211,6 +212,12 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             if (!std::ranges::contains(record.sources, text)) {
                 record.sources.push_back(std::move(text));
             }
+        } else if (tag == "reading" && f.size() == 3) {
+            const std::optional<Bytes> reading = hex::decode(f[2]);
+            if (!reading) {
+                bad("has a reading that is not hex bytes");
+            }
+            record.reading.assign(reading->begin(), reading->end());
         } else if (tag == "status" && f.size() <= 4) {
             const std::optional<Status> status = status_from(f[2]);
             if (!status) {
@@ -338,7 +345,7 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
     append(std::format("atom{}{}{}{}{}{}{}{}", tab, hex::encode(metadata.bytes), tab,
                        hex::encode(copy), tab, name(status), tab,
                        source.empty() ? std::string{} : hex_of(source)));
-    Record record{metadata, std::move(copy), status, {}, {}, identity};
+    Record record{metadata, std::move(copy), status, {}, {}, identity, {}};
     if (!source.empty()) {
         record.sources.emplace_back(source);
     }
@@ -380,6 +387,20 @@ bool Memory::set_status(const MetadataElectron& metadata, Status status, std::st
     return true;
 }
 
+bool Memory::set_reading(const MetadataElectron& metadata, std::string_view reading) {
+    const AtomOperations ops;
+    const auto found = by_identity_.find(ops.identity(metadata));
+    if (found == by_identity_.end()) {
+        return false;
+    }
+    Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
+    if (record.reading != reading) {
+        append(std::format("reading{}{}{}{}", tab, hex::encode(record.metadata.bytes), tab, hex_of(reading)));
+        record.reading = std::string{reading};
+    }
+    return true;
+}
+
 std::vector<std::string> Memory::validators() const {
     return validators_;
 }
@@ -400,6 +421,7 @@ StoredAtom Memory::read(std::int64_t id) const {
     out.status = record.status;
     out.sources = record.sources;
     out.decided_by = record.decided_by;
+    out.reading = record.reading;
     Description& d = out.description;
     d.atom = ops.from_text(
         std::string_view{reinterpret_cast<const char*>(record.bytes.data()), record.bytes.size()});

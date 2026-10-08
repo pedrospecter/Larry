@@ -84,7 +84,7 @@ Database::Param number(std::int64_t value) {
 const char* const select_conceptions =
     "select c.id, c.metadata, c.bytes, c.status, "
     "(select string_agg(encode(s.source, 'hex'), ',' order by s.id) "
-    " from sources s where s.conception = c.id), c.decided_by "
+    " from sources s where s.conception = c.id), c.decided_by, c.reading "
     "from conceptions c";
 
 }  // namespace
@@ -352,6 +352,8 @@ std::vector<StoredAtom> Database::read_atoms(const Result& result) {
                           .value_or(Status::Proposed);
         const Bytes by = result.bytes(row, 5);
         atom.decided_by.assign(by.begin(), by.end());
+        const Bytes reading = result.bytes(row, 6);
+        atom.reading.assign(reading.begin(), reading.end());
         if (!result.null(row, 4)) {
             const Bytes list = result.bytes(row, 4);
             std::string_view rest{reinterpret_cast<const char*>(list.data()), list.size()};
@@ -450,6 +452,10 @@ std::vector<StoredAtom> Database::with_status(Status status) {
 void Database::set_status(std::int64_t id, Status status, std::string_view by) {
     (void)exec("update conceptions set status = $2, decided_by = $3 where id = $1",
                {number(id), text(name(status)), text(by)});
+}
+
+void Database::set_reading(std::int64_t id, std::string_view reading) {
+    (void)exec("update conceptions set reading = $2 where id = $1", {number(id), text(reading)});
 }
 
 std::vector<std::string> Database::validators() {

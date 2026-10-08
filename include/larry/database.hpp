@@ -83,6 +83,9 @@ public:
 
     void set_status(std::int64_t id, Status status, std::string_view by = "");
 
+    /// Notes how a conception was read when it was stored (Q29).
+    void set_reading(std::int64_t id, std::string_view reading);
+
     /// The validators: the only people who validate or withdraw a conception.
     [[nodiscard]] std::vector<std::string> validators();
     void add_validator(std::string_view name);

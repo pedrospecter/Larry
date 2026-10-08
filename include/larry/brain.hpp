@@ -131,8 +131,11 @@ public:
     /// cloud. What the cache says about it is the result. It stays proposed:
     /// only a validator decides (R2, first step, the user's safeguard). A
     /// conception already there takes this description when it differs and
-    /// is complete (Q28): the machine describes, the record follows.
-    Stored remember(const Description& d, Status status, std::string_view source);
+    /// is complete (Q28): the machine describes, the record follows. With a
+    /// reading (Q29), the sentence as Larry read it when it differed from
+    /// what was said, the conception is noted as read that way.
+    Stored remember(const Description& d, Status status, std::string_view source,
+                    std::string_view reading = "");
 
     /// The validators: the names allowed to validate or withdraw, from the
     /// cloud when there is one, else from the cache.
@@ -212,8 +215,9 @@ public:
 
     /// K2: adds the pattern of a validated conception to the grammar: its
     /// categories with their roles, named after the sentence. False when
-    /// there is no grammar, the conception is not validated, a category or
-    /// role is missing, or the grammar already gives those roles.
+    /// there is no grammar, the conception is not validated or was read as
+    /// something else (Q29), a category or role is missing, or the grammar
+    /// already gives those roles.
     bool learn_grammar(const StoredAtom& atom);
     [[nodiscard]] const Cognition& cognition() const noexcept { return cognition_; }
 

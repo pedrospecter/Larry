@@ -69,7 +69,7 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
 }
 
 bool Brain::learn_grammar(const StoredAtom& atom) {
-    if (grammar_ == nullptr || atom.status != Status::Validated) {
+    if (grammar_ == nullptr || atom.status != Status::Validated || !atom.reading.empty()) {
         return false;
     }
     std::vector<Bytes> categories;
@@ -101,15 +101,22 @@ void Brain::cache(const StoredAtom& atom) const {
     }
     if (fresh) {
         memory_->set_status(d.metadata, atom.status, atom.decided_by);
+        if (!atom.reading.empty()) {
+            memory_->set_reading(d.metadata, atom.reading);
+        }
     }
 }
 
-Stored Brain::remember(const Description& d, Status status, std::string_view source) {
+Stored Brain::remember(const Description& d, Status status, std::string_view source,
+                       std::string_view reading) {
     const AtomOperations ops;
     const Stored stored = memory_->store(d.atom, d.metadata, status, source);
     const bool complete = stored != Stored::New && ops.complete(d.metadata);
     if (complete) {
         memory_->redescribe(d.metadata);
+    }
+    if (stored == Stored::New && !reading.empty()) {
+        memory_->set_reading(d.metadata, reading);
     }
     if (cloud_ != nullptr) {
         const Stored in_cloud = cloud_->store(d.atom, d.metadata, status, source);
@@ -117,6 +124,11 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
             if (const std::optional<StoredAtom> held = cloud_->find(d.metadata);
                 held && held->description.metadata.bytes != d.metadata.bytes) {
                 cloud_->redescribe(held->id, d.metadata);
+            }
+        }
+        if (in_cloud == Stored::New && !reading.empty()) {
+            if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
+                cloud_->set_reading(held->id, reading);
             }
         }
     }
@@ -190,6 +202,9 @@ Brain::Synced Brain::sync(std::int64_t pull) {
                 cloud_->redescribe(held->id, d.metadata)) {
                 ++out.redescribed;
             }
+            if (held->reading.empty() && !atom.reading.empty()) {
+                cloud_->set_reading(held->id, atom.reading);
+            }
             continue;
         }
         if (atom.sources.empty()) {
@@ -198,9 +213,14 @@ Brain::Synced Brain::sync(std::int64_t pull) {
         for (const std::string& source : atom.sources) {
             cloud_->store(d.atom, d.metadata, atom.status, source);
         }
-        if (!atom.decided_by.empty()) {
+        if (!atom.decided_by.empty() || !atom.reading.empty()) {
             if (const std::optional<StoredAtom> held = cloud_->find(d.metadata)) {
-                cloud_->set_status(held->id, atom.status, atom.decided_by);
+                if (!atom.decided_by.empty()) {
+                    cloud_->set_status(held->id, atom.status, atom.decided_by);
+                }
+                if (!atom.reading.empty()) {
+                    cloud_->set_reading(held->id, atom.reading);
+                }
             }
         }
         ++pushed;
@@ -733,8 +753,9 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         reply.because.emplace_back("rule: orders wait for S1");
         return reply;
     }
+    const std::string read_as = reading.changed ? std::string{ops.text(d.atom)} : std::string{};
     if (qualification == "assumption") {
-        remember(said, Status::Proposed, source);
+        remember(said, Status::Proposed, source, read_as);
         reply.stored = true;
         reply.text += "Noted as an assumption, not as a truth.";
         reply.because.emplace_back("rule: an assumption is kept apart from the truths");
@@ -780,7 +801,7 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     // An affirmation: what does memory hold already? (C16, first step)
     const Verdict verdict = truth(d);
-    const Stored stored = remember(said, Status::Proposed, source);
+    const Stored stored = remember(said, Status::Proposed, source, read_as);
     reply.stored = stored == Stored::New;
     if (verdict.truth == Truth::True) {
         reply.text += stored == Stored::New ? "I know. " + text_of(verdict.because.front())

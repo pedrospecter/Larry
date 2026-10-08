@@ -20,6 +20,9 @@ create table if not exists conceptions (
 alter table conceptions add column if not exists decided_by bytea not null default '';
 alter table conceptions add column if not exists identity bytea;
 create unique index if not exists conceptions_identity on conceptions (identity);
+-- reading (Q29): the sentence as Larry read it when it was stored, when that
+-- differed from what was said; empty when it was read as said.
+alter table conceptions add column if not exists reading bytea not null default '';
 
 -- The validators: the only people who validate or withdraw a conception. The
 -- user adds themself once; Larry refuses a decision from anyone else.

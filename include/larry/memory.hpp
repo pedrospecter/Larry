@@ -40,6 +40,11 @@ struct StoredAtom {
     std::vector<std::string> sources;
     /// Who validated or withdrew it: a validator's name, or empty.
     std::string decided_by;
+    /// Q29: the sentence as Larry read it when it was stored, when the
+    /// reading differed from what was said ("The sky is blue." for "Sky is
+    /// blue."); empty when it was read as said. A conception with a reading
+    /// teaches no usage and no grammar.
+    std::string reading;
 };
 
 /// One use of a word: the atom, the position of the entity in it, the
@@ -107,6 +112,10 @@ public:
     /// records who decided. False when it is not there.
     bool set_status(const MetadataElectron& metadata, Status status, std::string_view by = "");
 
+    /// Notes how the atom with this metadata's identity was read (Q29), when
+    /// the reading differed from what was said. False when it is not there.
+    bool set_reading(const MetadataElectron& metadata, std::string_view reading);
+
     /// The validators: the only people who validate or withdraw a conception
     /// (the user's safeguard). Kept in the memory file.
     [[nodiscard]] std::vector<std::string> validators() const;
@@ -156,6 +165,7 @@ private:
         std::vector<std::string> sources;
         std::string decided_by;
         Bytes identity;
+        std::string reading;
     };
 
     void append(const std::string& line);

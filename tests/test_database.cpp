@@ -158,6 +158,24 @@ TEST(the_same_words_with_other_types_are_one_conception) {
     CHECK(db().count() == 1);
 }
 
+TEST(the_reading_is_a_column) {
+    db().clear();
+    const Description d = describe("Sky is blue.", {"Sky", "is", "blue"}, {"noun", "auxiliary verb", "adjective"});
+    CHECK(db().store(d.atom, d.metadata, Status::Proposed, "user:pedro") == Stored::New);
+    const auto held = db().find(d.metadata);
+    CHECK(held.has_value());
+    if (!held) {
+        return;
+    }
+    CHECK(held->reading.empty());
+    db().set_reading(held->id, "The sky is blue.");
+    CHECK(db().find(d.metadata)->reading == "The sky is blue.");
+    CHECK(db().find_id(held->id)->reading == "The sky is blue.");
+    CHECK(db().all().front().reading == "The sky is blue.");
+    db().set_reading(held->id, "");
+    CHECK(db().find(d.metadata)->reading.empty());
+}
+
 TEST(find_prefix_all_recent_and_containing) {
     db().clear();
     const AtomOperations ops;

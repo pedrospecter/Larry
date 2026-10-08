@@ -740,8 +740,9 @@ int run(std::span<const std::string_view> args) {
                 sources += sources.empty() ? "" : ", ";
                 sources += s;
             }
-            return std::format("{:>6}  {}  [{}]", atom.id, larry.ops.text(atom.description.atom),
-                               sources.empty() ? "no source" : sources);
+            return std::format("{:>6}  {}  [{}]{}", atom.id, larry.ops.text(atom.description.atom),
+                               sources.empty() ? "no source" : sources,
+                               atom.reading.empty() ? "" : std::format("  (read as: {})", atom.reading));
         };
         if (!larry.brain.is_validator(larry.user)) {
             throw std::runtime_error(std::format(

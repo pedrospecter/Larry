@@ -726,6 +726,22 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     CHECK(synced.pushed == 0);
     CHECK(cloud->find(sun.metadata)->description.metadata.bytes == sun.metadata.bytes);
     CHECK(brain.sync(100) == larry::Brain::Synced{});
+    // Q29: a reading goes with the conception to the cloud, at remember and at sync.
+    const larry::Description plain = describe("Sky is grey.", {"noun", "auxiliary verb", "adjective"});
+    CHECK(brain.remember(plain, larry::Status::Proposed, "user:pedro", "The sky is grey.") == larry::Stored::New);
+    CHECK(cache.find(plain.metadata)->reading == "The sky is grey.");
+    CHECK(cloud->find(plain.metadata)->reading == "The sky is grey.");
+    const larry::Description other = describe("Sea is wet.", {"noun", "auxiliary verb", "adjective"});
+    cache.store(other.atom, other.metadata, larry::Status::Proposed, "user:pedro");
+    cache.set_reading(other.metadata, "The sea is wet.");
+    CHECK(brain.sync(100).pushed == 1);
+    CHECK(cloud->find(other.metadata)->reading == "The sea is wet.");
+    // And back: a reading in the cloud comes into a cache that lacks the conception.
+    const larry::Description third = describe("Moon is white.", {"noun", "auxiliary verb", "adjective"});
+    cloud->store(third.atom, third.metadata, larry::Status::Proposed, "pi");
+    cloud->set_reading(cloud->find(third.metadata)->id, "The moon is white.");
+    CHECK(brain.sync(100).pulled == 1);
+    CHECK(cache.find(third.metadata)->reading == "The moon is white.");
     // A description that is not complete never replaces one that is.
     larry::Description guessed = sun;
     guessed.entities.entities[3].types.push_back(b("guessed"));

@@ -189,6 +189,29 @@ TEST(the_same_words_with_other_types_are_one_conception) {
     CHECK(!again.redescribe(second.metadata));
 }
 
+TEST(the_reading_lives_in_the_log) {
+    const std::filesystem::path file = fresh("larry_test_reading.atoms");
+    Memory memory{file};
+    const Description d = describe("Sky is blue.", {"Sky", "is", "blue"}, {"noun", "auxiliary verb", "adjective"});
+    CHECK(!memory.set_reading(d.metadata, "The sky is blue."));
+    CHECK(memory.store(d.atom, d.metadata) == Stored::New);
+    CHECK(memory.find(d.metadata)->reading.empty());
+    CHECK(memory.set_reading(d.metadata, "The sky is blue."));
+    CHECK(memory.find(d.metadata)->reading == "The sky is blue.");
+    CHECK(memory.find_id(1)->reading == "The sky is blue.");
+    CHECK(memory.store(d.atom, d.metadata) == Stored::Same);
+    CHECK(memory.find(d.metadata)->reading == "The sky is blue.");
+    Memory again{file};
+    CHECK(again.find(d.metadata)->reading == "The sky is blue.");
+    CHECK(again.all().front().reading == "The sky is blue.");
+    // A reading that is not hex is a bad file.
+    {
+        std::ofstream out{file, std::ios::binary | std::ios::app};
+        out << "reading\t" << larry::hex::encode(d.metadata.bytes) << "\tzz\n";
+    }
+    CHECK_THROWS(Memory{file}, std::runtime_error);
+}
+
 TEST(two_records_of_one_conception_from_an_old_file_merge) {
     // Before Q28 the same words with other types were two atoms. They read
     // as one: the later complete description, every source, the status from
