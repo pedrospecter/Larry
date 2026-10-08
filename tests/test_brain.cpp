@@ -1067,6 +1067,78 @@ TEST(knowing_what_it_knows_about_a_subject) {
     CHECK(brain.knowledge("nobody").text().starts_with("\"nobody\": 0 conceptions"));
 }
 
+TEST(pronouns_refer_to_what_was_said_before) {
+    const larry::AtomOperations ops;
+    std::ifstream in{std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "reference.txt"};
+    CHECK(in.good());
+    int cases = 0;
+    int failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        if (line.empty() || line.starts_with('#')) {
+            continue;
+        }
+        std::vector<std::string> fields;
+        std::string_view rest = line;
+        while (true) {
+            const std::size_t at = rest.find(" | ");
+            fields.emplace_back(rest.substr(0, at));
+            if (at == std::string_view::npos) {
+                break;
+            }
+            rest.remove_prefix(at + 3);
+        }
+        if (fields.size() != 3) {
+            continue;
+        }
+        ++cases;
+        const std::filesystem::path file =
+            std::filesystem::temp_directory_path() / std::format("larry_test_brain_refer_{}.atoms", number);
+        std::filesystem::remove(file);
+        larry::Memory cache{file};
+        larry::Brain brain{rules(), cache};
+        brain.molecule(b("chat:test"));
+        const larry::Assimilation assimilation{rules()};
+        for (const larry::Sentence& before : assimilation.sentences(fields[0])) {
+            (void)brain.hear(before, "user:pedro");
+        }
+        const larry::Reply reply = brain.hear(ops.from_text(fields[1]), "user:pedro");
+        const std::string want = fields[2] == "same" ? "" : fields[2];
+        std::string got;
+        for (const std::string& because : reply.because) {
+            if (because.starts_with("read as: ")) {
+                got = because.substr(9);
+            }
+        }
+        if (got != want) {
+            ++failed;
+            std::println("reference.txt line {}: \"{}\" expected \"{}\", got \"{}\" ({})", number, fields[1], want, got,
+                         reply.text);
+        }
+    }
+    CHECK(cases >= 10);
+    CHECK(failed == 0);
+    // The reading is what Larry thinks with: the state follows the referent.
+    const std::filesystem::path file = std::filesystem::temp_directory_path() / "larry_test_brain_refer.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    brain.molecule(b("chat:test"));
+    (void)brain.hear(ops.from_text("Mary went to the garden."), "user:pedro");
+    const larry::Reply she = brain.hear(ops.from_text("She went to the kitchen."), "user:pedro");
+    CHECK(she.text.starts_with("I read it as \"Mary went to the kitchen.\"."));
+    CHECK(brain.answer(ops.from_text("Where is Mary?")).text == "Mary is in the kitchen.");
+    const larry::Assimilation assimilation{rules()};
+    const larry::Description said = assimilation.describe(ops.from_text("She went to the kitchen."), &cache);
+    CHECK(cache.find(said.metadata).has_value());
+    CHECK(cache.find(said.metadata)->reading == "Mary went to the kitchen.");
+    (void)brain.hear(ops.from_text("Mary and John went to the office."), "user:pedro");
+    (void)brain.hear(ops.from_text("They went back to the hallway."), "user:pedro");
+    CHECK(brain.answer(ops.from_text("Where is John?")).text == "John is in the hallway.");
+    CHECK(brain.answer(ops.from_text("Is Mary in the hallway?")).text == "Yes.");
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";

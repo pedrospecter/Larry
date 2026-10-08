@@ -242,6 +242,16 @@ public:
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
 
+    /// A11 (first step): the sentence with its third-person pronouns replaced
+    /// by what they refer to in the conceptions heard before (the molecule
+    /// being heard newest first, then the atoms in play, then the cache):
+    /// "he" and "she" by the latest proper noun, "it" by the latest common
+    /// noun phrase, "they" and "them" by the latest plural or joined phrase,
+    /// subjects before objects. Nothing when there is no such pronoun or no
+    /// referent. The result is a reading (Q29): what was said is stored,
+    /// and Larry thinks with this.
+    [[nodiscard]] std::optional<Description> refer(const Description& d) const;
+
     /// R3 (first step): the present state a question asks about, from the
     /// latest conception that set it. "Where is Mary?" is answered by the
     /// latest "Mary moved to the bathroom." as "Mary is in the bathroom.";
@@ -397,6 +407,12 @@ private:
     [[nodiscard]] std::vector<StoredAtom> search_answers(const Description& question) const;
     /// N6: puts an atom at the front of the working memory, within its bound.
     void bring_into_play(const StoredAtom& atom) const;
+    /// The conceptions newest first: the molecule being heard, the atoms in
+    /// play, then the cache; each once (R3, A11).
+    [[nodiscard]] std::vector<StoredAtom> newest_first() const;
+    /// The core Larry thinks with: of the reading when the conception has
+    /// one (Q29, A11), else of the conception as said.
+    [[nodiscard]] Core thinking_core(const StoredAtom& atom) const;
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.

@@ -126,6 +126,7 @@ StudyReport Study::study(std::string_view text, std::string_view name, std::stri
             case Source::Guess:
                 how = "guessed from context";
                 break;
+            case Source::Rule:
             case Source::Dictionary:
                 how = "the dictionary";
                 break;

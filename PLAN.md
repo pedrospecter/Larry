@@ -222,7 +222,7 @@ Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, a
 **Stage 5 — Meaning**
 - [ ] A9 Image (Q3)
 - [ ] A10 Word meanings and relations
-- [ ] A11 Reference across sentences
+- [ ] A11 Reference across sentences: first step done (A11a), third-person pronouns refer to the latest thing of their kind said before; done when bAbI tasks 11 and 13 are measured (Q36) and A8 gives the groups.
 - [ ] C6, C7, C12, C17 Comparisons of meaning
 - [ ] C16 Novelty
 
@@ -351,6 +351,7 @@ Done when: after reading a set of defining sentences, the bonds from sparrow rea
 
 **A11 · Reference across sentences.** Link "it", "she" or "the animal" to the earlier entity it refers to within a molecule.
 Done when: a suite passes, and bAbI tasks 11 and 13 are measured. Needs N4, A8.
+First step done (A11a): `Brain::refer` replaces "he", "she" and "him" by the latest name (a proper noun, or a capitalized word nobody taught) said before, "it" by the latest common noun phrase, "they" and "them" by the latest plural or joined phrase ("Mary and John"), and "her" when nothing it could own follows; subjects before objects, in the conceptions newest first (the molecule being heard, the atoms in play, the cache). The result is a reading (Q29): what was said is stored, Larry says "I read it as ..." and thinks with the reading (`thinking_core`), so "She went to the kitchen." after "Mary went to the garden." answers "Where is Mary?" with the kitchen, and a joined subject answers for each of its names. The pronouns, the number words and the conjunctions (`conjunctions.txt`, new) are categories by the base rules now (`Source::Rule`), so a fresh memory reads them. Suite: `tests/data/en/reference.txt`, 12 cases. Not yet: gender (he and she both take the latest name), "the animal" for "the dog" (A10), and the groups of A8.
 
 **A12 · Second constellation.** Add a second language using only new files in `base_rules/<locale>/` and `lessons/<locale>/`. This shows that the technique does not depend on English.
 Done when: the suites for A1 to A6 pass for the new locale and the change to `src/` contains nothing specific to either language. Needs Q15.
@@ -638,6 +639,7 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | Q34 | A6 is measured: 78.4% of the words right from memory alone, 81.8% with the dictionary, after 3,000 taught sentences (log of 2026-10-08). What target does the user set? Memory-based taggers reach about 96%; the most specific context (A6) and the roles (A8) are the known next steps. | Proposed: 90% with the dictionary after the most specific context, measured by `larry measure` each time assimilation changes. | A6, A8 |
 | Q35 | The emotion of an atom comes from its first emotion word (A7a), so "She loves him." is joy and "I hate waiting." is anger, though both are plain facts about someone else's feeling. Should the emotion mark the speaker's feeling only (first person, interjections, markers) and leave a reported feeling to the words? | Proposed: yes; a reported feeling stays in the words and the harness, and the atom's emotion is the speaker's. | A7, A3b |
 | Q36 | The bAbI tasks 2 to 20 are not reachable from this machine: the original tarball (tasks_1-20_v1-2.tar.gz) is gone from its hosts, and Hugging Face serves the rows of task 1 alone. Can the user put the original files under `content/babi/en/` (the `en/` folder of the tarball)? `larry babi` reads them as they are. | Proposed: yes; then R1, R2, R3 and A11 are measured as the plan asks. | R1, R2, R3, A11 |
+| Q37 | "he" and "she" both take the latest name (A11a), since Larry knows no gender of names. Should a base rule file list common first names with a gender (`names.txt`), or should gender come from the lessons ("Mary is a woman")? | Proposed: the lessons, through A10's "is a kind of" bonds (woman, man), with a names file only for the bAbI measurement. | A11 |
 
 ## 11. Earlier work worth reading
 
@@ -688,3 +690,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | A7 | 22 test executables pass in the four builds; assimilation: 12 tests, the hand-labelled suite of 26 sentences. | The suite found no error in the roles with the grammar: the known gaps (questions, two verbs) are covered by patterns now (K2). The emotion of a verb ("loves") colours the whole atom, which is what Q1 asked for and may be too much: "She loves him." is a fact, not a joy. Q35 asks. |
 | 2026-10-08 | R3a, F9 | 23 test executables pass in the four builds; babi: 5 tests; brain: 22. `larry babi 1`: 100% of 1,000 questions right in 200 stories, in 4.8 s. | The first bAbI number. Task 1 needs the latest state alone; the runner is ready for the other tasks once their stories are on the machine. The JSON reader of W1 is its own module now (`json.hpp`). |
 | 2026-10-08 | R2c, G5, S4 | 23 test executables pass in the four builds; brain: 24 tests. The user contradicting the user: the earlier is withdrawn and "Is the door open?" answers No; a lesson contradicted by the user: both stay and Larry asks. | Q14 applied as the user answered it; a validated conception is the one exception, because only a validator undoes a validation (R2b). "Knowing what it knows" is a report from what exists (statuses, the index, the bonds), with no new store: S4 cost one function. |
+| 2026-10-08 | A11a | 23 test executables pass in the four builds; brain: 25 tests, the reference suite of 12 cases. | Reference is a reading, like tolerance (K3): the conception keeps what was said and carries what was meant. Without gender data "he" after "Daniel ... Sandra ..." takes Sandra; a names file with gender would fix most of it (Q37). |

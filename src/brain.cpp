@@ -165,6 +165,224 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
     return stored;
 }
 
+std::vector<StoredAtom> Brain::newest_first() const {
+    std::vector<StoredAtom> out;
+    std::vector<Bytes> seen;
+    const auto consider = [&](const StoredAtom& atom) {
+        if (std::ranges::contains(seen, atom.description.metadata.bytes)) {
+            return;
+        }
+        seen.push_back(atom.description.metadata.bytes);
+        out.push_back(atom);
+    };
+    if (!molecule_.empty()) {
+        if (const std::optional<Molecule> m = memory_->molecule(molecule_)) {
+            for (auto it = m->members.rbegin(); it != m->members.rend(); ++it) {
+                if (const std::optional<StoredAtom> atom = memory_->find_identity(it->identity)) {
+                    consider(*atom);
+                }
+            }
+        }
+    }
+    for (const StoredAtom& atom : working_) {
+        if (const std::optional<StoredAtom> fresh = memory_->find(atom.description.metadata)) {
+            consider(*fresh);
+        }
+    }
+    const std::vector<StoredAtom> all = memory_->all();
+    for (auto it = all.rbegin(); it != all.rend(); ++it) {
+        consider(*it);
+    }
+    return out;
+}
+
+Core Brain::thinking_core(const StoredAtom& atom) const {
+    if (atom.reading.empty()) {
+        return core(atom.description);
+    }
+    const AtomOperations ops;
+    return core(assimilation_.describe(ops.from_text(atom.reading), memory_));
+}
+
+std::optional<Description> Brain::refer(const Description& d) const {
+    const AtomOperations ops;
+    static const Bytes pronoun = bytes_of("pronoun");
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes determiner = bytes_of("determiner");
+    static const Bytes adjective = bytes_of("adjective");
+    static const Bytes subject_role = bytes_of("subject");
+    static const Bytes object_role = bytes_of("object");
+    static const Bytes link_role = bytes_of("link");
+    static const Bytes plural = bytes_of("plural");
+    static const std::vector<std::string> persons = {"he", "she", "him"};
+    static const std::vector<std::string> things = {"it"};
+    static const std::vector<std::string> plurals = {"they", "them"};
+    const std::vector<Entity>& entities = d.entities.entities;
+    // What a pronoun may stand for, from a conception: its subject phrase and
+    // its object phrases, as written, with their kind and number.
+    struct Phrase {
+        std::string text;
+        bool proper = false;
+        bool plural = false;
+        bool subject = false;
+    };
+    const auto phrases_of = [&](const Description& c) {
+        std::vector<Phrase> out;
+        const auto role_of = [&](const Entity& e) -> Bytes {
+            // The role is the type after the features; "guessed" may follow it.
+            for (auto it = e.types.rbegin(); it != e.types.rend(); ++it) {
+                if (*it == subject_role || *it == object_role || *it == link_role) {
+                    return *it;
+                }
+                if (*it != bytes_of("guessed")) {
+                    return {};
+                }
+            }
+            return {};
+        };
+        for (const Bytes& wanted : {subject_role, object_role}) {
+            Phrase phrase;
+            bool in_phrase = false;
+            std::size_t words = 0;
+            bool capital_first = false;  // the phrase's first word, capitalized and of no known category
+            const auto flush = [&] {
+                if (in_phrase && !phrase.text.empty()) {
+                    phrase.subject = wanted == subject_role;
+                    // A name nobody taught: one capitalized word of no category.
+                    if (words == 1 && capital_first) {
+                        phrase.proper = true;
+                    }
+                    out.push_back(phrase);
+                }
+                phrase = Phrase{};
+                in_phrase = false;
+                words = 0;
+                capital_first = false;
+            };
+            for (std::size_t i = 0; i < c.entities.entities.size(); ++i) {
+                const Entity& e = c.entities.entities[i];
+                const Bytes role = role_of(e);
+                const bool joiner = std::ranges::contains(rules_->conjunctions(), ops.fold(e.word));
+                const bool joins = (role == link_role || joiner) && in_phrase && i + 1 < c.entities.entities.size() &&
+                                   role_of(c.entities.entities[i + 1]) == wanted;
+                if (role == wanted || joins) {
+                    if (e.category == pronoun && !in_phrase) {
+                        continue;  // a pronoun stands for nothing itself
+                    }
+                    const bool capital = !e.word.empty() && e.word[0] >= 'A' && e.word[0] <= 'Z';
+                    if (!in_phrase) {
+                        capital_first = capital && e.category.empty();
+                    }
+                    in_phrase = true;
+                    ++words;
+                    phrase.text += (phrase.text.empty() ? "" : " ") + std::string(e.word.begin(), e.word.end());
+                    if (e.category == proper_noun || (e.category.empty() && capital && i > 0 && !joins)) {
+                        phrase.proper = true;
+                    }
+                    if (std::ranges::contains(e.types, plural) || joins) {
+                        phrase.plural = true;
+                    }
+                } else {
+                    flush();
+                }
+            }
+            flush();
+        }
+        return out;
+    };
+    std::string text{ops.text(d.atom)};
+    bool changed = false;
+    std::size_t from = 0;  // where in the text the next pronoun is looked for
+    std::vector<StoredAtom> recent;  // fetched when the first pronoun needs it
+    bool fetched = false;
+    for (std::size_t i = 0; i < entities.size(); ++i) {
+        const Entity& e = entities[i];
+        if (e.category != pronoun) {
+            continue;
+        }
+        const Bytes folded = ops.fold(e.word);
+        const std::string word(folded.begin(), folded.end());
+        const bool person = std::ranges::contains(persons, word);
+        const bool thing = std::ranges::contains(things, word);
+        const bool many = std::ranges::contains(plurals, word);
+        // "her" refers when nothing it could own follows.
+        const bool her = word == "her" && (i + 1 == entities.size() ||
+                                           (entities[i + 1].category != noun && entities[i + 1].category != adjective &&
+                                            entities[i + 1].category != determiner));
+        if (!person && !thing && !many && !her) {
+            continue;
+        }
+        if (!fetched) {
+            recent = newest_first();
+            fetched = true;
+        }
+        // The names in this sentence: a pronoun does not stand for one of them.
+        std::vector<std::string> own;
+        for (const Entity& other : entities) {
+            if (other.category == proper_noun ||
+                (other.category.empty() && !other.word.empty() && other.word[0] >= 'A' && other.word[0] <= 'Z' &&
+                 &other != &entities.front())) {
+                own.emplace_back(other.word.begin(), other.word.end());
+            } else if (other.category.empty() && &other == &entities.front() && !other.word.empty() &&
+                       other.word[0] >= 'A' && other.word[0] <= 'Z' && entities.size() > 1 &&
+                       entities[1].category != noun) {
+                own.emplace_back(other.word.begin(), other.word.end());
+            }
+        }
+        std::optional<Phrase> referent;
+        for (const StoredAtom& atom : recent) {
+            if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn) {
+                continue;
+            }
+            const Description resolved =
+                atom.reading.empty() ? atom.description : assimilation_.describe(ops.from_text(atom.reading), memory_);
+            for (const Phrase& phrase : phrases_of(resolved)) {
+                const bool fits = many ? phrase.plural
+                                  : thing ? (!phrase.proper && !phrase.plural)
+                                          : (phrase.proper && !phrase.plural);
+                if (fits && !std::ranges::contains(own, phrase.text)) {
+                    referent = phrase;
+                    break;
+                }
+            }
+            if (referent) {
+                break;
+            }
+        }
+        if (!referent) {
+            continue;
+        }
+        // Replace the pronoun, as a whole word, where it stands in the text.
+        const std::string written(e.word.begin(), e.word.end());
+        std::size_t at = text.find(written, from);
+        while (at != std::string::npos) {
+            const bool starts = at == 0 || !std::isalnum(static_cast<unsigned char>(text[at - 1]));
+            const bool ends = at + written.size() >= text.size() || !std::isalnum(static_cast<unsigned char>(text[at + written.size()]));
+            if (starts && ends) {
+                break;
+            }
+            at = text.find(written, at + 1);
+        }
+        if (at == std::string::npos) {
+            continue;
+        }
+        std::string replacement = referent->text;
+        if (at == 0) {
+            replacement[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(replacement[0])));
+        } else if (!referent->proper) {
+            replacement[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(replacement[0])));
+        }
+        text.replace(at, written.size(), replacement);
+        from = at + replacement.size();
+        changed = true;
+    }
+    if (!changed) {
+        return std::nullopt;
+    }
+    return assimilation_.describe(ops.from_text(text), memory_);
+}
+
 std::optional<Reply> Brain::state_of(const Description& question) const {
     const AtomOperations ops;
     const std::vector<Bytes> words = expanded_words(question);
@@ -191,40 +409,12 @@ std::optional<Reply> Brain::state_of(const Description& question) const {
     } else {
         return std::nullopt;
     }
-    // The conceptions newest first: the molecule being heard, the atoms in play, the cache.
-    std::vector<StoredAtom> newest_first;
-    std::vector<Bytes> seen;
-    const auto consider = [&](const StoredAtom& atom) {
-        if (std::ranges::contains(seen, atom.description.metadata.bytes)) {
-            return;
-        }
-        seen.push_back(atom.description.metadata.bytes);
-        newest_first.push_back(atom);
-    };
-    if (!molecule_.empty()) {
-        if (const std::optional<Molecule> m = memory_->molecule(molecule_)) {
-            for (auto it = m->members.rbegin(); it != m->members.rend(); ++it) {
-                if (const std::optional<StoredAtom> atom = memory_->find_identity(it->identity)) {
-                    consider(*atom);
-                }
-            }
-        }
-    }
-    for (const StoredAtom& atom : working_) {
-        if (const std::optional<StoredAtom> fresh = memory_->find(atom.description.metadata)) {
-            consider(*fresh);
-        }
-    }
-    const std::vector<StoredAtom> all = memory_->all();
-    for (auto it = all.rbegin(); it != all.rend(); ++it) {
-        consider(*it);
-    }
     // The latest conception that sets a state of the subject.
-    for (const StoredAtom& atom : newest_first) {
+    for (const StoredAtom& atom : newest_first()) {
         if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn) {
             continue;
         }
-        const Core stored = core(atom.description);
+        const Core stored = thinking_core(atom);
         if (stored.negated) {
             continue;
         }
@@ -238,7 +428,21 @@ std::optional<Reply> Brain::state_of(const Description& question) const {
                     continue;
                 }
                 const std::vector<Bytes> who(stored.words.begin(), stored.words.begin() + static_cast<std::ptrdiff_t>(p));
-                if (who != subject) {
+                // The subject asked for, or one of the joined subjects ("Mary and John").
+                static const Bytes and_word = bytes_of("and");
+                bool same = who == subject;
+                if (!same && std::ranges::contains(who, and_word)) {
+                    std::vector<Bytes> part;
+                    for (std::size_t k = 0; k <= who.size() && !same; ++k) {
+                        if (k == who.size() || who[k] == and_word) {
+                            same = part == subject;
+                            part.clear();
+                        } else {
+                            part.push_back(who[k]);
+                        }
+                    }
+                }
+                if (!same) {
                     continue;
                 }
                 const std::vector<Bytes> object(stored.words.begin() + static_cast<std::ptrdiff_t>(p + parts.size()), stored.words.end());
@@ -248,7 +452,7 @@ std::optional<Reply> Brain::state_of(const Description& question) const {
                 }
                 Reply reply;
                 std::string sentence;
-                for (const Bytes& w : subject) {
+                for (const Bytes& w : subject) {  // the subject asked for, not the joined one
                     sentence += (sentence.empty() ? "" : " ") + std::string(w.begin(), w.end());
                 }
                 sentence += " " + state_text;
@@ -986,7 +1190,7 @@ Verdict Brain::decide(const Description& claim) const {
         StoredAtom false_because;
         for (const Core& form : forms) {
             for (StoredAtom& atom : candidates(form, cloud)) {
-                const Core stored = core(atom.description);
+                const Core stored = thinking_core(atom);
                 if (stored.words != form.words) {
                     continue;
                 }
@@ -1147,7 +1351,7 @@ std::vector<StoredAtom> Brain::search_answers(const Description& question) const
     }
     for (const bool cloud : {false, true}) {
         for (StoredAtom& atom : candidates(pattern, cloud)) {
-            const Core stored = core(atom.description);
+            const Core stored = thinking_core(atom);
             if (stored.negated || stored.words.size() <= pattern.words.size()) {
                 continue;
             }
@@ -1416,11 +1620,18 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         reply.because.push_back("rule: " + reading.reason);
         return reply;
     }
-    const Description& d = reading.changed ? reading.meant : said;
+    Description d = reading.changed ? reading.meant : said;
     for (const std::string& deviation : reading.deviations) {
         reply.because.push_back("deviation: " + deviation);
     }
-    if (reading.changed) {
+    // A11: a pronoun stands for what was said before.
+    bool referred = false;
+    if (std::optional<Description> resolved = refer(d)) {
+        d = std::move(*resolved);
+        referred = true;
+        reply.because.emplace_back("rule: a pronoun stands for the latest thing of its kind said before (A11)");
+    }
+    if (reading.changed || referred) {
         reply.text = std::format("I read it as \"{}\". ", ops.text(d.atom));
         reply.because.push_back(std::format("read as: {}", ops.text(d.atom)));
     }
@@ -1448,7 +1659,7 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         reply.because.emplace_back("rule: an order that matches no command waits (S1)");
         return reply;
     }
-    const std::string read_as = reading.changed ? std::string{ops.text(d.atom)} : std::string{};
+    const std::string read_as = reading.changed || referred ? std::string{ops.text(d.atom)} : std::string{};
     if (qualification == "assumption") {
         if (!store) {
             reply.text += "That is an assumption: I do not judge it.";

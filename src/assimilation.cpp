@@ -409,6 +409,24 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
                 }
             }
         }
+        // The base rules know the pronouns, the number words and the
+        // conjunctions: a word nobody else knows takes its category from them.
+        for (std::size_t i = 0; i < n; ++i) {
+            if (d.notes[i].source != Source::Unknown) {
+                continue;
+            }
+            Entity& entity = d.entities.entities[i];
+            const Bytes word = ops.fold(entity.word);
+            const bool is_pronoun = std::ranges::any_of(rules_->pronouns(), [&](const auto& pair) { return pair.first == word; });
+            const bool is_number = std::ranges::any_of(rules_->number_words(), [&](const auto& pair) { return pair.first == word; });
+            const bool is_conjunction = std::ranges::contains(rules_->conjunctions(), word);
+            if (is_pronoun || is_number || is_conjunction) {
+                entity.category = is_pronoun ? Bytes{'p', 'r', 'o', 'n', 'o', 'u', 'n'}
+                                  : is_number ? Bytes{'n', 'u', 'm', 'e', 'r', 'a', 'l'}
+                                              : Bytes{'c', 'o', 'n', 'j', 'u', 'n', 'c', 't', 'i', 'o', 'n'};
+                d.notes[i].source = Source::Rule;
+            }
+        }
         // A4: a word nobody knows may be a form of a word somebody knows
         // ("skies" of "sky"), or carry an ending that says its category by
         // itself ("zorping"). It is a guess, marked as one, with the form noted.

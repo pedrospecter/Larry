@@ -419,6 +419,8 @@ std::string source(const larry::EntityNote& note) {
     }
     case larry::Source::Dictionary:
         return "dictionary";
+    case larry::Source::Rule:
+        return "base rules (a pronoun, a number word or a conjunction)";
     }
     return "";
 }

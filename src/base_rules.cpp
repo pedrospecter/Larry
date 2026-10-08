@@ -89,6 +89,7 @@ BaseRules::BaseRules(Language language) : language_(language) {
     assumption_words_ = read(dir / "assumption_words.txt");
     expressions_ = read(dir / "expressions.txt");
     negation_words_ = read(dir / "negation_words.txt");
+    conjunctions_ = read(dir / "conjunctions.txt");
     contractions_ = read_pairs(dir / "contractions.txt");
     endings_ = read_pairs(dir / "endings.txt");
     std::ranges::stable_sort(endings_, [](const auto& a, const auto& b) {

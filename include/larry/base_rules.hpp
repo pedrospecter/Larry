@@ -69,6 +69,10 @@ public:
     /// case, from expressions.txt.
     [[nodiscard]] const std::vector<Bytes>& expressions() const noexcept { return expressions_; }
 
+    /// Conjunctions ("and", "or", "but"), from conjunctions.txt: a conjunction
+    /// by rule, before any lesson (A11).
+    [[nodiscard]] const std::vector<Bytes>& conjunctions() const noexcept { return conjunctions_; }
+
     /// Words that negate a sentence ("not", "never"), from negation_words.txt.
     [[nodiscard]] const std::vector<Bytes>& negation_words() const noexcept {
         return negation_words_;
@@ -208,6 +212,7 @@ private:
     std::vector<std::pair<Bytes, Bytes>> forms_;
     std::vector<std::pair<Bytes, Bytes>> irregular_;
     std::vector<std::pair<Bytes, Bytes>> states_;
+    std::vector<Bytes> conjunctions_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;
     std::vector<std::pair<Bytes, Bytes>> auxiliaries_;
     std::vector<std::pair<Bytes, Bytes>> emotions_;

@@ -122,6 +122,7 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry near sky                    # the neighbours in memory, nearest first (N5)
     ./build/larry forms skies                 # skies is a form of sky: noun plural, by the ending (A4)
     ./build/larry know sky                    # what Larry knows about a subject, and what it cannot answer (S4)
+    ./build/larry say "She went to the kitchen."   # after "Mary went to the garden.": I read it as "Mary went to the kitchen." (A11)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
     ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up

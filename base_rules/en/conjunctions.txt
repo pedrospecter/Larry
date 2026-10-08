@@ -1,0 +1,7 @@
+# Conjunctions that join words and clauses (A11, K2): a word of this list is a conjunction
+# by rule, before any lesson. One per line, each byte as two hex digits.
+616e64
+6f72
+627574
+6e6f72
+26
