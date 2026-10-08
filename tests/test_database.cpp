@@ -305,6 +305,40 @@ TEST(bonds_both_ways_and_through_a_clear) {
     db().run("truncate bonds, bond_origins restart identity cascade");
 }
 
+TEST(molecules_in_order_through_a_clear) {
+    using larry::Member;
+    using larry::Molecule;
+    db().clear();
+    db().run("truncate molecules, molecule_members restart identity cascade");
+    const AtomOperations ops;
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    const Bytes sky = ops.identity(c.metadata);
+    const Bytes sea = ops.identity(d.metadata);
+    const Bytes text = b("read:sky.txt:2026-10-08T07:58:00Z");
+    const Bytes chat = b("chat:pedro:2026-10-08T08:00:00Z");
+    CHECK(db().count_molecules() == 0);
+    CHECK(!db().molecule(text).has_value());
+    CHECK(db().join(text, sky, "read:sky.txt", "2026-10-08T07:58:01Z") == 0);
+    CHECK(db().join(text, sea, "read:sky.txt", "2026-10-08T07:58:02Z") == 1);
+    CHECK(db().join(chat, sea, "user:pedro", "2026-10-08T08:00:05Z") == 0);
+    CHECK(db().join(chat, sea, "user:pedro", "2026-10-08T08:00:09Z") == 1);
+    CHECK(db().count_molecules() == 2);
+    CHECK(db().molecules() == (std::vector<Bytes>{text, chat}));
+    const std::optional<Molecule> m = db().molecule(text);
+    CHECK(m.has_value());
+    if (m) {
+        CHECK(m->members == (std::vector<Member>{{sky, "read:sky.txt", "2026-10-08T07:58:01Z"},
+                                                 {sea, "read:sky.txt", "2026-10-08T07:58:02Z"}}));
+    }
+    CHECK(db().molecule(chat)->members[1].when == "2026-10-08T08:00:09Z");
+    CHECK_THROWS(db().join({}, sky, "x", "y"), std::invalid_argument);
+    db().clear();
+    CHECK(db().count_molecules() == 2);
+    CHECK(db().molecule(text)->members.size() == 2);
+    db().run("truncate molecules, molecule_members restart identity cascade");
+}
+
 TEST(open_makes_the_database_when_the_server_lacks_it) {
     // The scratch database must not exist; open() creates it through "postgres".
     db().run("drop database if exists larry_test_open");

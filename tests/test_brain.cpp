@@ -847,6 +847,46 @@ TEST(a_conflict_is_a_bond_between_the_two_conceptions) {
     CHECK(brain.conception_at(larry::BondEnd::entity("sky")) == std::nullopt);
 }
 
+TEST(what_is_heard_joins_the_molecule) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_molecule.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const larry::Description taught = assimilation.describe(ops.from_text("The sky is blue."), &cache,
+        std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")});
+    cache.store(taught.atom, taught.metadata, larry::Status::Proposed, "lesson:test");
+    CHECK(brain.molecule().empty());
+    CHECK(brain.hear(ops.from_text("The sea is blue."), "user:pedro").stored);
+    CHECK(cache.count_molecules() == 0);  // nothing joins before a molecule is named
+    const Bytes chat = b("chat:pedro:2026-10-08T08:00:00Z");
+    brain.molecule(chat);
+    CHECK(brain.hear(ops.from_text("The grass is blue."), "user:pedro").stored);
+    (void)brain.hear(ops.from_text("Is the sky blue?"), "user:pedro");  // a question is not stored
+    (void)brain.hear(ops.from_text("The sea is blue."), "user:pedro");  // said again: a member again
+    (void)brain.hear(ops.from_text("Suppose the sky is green."), "user:pedro");  // an assumption is stored
+    const std::optional<larry::Molecule> m = cache.molecule(chat);
+    CHECK(m.has_value());
+    if (m) {
+        CHECK(m->members.size() == 3);
+        CHECK(m->members[0].identity == ops.identity(assimilation.describe(ops.from_text("The grass is blue."), &cache).metadata));
+        CHECK(m->members[1].identity == ops.identity(assimilation.describe(ops.from_text("The sea is blue."), &cache).metadata));
+        CHECK(m->members[0].who == "user:pedro");
+        CHECK(m->members[0].when.size() == 20);
+        CHECK(m->members[0].when.ends_with("Z"));
+        CHECK(m->members[0].when.substr(0, 4) == larry::Brain::now().substr(0, 4));
+    }
+    CHECK(cache.molecules_of(ops.identity(assimilation.describe(ops.from_text("The sea is blue."), &cache).metadata)) ==
+          std::vector<Bytes>{chat});
+    CHECK(brain.molecule_named(chat).has_value());
+    CHECK(!brain.molecule_named(b("nobody")).has_value());
+    brain.molecule({});
+    (void)brain.hear(ops.from_text("The hill is blue."), "user:pedro");
+    CHECK(cache.molecule(chat)->members.size() == 3);
+}
+
 TEST(the_cache_answers_first_and_the_cloud_second) {
     std::unique_ptr<larry::Database> cloud = cloud_database();
     if (!cloud) {
@@ -940,6 +980,29 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     CHECK(brain.conception_at(larry::BondEnd::atom(moon.metadata))->description.metadata.bytes == moon.metadata.bytes);
     CHECK(brain.sync(100) == larry::Brain::Synced{});
     cloud->run("truncate bonds, bond_origins restart identity cascade");
+    // N4: what is remembered joins the molecule in the cache and the cloud at
+    // once; a molecule the cloud alone has comes at sync, member by member.
+    cloud->run("truncate molecules, molecule_members restart identity cascade");
+    const Bytes text = b("read:t.txt:2026-10-08T07:58:00Z");
+    brain.molecule(text);
+    const larry::Description hill = describe("The hill is green.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    CHECK(brain.remember(hill, larry::Status::Proposed, "read:t.txt") == larry::Stored::New);
+    brain.molecule({});
+    CHECK(cache.molecule(text)->members.size() == 1);
+    CHECK(cloud->molecule(text)->members.size() == 1);
+    CHECK(cloud->molecule(text)->members[0].who == "read:t.txt");
+    CHECK(cloud->molecule(text)->members[0].when == cache.molecule(text)->members[0].when);
+    const Bytes chat_ana = b("chat:ana:2026-10-08T08:00:00Z");
+    CHECK(cloud->join(chat_ana, ops.identity(cat.metadata), "user:ana", "2026-10-08T08:00:01Z") == 0);
+    CHECK(cloud->join(text, ops.identity(cat.metadata), "read:t.txt", "2026-10-08T08:00:02Z") == 1);
+    const larry::Brain::Synced grouped = brain.sync(100);
+    CHECK(grouped.members_pushed == 0);
+    CHECK(grouped.members_pulled == 2);
+    CHECK(cache.molecule(chat_ana)->members.size() == 1);
+    CHECK(cache.molecule(text)->members.size() == 2);
+    CHECK(brain.molecule_named(chat_ana)->members[0].who == "user:ana");
+    CHECK(brain.sync(100) == larry::Brain::Synced{});
+    cloud->run("truncate molecules, molecule_members restart identity cascade");
     // Q28: the cloud holds an older description of a conception: when the
     // machine describes it anew, the cloud follows, at remember and at sync.
     const larry::Description sun = describe("The sun is hot.", {"determiner", "noun", "auxiliary verb", "adjective"});

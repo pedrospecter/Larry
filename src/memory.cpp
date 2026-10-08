@@ -28,6 +28,7 @@ namespace {
 //   reading    <hex metadata> <hex sentence as read>
 //   validator  <hex name>
 //   bond       <hex kind> <atom|entity> <hex from> <atom|entity> <hex to> <hex origin>
+//   molecule   <hex name> <hex identity> <hex who> <hex when>
 // with tabs between the fields. A line finds its conception by the identity
 // of its metadata (Q28): the qualification and the words, not the types, so
 // a conception described anew (its roles corrected) stays one conception,
@@ -185,6 +186,21 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             add_bond(bond, false);
             continue;
         }
+        if (tag == "molecule") {
+            if (f.size() != 5) {
+                bad("has a molecule member without its four fields");
+            }
+            const std::optional<Bytes> name = hex::decode(f[1]);
+            const std::optional<Bytes> identity = hex::decode(f[2]);
+            const std::optional<Bytes> who = hex::decode(f[3]);
+            const std::optional<Bytes> when = hex::decode(f[4]);
+            if (!name || name->empty() || !identity || identity->empty() || !who || !when) {
+                bad("has a molecule member that is not hex bytes");
+            }
+            add_member(*name, *identity, std::string_view{reinterpret_cast<const char*>(who->data()), who->size()},
+                       std::string_view{reinterpret_cast<const char*>(when->data()), when->size()}, false);
+            continue;
+        }
         if (tag != "atom" && tag != "describe" && tag != "source" && tag != "status" && tag != "reading") {
             bad("has an unknown tag");
         }
@@ -321,6 +337,10 @@ void Memory::clear() {
     bonds_.clear();
     bonds_from_.clear();
     bonds_to_.clear();
+    const std::vector<Molecule> molecules = std::move(molecules_);
+    molecules_.clear();
+    molecule_index_.clear();
+    molecules_by_identity_.clear();
     atoms_.clear();
     by_identity_.clear();
     by_metadata_.clear();
@@ -338,6 +358,63 @@ void Memory::clear() {
     for (const Bond& bond : bonds) {
         add_bond(bond, true);
     }
+    for (const Molecule& molecule : molecules) {
+        for (const Member& member : molecule.members) {
+            add_member(molecule.name, member.identity, member.who, member.when, true);
+        }
+    }
+}
+
+std::size_t Memory::add_member(const Bytes& molecule, const Bytes& identity, std::string_view who,
+                               std::string_view when, bool write) {
+    if (write) {
+        append(std::format("molecule{}{}{}{}{}{}{}{}", tab, hex::encode(molecule), tab, hex::encode(identity), tab,
+                           hex_of(who), tab, hex_of(when)));
+    }
+    const auto held = molecule_index_.find(molecule);
+    std::size_t index = 0;
+    if (held == molecule_index_.end()) {
+        molecules_.push_back({molecule, {}});
+        index = molecules_.size() - 1;
+        molecule_index_.emplace(molecule, index);
+    } else {
+        index = held->second;
+    }
+    Molecule& m = molecules_[index];
+    m.members.push_back({identity, std::string{who}, std::string{when}});
+    std::vector<Bytes>& in = molecules_by_identity_[identity];
+    if (!std::ranges::contains(in, molecule)) {
+        in.push_back(molecule);
+    }
+    return m.members.size() - 1;
+}
+
+std::size_t Memory::join(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when) {
+    if (molecule.empty() || identity.empty()) {
+        throw std::invalid_argument("Memory::join: a member needs a molecule and an identity");
+    }
+    return add_member(molecule, identity, who, when, true);
+}
+
+std::optional<Molecule> Memory::molecule(const Bytes& name) const {
+    const auto held = molecule_index_.find(name);
+    if (held == molecule_index_.end()) {
+        return std::nullopt;
+    }
+    return molecules_[held->second];
+}
+
+std::vector<Bytes> Memory::molecules() const {
+    std::vector<Bytes> out;
+    for (const Molecule& m : molecules_) {
+        out.push_back(m.name);
+    }
+    return out;
+}
+
+std::vector<Bytes> Memory::molecules_of(const Bytes& identity) const {
+    const auto held = molecules_by_identity_.find(identity);
+    return held == molecules_by_identity_.end() ? std::vector<Bytes>{} : held->second;
 }
 
 std::optional<StoredAtom> Memory::find_identity(const Bytes& identity) const {

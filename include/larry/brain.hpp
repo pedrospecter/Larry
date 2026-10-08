@@ -218,6 +218,8 @@ public:
         std::int64_t refreshed = 0;    ///< Cached conceptions whose standing the cloud changed.
         std::int64_t bonds_pushed = 0; ///< Bonds the cloud lacked (N3).
         std::int64_t bonds_pulled = 0; ///< Bonds the cache lacked.
+        std::int64_t members_pushed = 0;  ///< Molecule members the cloud lacked (N4).
+        std::int64_t members_pulled = 0;  ///< Molecule members the cache lacked.
         bool operator==(const Synced&) const = default;
     };
 
@@ -239,6 +241,19 @@ public:
     /// N3: the conception an atom end names, from the cache, else from the
     /// cloud; nothing for an entity end or an identity nobody holds.
     [[nodiscard]] std::optional<StoredAtom> conception_at(const BondEnd& end) const;
+
+    /// N4: from here on, what the brain remembers joins this molecule: the
+    /// text or the conversation being heard, with who said it (the source)
+    /// and when (now). Empty: nothing joins. Names: "read:<file>:<when>",
+    /// "chat:<user>:<when>".
+    void molecule(Bytes name) { molecule_ = std::move(name); }
+    [[nodiscard]] const Bytes& molecule() const noexcept { return molecule_; }
+
+    /// N4: the molecule with this name, from the cache, else from the cloud.
+    [[nodiscard]] std::optional<Molecule> molecule_named(const Bytes& name) const;
+
+    /// N4: the time now as a member records it: ISO 8601 in UTC.
+    [[nodiscard]] static std::string now();
 
     /// N2c: the cloud is the record. Every cached conception takes the
     /// status, the decision and the reading the cloud holds for it, in one
@@ -339,6 +354,7 @@ private:
     Database* cloud_;
     Notice notice_;
     mutable std::string last_notice_;
+    Bytes molecule_;  ///< N4: what is remembered joins it, when it is named.
 };
 
 }  // namespace larry

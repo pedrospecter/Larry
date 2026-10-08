@@ -82,3 +82,23 @@ create table if not exists bond_origins (
     origin bytea  not null,
     unique (bond, origin)
 );
+
+-- Molecules (N4): a text or a conversation, as the conceptions it gave, in
+-- order, with who said each one and when (ISO 8601 in UTC, as bytes). The
+-- name says where it came from and when it began: "read:sky.txt:<when>",
+-- "chat:pedro:<when>". A clear keeps them, like the bonds.
+create table if not exists molecules (
+    id      bigint      generated always as identity primary key,
+    name    bytea       not null unique,
+    created timestamptz not null default now()
+);
+create table if not exists molecule_members (
+    id       bigint  generated always as identity primary key,
+    molecule bigint  not null references molecules (id) on delete cascade,
+    position integer not null,
+    identity bytea   not null,
+    who      bytea   not null,
+    said_at  bytea   not null,
+    unique (molecule, position)
+);
+create index if not exists molecule_members_identity on molecule_members (identity);

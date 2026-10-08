@@ -99,6 +99,24 @@ struct Bond {
     }
 };
 
+/// One member of a molecule (N4): a conception, by its identity (Q28), who
+/// said it ("user:pedro", "read:sky.txt"), and when (ISO 8601 in UTC:
+/// "2026-10-08T07:58:00Z").
+struct Member {
+    Bytes identity;
+    std::string who;
+    std::string when;
+    bool operator==(const Member&) const = default;
+};
+
+/// A molecule (N4): a text or a conversation, as the conceptions it gave, in
+/// the order they came. Its name says where it came from and when it began:
+/// "read:sky.txt:2026-10-08T07:58:00Z", "chat:pedro:2026-10-08T08:00:00Z".
+struct Molecule {
+    Bytes name;
+    std::vector<Member> members;
+};
+
 /// What store() did with an atom.
 enum class Stored : std::uint8_t {
     New,       ///< The atom was stored.
@@ -206,6 +224,22 @@ public:
     [[nodiscard]] const std::vector<Bond>& bonds() const noexcept { return bonds_; }
     [[nodiscard]] std::int64_t count_bonds() const noexcept { return static_cast<std::int64_t>(bonds_.size()); }
 
+    /// N4: appends a conception to a molecule, in the file too; the molecule
+    /// is made when it is not there. The position it got, from 0. The same
+    /// sentence said twice is two members. Throws std::invalid_argument
+    /// without a name or an identity.
+    std::size_t join(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when);
+
+    /// N4: the molecule with this name, if any; the names of every molecule,
+    /// in the order they were made; the names of the molecules a conception
+    /// is in, in that order.
+    [[nodiscard]] std::optional<Molecule> molecule(const Bytes& name) const;
+    [[nodiscard]] std::vector<Bytes> molecules() const;
+    [[nodiscard]] std::vector<Bytes> molecules_of(const Bytes& identity) const;
+    [[nodiscard]] std::int64_t count_molecules() const noexcept {
+        return static_cast<std::int64_t>(molecules_.size());
+    }
+
 private:
     struct Record {
         MetadataElectron metadata;
@@ -220,6 +254,8 @@ private:
     void append(const std::string& line);
     /// Adds a bond to the maps, and to the file when `write` is set.
     bool add_bond(const Bond& bond, bool write);
+    std::size_t add_member(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when,
+                           bool write);
     void index(std::int64_t id, const MetadataElectron& metadata);
     void unindex(std::int64_t id);
     /// Replaces the description of a record, in the maps and the index.
@@ -236,6 +272,9 @@ private:
     std::vector<Bond> bonds_;
     std::map<Bytes, std::vector<std::size_t>> bonds_from_;  ///< By end key: the bonds from it.
     std::map<Bytes, std::vector<std::size_t>> bonds_to_;
+    std::vector<Molecule> molecules_;
+    std::map<Bytes, std::size_t> molecule_index_;              ///< By name.
+    std::map<Bytes, std::vector<Bytes>> molecules_by_identity_;  ///< The molecules a conception is in.
 };
 
 }  // namespace larry

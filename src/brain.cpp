@@ -4,6 +4,8 @@
 #include "larry/grammar.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <format>
 #include <map>
 #include <optional>
@@ -135,7 +137,40 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
             }
         }
     }
+    // N4: the conception joins the molecule being heard, said again or not.
+    if (!molecule_.empty()) {
+        const Bytes identity = ops.identity(d.metadata);
+        const std::string when = now();
+        memory_->join(molecule_, identity, source, when);
+        if (cloud_ != nullptr) {
+            cloud_->join(molecule_, identity, source, when);
+        }
+    }
     return stored;
+}
+
+std::string Brain::now() {
+    const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm utc{};
+#ifdef _WIN32
+    gmtime_s(&utc, &t);
+#else
+    gmtime_r(&t, &utc);
+#endif
+    char out[32];
+    const std::size_t n = std::strftime(out, sizeof out, "%Y-%m-%dT%H:%M:%SZ", &utc);
+    return std::string(out, n);
+}
+
+std::optional<Molecule> Brain::molecule_named(const Bytes& name) const {
+    if (const std::optional<Molecule> held = memory_->molecule(name)) {
+        return held;
+    }
+    if (cloud_ != nullptr) {
+        tell("searching the cloud for the molecule");
+        return cloud_->molecule(name);
+    }
+    return std::nullopt;
 }
 
 std::vector<std::string> Brain::validators() const {
@@ -245,6 +280,28 @@ Brain::Synced Brain::sync(std::int64_t pull) {
     for (const Bond& bond : cloud_->bonds()) {
         if (memory_->bond(bond)) {
             ++out.bonds_pulled;
+        }
+    }
+    // N4: the molecules, both ways: each side appends the members it lacks,
+    // by position.
+    for (const Bytes& name : memory_->molecules()) {
+        const std::optional<Molecule> mine = memory_->molecule(name);
+        const std::optional<Molecule> theirs = cloud_->molecule(name);
+        const std::size_t held = theirs ? theirs->members.size() : 0;
+        for (std::size_t i = held; mine && i < mine->members.size(); ++i) {
+            const Member& m = mine->members[i];
+            cloud_->join(name, m.identity, m.who, m.when);
+            ++out.members_pushed;
+        }
+    }
+    for (const Bytes& name : cloud_->molecules()) {
+        const std::optional<Molecule> theirs = cloud_->molecule(name);
+        const std::optional<Molecule> mine = memory_->molecule(name);
+        const std::size_t held = mine ? mine->members.size() : 0;
+        for (std::size_t i = held; theirs && i < theirs->members.size(); ++i) {
+            const Member& m = theirs->members[i];
+            memory_->join(name, m.identity, m.who, m.when);
+            ++out.members_pulled;
         }
     }
     return out;

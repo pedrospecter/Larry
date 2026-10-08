@@ -119,12 +119,16 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                gather the words to learn, and write a lesson
                                draft in lessons/<locale>/drafts/ for you to
                                correct and teach
+  molecules                    the molecules (N4): each text read and each
+                               conversation, with its conceptions in order
+  molecule <name>              one molecule: its conceptions in order, who said
+                               each and when
   bonds [word or sentence]     the bonds (N3) at a word or a conception, either
                                way, or all of them: kind, both ends, origins
   bond <from> <kind> <to>      record a bond between two ends: a word, or a
                                sentence Larry holds as a conception
-  count                        how many conceptions, word uses and bonds
-                               memory holds
+  count                        how many conceptions, word uses, bonds and
+                               molecules memory holds
   bench [n]                    measure Larry with n generated atoms (10000) in a
                                scratch file: sentences stored and described per
                                second, lookups per second, the time to answer,
@@ -760,6 +764,9 @@ int run(std::span<const std::string_view> args) {
         Tally tally;
         larry::ContentTally classes;
         const std::string source = "read:" + std::filesystem::path{rest[0]}.filename().string();
+        // N4: the file is one molecule: its facts in order, with the source and the time.
+        const std::string molecule = source + ":" + larry::Brain::now();
+        larry.brain.molecule(larry::Bytes(molecule.begin(), molecule.end()));
         const larry::Content content{larry.rules};
         for (const larry::Piece& piece : content.classify(text, larry.brain)) {
             classes.add(piece.what);
@@ -774,6 +781,10 @@ int run(std::span<const std::string_view> args) {
         }
         print_classes(classes);
         tally.print();
+        if (const std::optional<larry::Molecule> m = larry.memory.molecule(larry.brain.molecule())) {
+            std::println("molecule      : {} ({} conceptions, in order)", molecule, m->members.size());
+        }
+        larry.brain.molecule({});
         return 0;
     }
     if (command == "classify") {
@@ -1024,6 +1035,9 @@ int run(std::span<const std::string_view> args) {
     if (command == "chat") {
         larry::Brain& brain = larry.brain;
         brain.notice(show_notice);
+        // N4: the conversation is one molecule.
+        const std::string conversation = "chat:" + larry.user + ":" + larry::Brain::now();
+        brain.molecule(larry::Bytes(conversation.begin(), conversation.end()));
         larry::Reply last;
         std::println("Larry: hello. I hold {} conceptions{}. Say \"bye\" to end, \"why?\" to ask why.",
                      larry.memory.count(),
@@ -1051,7 +1065,11 @@ int run(std::span<const std::string_view> args) {
                 }
                 if (folded == "bye" || folded == "bye." || folded == "bye!" || folded == "quit" ||
                     folded == "exit") {
-                    std::println("Larry: bye.");
+                    const std::optional<larry::Molecule> m = larry.memory.molecule(brain.molecule());
+                    std::println("Larry: bye.{}", m && !m->members.empty()
+                                                       ? std::format(" This conversation is molecule {} ({} conceptions).",
+                                                                     conversation, m->members.size())
+                                                       : std::string{});
                     return 0;
                 }
                 last = brain.hear(sentence, "user:" + larry.user);
@@ -1303,6 +1321,39 @@ int run(std::span<const std::string_view> args) {
         }
         return 0;
     }
+    if (command == "molecules") {
+        if (!rest.empty()) {
+            throw std::runtime_error("molecules takes nothing; molecule <name> shows one");
+        }
+        const std::vector<larry::Bytes> names = larry.memory.molecules();
+        if (names.empty()) {
+            std::println("no molecules yet: larry read <file> and larry chat make them");
+        }
+        for (const larry::Bytes& name : names) {
+            const std::optional<larry::Molecule> m = larry.memory.molecule(name);
+            std::println("{}  ({} conceptions)", as_text(name), m ? m->members.size() : 0);
+        }
+        return 0;
+    }
+    if (command == "molecule") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("molecule needs one name; molecules lists them");
+        }
+        const std::optional<larry::Molecule> m =
+            larry.brain.molecule_named(larry::Bytes(rest[0].begin(), rest[0].end()));
+        if (!m) {
+            throw std::runtime_error(std::format("no molecule \"{}\"; molecules lists them", rest[0]));
+        }
+        std::println("{}  ({} conceptions, in order)", rest[0], m->members.size());
+        for (std::size_t i = 0; i < m->members.size(); ++i) {
+            const larry::Member& member = m->members[i];
+            const std::optional<larry::StoredAtom> held =
+                larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
+            std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
+                         held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
     if (command == "bonds" || command == "bond") {
         // N3: an end is a word, or a sentence Larry holds as a conception.
         const auto end_of = [&](std::string_view given) -> larry::BondEnd {
@@ -1359,12 +1410,13 @@ int run(std::span<const std::string_view> args) {
         return 0;
     }
     if (command == "count") {
-        std::println("{} conceptions, {} word uses, {} bonds, in {}", larry.memory.count(),
-                     larry.memory.count_words(), larry.memory.count_bonds(), larry.memory.file().string());
+        std::println("{} conceptions, {} word uses, {} bonds, {} molecules, in {}", larry.memory.count(),
+                     larry.memory.count_words(), larry.memory.count_bonds(), larry.memory.count_molecules(),
+                     larry.memory.file().string());
         if (larry.cloud) {
             const std::int64_t in_cloud = larry.cloud->count();
-            std::println("{} conceptions, {} word uses, {} bonds, in the cloud", in_cloud,
-                         larry.cloud->count_words(), larry.cloud->count_bonds());
+            std::println("{} conceptions, {} word uses, {} bonds, {} molecules, in the cloud", in_cloud,
+                         larry.cloud->count_words(), larry.cloud->count_bonds(), larry.cloud->count_molecules());
             if (in_cloud < larry.memory.count()) {
                 std::println("the cloud may lack some of the cache's conceptions: larry sync pushes them");
             }

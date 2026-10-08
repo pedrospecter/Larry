@@ -367,6 +367,60 @@ std::int64_t Database::count_bonds() {
     return exec("select count(*) from bonds").integer(0, 0);
 }
 
+std::size_t Database::join(const Bytes& molecule, const Bytes& identity, std::string_view who,
+                           std::string_view when) {
+    if (molecule.empty() || identity.empty()) {
+        throw std::invalid_argument("Database::join: a member needs a molecule and an identity");
+    }
+    run("begin");
+    try {
+        (void)exec("insert into molecules (name) values ($1) on conflict (name) do nothing", {binary(molecule)});
+        const Result held = exec("select id from molecules where name = $1", {binary(molecule)});
+        const std::int64_t id = held.integer(0, 0);
+        const Result next = exec("select count(*) from molecule_members where molecule = $1", {number(id)});
+        const std::int64_t position = next.integer(0, 0);
+        (void)exec("insert into molecule_members (molecule, position, identity, who, said_at) "
+                   "values ($1, $2, $3, $4, $5)",
+                   {number(id), number(position), binary(identity), text(who), text(when)});
+        run("commit");
+        return static_cast<std::size_t>(position);
+    } catch (...) {
+        run("rollback");
+        throw;
+    }
+}
+
+std::optional<Molecule> Database::molecule(const Bytes& name) {
+    const Result held = exec("select id from molecules where name = $1", {binary(name)});
+    if (held.rows() == 0) {
+        return std::nullopt;
+    }
+    Molecule out{name, {}};
+    const Result members = exec("select identity, who, said_at from molecule_members where molecule = $1 "
+                                "order by position",
+                                {number(held.integer(0, 0))});
+    for (int row = 0; row < members.rows(); ++row) {
+        const Bytes who = members.bytes(row, 1);
+        const Bytes when = members.bytes(row, 2);
+        out.members.push_back({members.bytes(row, 0), std::string(who.begin(), who.end()),
+                               std::string(when.begin(), when.end())});
+    }
+    return out;
+}
+
+std::vector<Bytes> Database::molecules() {
+    const Result rows = exec("select name from molecules order by id");
+    std::vector<Bytes> out;
+    for (int row = 0; row < rows.rows(); ++row) {
+        out.push_back(rows.bytes(row, 0));
+    }
+    return out;
+}
+
+std::int64_t Database::count_molecules() {
+    return exec("select count(*) from molecules").integer(0, 0);
+}
+
 void Database::index(std::int64_t id, const MetadataElectron& metadata) {
     const AtomOperations ops;
     const std::vector<Entity> entities = ops.electrons(metadata).entities.entities;

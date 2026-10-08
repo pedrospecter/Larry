@@ -485,6 +485,61 @@ TEST(bonds_live_in_the_log_both_ways_and_survive_a_clear) {
     CHECK(fourth.bonds().back().origins.empty());
 }
 
+TEST(molecules_keep_order_who_and_when_and_survive_a_clear) {
+    using larry::Member;
+    using larry::Molecule;
+    const std::filesystem::path file = fresh("larry_test_molecules.atoms");
+    const larry::AtomOperations ops;
+    const Description c = sky_blue();
+    const Description d = sea_blue();
+    const Bytes sky = ops.identity(c.metadata);
+    const Bytes sea = ops.identity(d.metadata);
+    const Bytes text = b("read:sky.txt:2026-10-08T07:58:00Z");
+    const Bytes chat = b("chat:pedro:2026-10-08T08:00:00Z");
+    {
+        Memory memory{file};
+        memory.store(c.atom, c.metadata);
+        memory.store(d.atom, d.metadata);
+        CHECK(memory.count_molecules() == 0);
+        CHECK(!memory.molecule(text).has_value());
+        CHECK(memory.join(text, sky, "read:sky.txt", "2026-10-08T07:58:01Z") == 0);
+        CHECK(memory.join(text, sea, "read:sky.txt", "2026-10-08T07:58:02Z") == 1);
+        CHECK(memory.join(chat, sea, "user:pedro", "2026-10-08T08:00:05Z") == 0);
+        CHECK(memory.join(chat, sea, "user:pedro", "2026-10-08T08:00:09Z") == 1);  // said twice: two members
+        CHECK(memory.count_molecules() == 2);
+        CHECK(memory.molecules() == (std::vector<Bytes>{text, chat}));
+        const std::optional<Molecule> m = memory.molecule(text);
+        CHECK(m.has_value());
+        if (m) {
+            CHECK(m->name == text);
+            CHECK(m->members.size() == 2);
+            CHECK(m->members == (std::vector<Member>{{sky, "read:sky.txt", "2026-10-08T07:58:01Z"},
+                                                     {sea, "read:sky.txt", "2026-10-08T07:58:02Z"}}));
+        }
+        CHECK(memory.molecules_of(sea) == (std::vector<Bytes>{text, chat}));
+        CHECK(memory.molecules_of(sky) == std::vector<Bytes>{text});
+        CHECK(memory.molecules_of(b("nobody")).empty());
+        CHECK_THROWS(memory.join({}, sky, "x", "y"), std::invalid_argument);
+        CHECK_THROWS(memory.join(text, {}, "x", "y"), std::invalid_argument);
+    }
+    // The log reads back to the same molecules, and a clear keeps them.
+    Memory again{file};
+    CHECK(again.count_molecules() == 2);
+    CHECK(again.molecule(chat)->members.size() == 2);
+    CHECK(again.molecule(chat)->members[1].when == "2026-10-08T08:00:09Z");
+    CHECK(again.molecule(text)->members[0].identity == sky);
+    again.clear();
+    CHECK(again.count() == 0);
+    CHECK(again.count_molecules() == 2);
+    Memory third{file};
+    CHECK(third.molecules() == (std::vector<Bytes>{text, chat}));
+    CHECK(third.molecule(text)->members.size() == 2);
+    CHECK(third.join(text, sky, "", "") == 2);
+    Memory fourth{file};
+    CHECK(fourth.molecule(text)->members.size() == 3);
+    CHECK(fourth.molecule(text)->members[2].who.empty());
+}
+
 TEST(clear_keeps_the_validators) {
     const std::filesystem::path file = fresh("larry_test_clear_validators.atoms");
     Memory memory{file};

@@ -128,6 +128,16 @@ public:
     [[nodiscard]] std::vector<Bond> bonds();
     [[nodiscard]] std::int64_t count_bonds();
 
+    /// N4: appends a conception to a molecule, made when it is not there;
+    /// the position it got, from 0.
+    std::size_t join(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when);
+
+    /// N4: the molecule with this name, if any; the names of every molecule,
+    /// in the order they were made; how many there are.
+    [[nodiscard]] std::optional<Molecule> molecule(const Bytes& name);
+    [[nodiscard]] std::vector<Bytes> molecules();
+    [[nodiscard]] std::int64_t count_molecules();
+
     /// One parameter of a query: bytes sent as they are, or as text.
     struct Param {
         Bytes bytes;
