@@ -308,6 +308,32 @@ public:
     /// the question.
     [[nodiscard]] std::string short_answer(const Description& question, const StoredAtom& atom) const;
 
+    /// C14 (first step): an order relation a sentence states, "Ana is older
+    /// than Bruno": the one above, the relation as orders.txt names it, the
+    /// one below; "Carla is younger than Bruno but older than Duarte" states
+    /// two, the inverse turned round. The heads of the two sides, folded.
+    struct Ordering {
+        Bytes above;
+        Bytes relation;
+        Bytes below;
+    };
+    [[nodiscard]] std::vector<Ordering> orderings_of(const Description& d) const;
+    /// C14: the order the bonds of a relation give, from the top (the one
+    /// above all) to the bottom; total when every place has one holder.
+    struct Order {
+        Bytes relation;
+        std::vector<Bytes> chain;
+        bool total = true;
+        std::vector<Bond> bonds;
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Order order(const Bytes& relation) const;
+    /// C14: a question about a place in an order ("Who is the second
+    /// youngest?") or about the ones above or below one ("Who is older than
+    /// Bruno?"), answered from the bonds; nothing when the question is no such
+    /// question.
+    [[nodiscard]] std::optional<Reply> order_answer(const Description& question) const;
+
     /// T1 (first step): the theme of a word, by themes.txt, directly or through
     /// its base form (A4), else through the kinds it is a kind of (A10), four
     /// steps up; empty when none.

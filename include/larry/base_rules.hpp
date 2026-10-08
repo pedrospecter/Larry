@@ -115,6 +115,10 @@ public:
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& references() const noexcept { return references_; }
     /// names.txt (A11, Q37): a first name and its gender ("masculine" or "feminine").
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& names() const noexcept { return names_; }
+    /// orders.txt (C14): a relation ("older than"), '=', its inverse and the two superlatives ("younger than;oldest;youngest").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& orders() const noexcept { return orders_; }
+    /// ordinals.txt (C14, M2): an ordinal word and its place ("second", "2").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& ordinals() const noexcept { return ordinals_; }
     /// themes.txt (T1): a theme and the words that belong to it, separated by spaces.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& themes() const noexcept { return themes_; }
     /// answers.txt (A3, G3): an expression in lower case without its end mark, and what Larry answers.
@@ -251,6 +255,8 @@ private:
     std::vector<std::pair<Bytes, Bytes>> goals_;
     std::vector<std::pair<Bytes, Bytes>> answers_;
     std::vector<std::pair<Bytes, Bytes>> themes_;
+    std::vector<std::pair<Bytes, Bytes>> orders_;
+    std::vector<std::pair<Bytes, Bytes>> ordinals_;
     std::vector<Bytes> impersonal_;
     std::vector<std::pair<Bytes, Bytes>> conditions_;
     mutable std::map<std::string, std::vector<std::pair<Bytes, Bytes>>> translations_;

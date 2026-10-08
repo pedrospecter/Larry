@@ -173,6 +173,13 @@ Stored Brain::remember(const Description& d, Status status, std::string_view sou
                             {"conception: " + std::string{ops.text(d.atom)}}});
         }
     }
+    // C14: an order relation bonds the one above to the one below.
+    if (stored == Stored::New) {
+        for (const Ordering& o : orderings_of(d)) {
+            (void)bond(Bond{o.relation, BondEnd{BondEnd::Kind::Entity, o.above}, BondEnd{BondEnd::Kind::Entity, o.below},
+                            {"conception: " + std::string{ops.text(d.atom)}}});
+        }
+    }
     // A4: each word that is a form of a known word is bonded to it, "form of".
     if (stored == Stored::New) {
         static const Bytes form_of{'f', 'o', 'r', 'm', ' ', 'o', 'f'};
@@ -464,6 +471,310 @@ std::vector<Brain::Explanation> Brain::explain(const Description& observation) c
     return out;
 }
 
+namespace {
+
+/// The words of a relation of orders.txt, the base and the inverse, with the two superlatives.
+struct OrderRule {
+    std::vector<Bytes> relation;
+    std::vector<Bytes> inverse;
+    std::vector<Bytes> top;     // "oldest"
+    std::vector<Bytes> bottom;  // "youngest"
+    Bytes name;                 // "older than"
+};
+
+std::vector<OrderRule> order_rules(const BaseRules& rules) {
+    std::vector<OrderRule> out;
+    for (const auto& [relation, value] : rules.orders()) {
+        std::vector<Bytes> parts;
+        Bytes current;
+        for (const std::uint8_t b : value) {
+            if (b == ';') {
+                parts.push_back(current);
+                current.clear();
+            } else {
+                current.push_back(b);
+            }
+        }
+        parts.push_back(current);
+        if (parts.size() < 3) {
+            continue;
+        }
+        out.push_back({split_words(relation), split_words(parts[0]), split_words(parts[1]), split_words(parts[2]),
+                       parts.size() > 3 && !parts[3].empty() ? parts[3] : relation});
+    }
+    return out;
+}
+
+/// Where a sequence of words sits in another, or npos.
+std::size_t find_words(const std::vector<Bytes>& words, const std::vector<Bytes>& wanted, std::size_t from = 0) {
+    if (wanted.empty() || words.size() < wanted.size()) {
+        return std::string::npos;
+    }
+    for (std::size_t i = from; i + wanted.size() <= words.size(); ++i) {
+        if (std::equal(wanted.begin(), wanted.end(), words.begin() + static_cast<std::ptrdiff_t>(i))) {
+            return i;
+        }
+    }
+    return std::string::npos;
+}
+
+}  // namespace
+
+std::vector<Brain::Ordering> Brain::orderings_of(const Description& d) const {
+    std::vector<Ordering> out;
+    const Core form = core(d);
+    if (form.words.size() < 3) {
+        return out;
+    }
+    const std::vector<OrderRule> rules = order_rules(*rules_);
+    // The segments, split at a conjunction: "carla is younger than bruno but older than duarte".
+    std::vector<std::vector<Bytes>> segments(1);
+    for (const Bytes& word : form.words) {
+        if (in(rules_->conjunctions(), word)) {
+            segments.emplace_back();
+        } else {
+            segments.back().push_back(word);
+        }
+    }
+    const auto head_of = [&](std::vector<Bytes> side, bool from_front) -> Bytes {
+        // Articles and copulas go; the head is the last word (the thing named).
+        while (!side.empty() && (in(rules_->articles(), side.front()) || in(rules_->copulas(), side.front()))) {
+            side.erase(side.begin());
+        }
+        while (!side.empty() && (in(rules_->articles(), side.back()) || in(rules_->copulas(), side.back()))) {
+            side.pop_back();
+        }
+        if (side.empty()) {
+            return {};
+        }
+        return from_front ? side.back() : side.back();
+    };
+    Bytes subject;
+    for (const std::vector<Bytes>& segment : segments) {
+        for (const OrderRule& rule : rules) {
+            for (const bool inverse : {false, true}) {
+                const std::vector<Bytes>& phrase = inverse ? rule.inverse : rule.relation;
+                const std::size_t at = find_words(segment, phrase);
+                if (at == std::string::npos) {
+                    continue;
+                }
+                const std::vector<Bytes> left(segment.begin(), segment.begin() + static_cast<std::ptrdiff_t>(at));
+                const std::vector<Bytes> right(segment.begin() + static_cast<std::ptrdiff_t>(at + phrase.size()), segment.end());
+                Bytes this_subject = head_of(left, true);
+                if (this_subject.empty()) {
+                    this_subject = subject;  // "but older than duarte": the subject carries over
+                } else {
+                    subject = this_subject;
+                }
+                const Bytes object = head_of(right, false);
+                if (this_subject.empty() || object.empty() || this_subject == object) {
+                    continue;
+                }
+                if (inverse) {
+                    out.push_back({object, rule.name, this_subject});
+                } else {
+                    out.push_back({this_subject, rule.name, object});
+                }
+                goto next_segment;
+            }
+        }
+    next_segment:;
+    }
+    return out;
+}
+
+Brain::Order Brain::order(const Bytes& relation) const {
+    Order out;
+    out.relation = relation;
+    for (const Bond& bond : memory_->bonds()) {
+        if (bond.kind == relation && bond.from.kind == BondEnd::Kind::Entity && bond.to.kind == BondEnd::Kind::Entity) {
+            out.bonds.push_back(bond);
+        }
+    }
+    // Kahn: the ones nothing stands above come first; several at once make the order partial.
+    std::vector<Bytes> nodes;
+    for (const Bond& b : out.bonds) {
+        for (const Bytes* end : {&b.from.bytes, &b.to.bytes}) {
+            if (!std::ranges::contains(nodes, *end)) {
+                nodes.push_back(*end);
+            }
+        }
+    }
+    std::map<Bytes, int> above_count;
+    for (const Bytes& n : nodes) {
+        above_count[n] = 0;
+    }
+    for (const Bond& b : out.bonds) {
+        ++above_count[b.to.bytes];
+    }
+    std::vector<Bytes> left = nodes;
+    while (!left.empty()) {
+        std::vector<Bytes> free;
+        for (const Bytes& n : left) {
+            if (above_count[n] == 0) {
+                free.push_back(n);
+            }
+        }
+        if (free.empty()) {
+            out.total = false;  // a circle: the rest in the order met
+            free = left;
+            left.clear();
+        } else {
+            if (free.size() > 1) {
+                out.total = false;
+            }
+            std::ranges::sort(free);
+            std::erase_if(left, [&](const Bytes& n) { return std::ranges::contains(free, n); });
+        }
+        for (const Bytes& n : free) {
+            out.chain.push_back(n);
+            for (const Bond& b : out.bonds) {
+                if (b.from.bytes == n) {
+                    --above_count[b.to.bytes];
+                }
+            }
+        }
+    }
+    return out;
+}
+
+std::string Brain::Order::text() const {
+    std::string out;
+    for (const Bytes& who : chain) {
+        out += (out.empty() ? "" : ", ") + std::string(who.begin(), who.end());
+    }
+    return out + (total ? "" : " (partial)");
+}
+
+std::optional<Reply> Brain::order_answer(const Description& question) const {
+    const AtomOperations ops;
+    const std::vector<Bytes> words = expanded_words(question);
+    if (words.empty() || !in(rules_->question_words(), words.front())) {
+        return std::nullopt;
+    }
+    const std::vector<OrderRule> rules = order_rules(*rules_);
+    const auto capital = [](const Bytes& who) {
+        std::string out(who.begin(), who.end());
+        if (!out.empty() && out[0] >= 'a' && out[0] <= 'z') {
+            out[0] = static_cast<char>(out[0] - 'a' + 'A');
+        }
+        return out;
+    };
+    const auto joined = [&](const std::vector<Bytes>& who) {
+        std::string out;
+        for (std::size_t i = 0; i < who.size(); ++i) {
+            out += (i == 0 ? "" : i + 1 == who.size() ? " " + say("and") + " " : ", ") + capital(who[i]);
+        }
+        return out;
+    };
+    for (const OrderRule& rule : rules) {
+        // A place: "the second youngest", "the oldest".
+        for (const bool top : {true, false}) {
+            const std::vector<Bytes>& superlative = top ? rule.top : rule.bottom;
+            const std::size_t at = find_words(words, superlative);
+            if (at == std::string::npos) {
+                continue;
+            }
+            int place = 1;
+            for (const auto& [ordinal, number] : rules_->ordinals()) {
+                if (find_words(words, {ordinal}) != std::string::npos) {
+                    place = std::max(1, std::stoi(std::string(number.begin(), number.end())));
+                }
+            }
+            const Order ordered = order(rule.name);
+            Reply reply;
+            if (ordered.chain.empty()) {
+                reply.text = say("no order");
+                reply.because.emplace_back("rule: a place in an order needs the relation's bonds (C14)");
+                return reply;
+            }
+            const std::size_t n = ordered.chain.size();
+            if (static_cast<std::size_t>(place) > n) {
+                reply.text = say("nobody");
+            } else {
+                reply.text = capital(top ? ordered.chain[static_cast<std::size_t>(place) - 1] : ordered.chain[n - static_cast<std::size_t>(place)]) + ".";
+            }
+            const std::string order_text = ordered.text();
+            reply.because.push_back(std::vformat(say("order is"), std::make_format_args(order_text)));
+            std::string ordinal_word = std::to_string(place);
+            for (const auto& [ordinal, number] : rules_->ordinals()) {
+                if (std::string(number.begin(), number.end()) == std::to_string(place)) {
+                    ordinal_word.assign(ordinal.begin(), ordinal.end());
+                    break;
+                }
+            }
+            reply.because.push_back(std::format("rule: the {} from the {} of the order by \"{}\" (C14)", ordinal_word,
+                                                top ? "top" : "bottom", std::string(rule.name.begin(), rule.name.end())));
+            for (const Bond& b : ordered.bonds) {
+                for (const std::string& origin : b.origins) {
+                    if (origin.starts_with("conception: ") && !std::ranges::contains(reply.because, origin)) {
+                        reply.because.push_back(origin);
+                    }
+                }
+            }
+            return reply;
+        }
+        // The ones above or below one: "who is older than bruno".
+        for (const bool inverse : {false, true}) {
+            const std::vector<Bytes>& phrase = inverse ? rule.inverse : rule.relation;
+            const std::size_t at = find_words(words, phrase);
+            if (at == std::string::npos || at + phrase.size() >= words.size()) {
+                continue;
+            }
+            std::vector<Bytes> right(words.begin() + static_cast<std::ptrdiff_t>(at + phrase.size()), words.end());
+            while (!right.empty() && in(rules_->articles(), right.front())) {
+                right.erase(right.begin());
+            }
+            if (right.empty()) {
+                continue;
+            }
+            const Bytes who = right.back();
+            const Order ordered = order(rule.name);
+            Reply reply;
+            // Above: those with a path to who; below: those who reaches. The chain order is kept.
+            const auto reaches = [&](const Bytes& from, const Bytes& to) {
+                std::vector<Bytes> frontier = {from};
+                std::vector<Bytes> seen = {from};
+                while (!frontier.empty()) {
+                    std::vector<Bytes> next;
+                    for (const Bytes& a : frontier) {
+                        for (const Bond& b : ordered.bonds) {
+                            if (b.from.bytes == a && !std::ranges::contains(seen, b.to.bytes)) {
+                                if (b.to.bytes == to) {
+                                    return true;
+                                }
+                                seen.push_back(b.to.bytes);
+                                next.push_back(b.to.bytes);
+                            }
+                        }
+                    }
+                    frontier = std::move(next);
+                }
+                return false;
+            };
+            std::vector<Bytes> found;
+            for (const Bytes& other : ordered.chain) {
+                if (other == who) {
+                    continue;
+                }
+                if (inverse ? reaches(who, other) : reaches(other, who)) {
+                    found.push_back(other);
+                }
+            }
+            if (!std::ranges::contains(ordered.chain, who)) {
+                return std::nullopt;  // nothing known of this one: the other answers may
+            }
+            reply.text = found.empty() ? say("nobody") : joined(found) + ".";
+            const std::string order_text = ordered.text();
+            reply.because.push_back(std::vformat(say("order is"), std::make_format_args(order_text)));
+            reply.because.push_back(std::format("rule: the ones {} \"{}\" in the order by \"{}\" (C14)", inverse ? "below" : "above",
+                                                std::string(who.begin(), who.end()), std::string(rule.name.begin(), rule.name.end())));
+            return reply;
+        }
+    }
+    return std::nullopt;
+}
+
 Bytes Brain::theme_of_word(const Bytes& word) const {
     const AtomOperations ops;
     static const Bytes kind_of = bytes_of("is a kind of");
@@ -741,9 +1052,10 @@ Brain::Understanding Brain::understand(const Description& d) const {
             continue;
         }
         group += (group.empty() ? "" : " ") + word;
-        // A thing has a noun, or a name nobody taught (a capital, no category).
+        // A thing has a noun, or a name nobody taught (a capital, no category);
+        // an attribute ("older than Bruno") is a thing only with a noun in it.
         const bool capital = !word.empty() && word.front() >= 'A' && word.front() <= 'Z';
-        if (e.category == noun || e.category == proper_noun || (e.category.empty() && capital)) {
+        if (e.category == noun || e.category == proper_noun || (e.category.empty() && capital && role != "attribute")) {
             group_has_noun = true;
         }
     }
@@ -2573,6 +2885,60 @@ Verdict Brain::decide(const Description& claim, const Bytes* except) const {
             }
         }
     }
+    // C14: a claim of an order relation ("Is Ana older than Duarte?") is
+    // decided by the chain of its bonds: a path from the one above to the one
+    // below makes it true, the other way round false.
+    {
+        const std::vector<Ordering> stated = orderings_of(claim);
+        if (stated.size() == 1) {
+            const Ordering& o = stated.front();
+            const Order ordered = order(o.relation);
+            const auto place = [&](const Bytes& who) -> std::ptrdiff_t {
+                const auto it = std::ranges::find(ordered.chain, who);
+                return it == ordered.chain.end() ? -1 : it - ordered.chain.begin();
+            };
+            const std::ptrdiff_t above = place(o.above);
+            const std::ptrdiff_t below = place(o.below);
+            // A path, not only a place: over the bonds, the one above must reach the one below.
+            const auto reaches = [&](const Bytes& from, const Bytes& to) {
+                std::vector<Bytes> frontier = {from};
+                std::vector<Bytes> seen = {from};
+                while (!frontier.empty()) {
+                    std::vector<Bytes> next;
+                    for (const Bytes& at : frontier) {
+                        for (const Bond& b : ordered.bonds) {
+                            if (b.from.bytes == at && !std::ranges::contains(seen, b.to.bytes)) {
+                                if (b.to.bytes == to) {
+                                    return true;
+                                }
+                                seen.push_back(b.to.bytes);
+                                next.push_back(b.to.bytes);
+                            }
+                        }
+                    }
+                    frontier = std::move(next);
+                }
+                return false;
+            };
+            if (above >= 0 && below >= 0) {
+                const bool holds = reaches(o.above, o.below);
+                const bool opposite = !holds && reaches(o.below, o.above);
+                if (holds || opposite) {
+                    const bool negated = claim.category.bytes == bytes_of("question") ? false : core(claim).negated;
+                    verdict.truth = (holds != negated) ? Truth::True : Truth::False;
+                    verdict.rules.push_back(std::format("the order by \"{}\": {} (C14)", std::string(o.relation.begin(), o.relation.end()), ordered.text()));
+                    for (const Bond& b : ordered.bonds) {
+                        for (const std::string& origin : b.origins) {
+                            if (origin.starts_with("conception: ")) {
+                                verdict.rules.push_back(origin);
+                            }
+                        }
+                    }
+                    return verdict;
+                }
+            }
+        }
+    }
     // K1: a conception that gives the same thing another exclusive attribute
     // makes the claim false, and its negation true. The cache first.
     for (const bool cloud : {false, true}) {
@@ -3123,6 +3489,11 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
     if (qualification == "question") {
         if (std::optional<Reply> state = state_of(d)) {
             return *state;  // R3: the present state, from the latest conception that set it
+        }
+        if (std::optional<Reply> ordered = order_answer(d)) {
+            ordered->theme = reply.theme;
+            ordered->unknown_things = reply.unknown_things;
+            return *ordered;  // C14: a place in an order, or the ones above or below
         }
         const std::vector<StoredAtom> found = answers(d);
         if (!found.empty()) {
