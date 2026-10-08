@@ -112,6 +112,18 @@ TEST(english_rules_load) {
         went = went || (word == b("went") && value == b("verb:past"));
     }
     CHECK(went);
+    CHECK(!rules.exclusives().empty());
+    bool colour = false;
+    for (const auto& group : rules.exclusives()) {
+        CHECK(group.words.size() >= 2);
+        colour = colour || (group.name == b("colour") && has(group.words, "blue") && has(group.words, "green"));
+    }
+    CHECK(colour);
+    bool three = false;
+    for (const auto& [word, digits] : rules.number_words()) {
+        three = three || (word == b("three") && digits == b("3"));
+    }
+    CHECK(three);
     // Every abbreviation ends with its full stop and is in lower case.
     for (const Bytes& item : rules.abbreviations()) {
         CHECK(!item.empty() && item.back() == '.');

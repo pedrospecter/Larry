@@ -11,8 +11,10 @@
 
 #include "check.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <print>
@@ -161,26 +163,31 @@ TEST(the_opposite_polarity_makes_a_concept_false) {
 }
 
 TEST(nothing_in_memory_is_unknown) {
-    const Verdict green = ask("the sky is green");
-    CHECK(green.truth == Truth::Unknown);
-    CHECK(green.because.empty());
-    CHECK(!green.nearest.empty());
-    CHECK(!green.nearest.empty() && first_because(Verdict{.truth = Truth::True, .because = {green.nearest.front()}, .nearest = {}}) == "The sky is blue.");
-    CHECK(ask("Tom has five apples").truth == Truth::Unknown);
+    const Verdict high = ask("the sky is high");
+    CHECK(high.truth == Truth::Unknown);
+    CHECK(high.because.empty());
+    CHECK(!high.nearest.empty());
+    Verdict nearest;
+    nearest.truth = Truth::True;
+    nearest.because = high.nearest;
+    CHECK(first_because(nearest) == "The sky is blue.");
+    CHECK(ask("Tom has many apples").truth == Truth::Unknown);
     CHECK(ask("penguins can fly").truth == Truth::Unknown);
     CHECK(ask("Mary went to the garden").truth == Truth::Unknown);
     CHECK(ask("the moon is made of cheese").truth == Truth::Unknown);
     CHECK(ask("the moon is made of cheese").nearest.empty());
     CHECK(ask("").truth == Truth::Unknown);
     // Questions and assumptions in memory are no evidence: only affirmations.
-    CHECK(ask("the sky is green").truth == Truth::Unknown);
     CHECK(ask("suppose the sky is green").truth == Truth::Unknown);
+    // K1: "the sky is green" is false, since the sky is blue (exclusive attributes).
+    CHECK(ask("the sky is green").truth == Truth::False);
+    CHECK(ask("Tom has five apples").truth == Truth::False);
 }
 
 TEST(yes_no_questions_are_answered_from_their_statements) {
     CHECK(ask("Is the sky blue?").truth == Truth::True);
     CHECK(first_because(ask("Is the sky blue?")) == "The sky is blue.");
-    CHECK(ask("Is the sky green?").truth == Truth::Unknown);
+    CHECK(ask("Is the sky green?").truth == Truth::False);  // K1: the sky is blue
     CHECK(ask("Isn't the sky blue?").truth == Truth::True);
     CHECK(ask("Is the door closed?").truth == Truth::False);
     CHECK(ask("Is the door not closed?").truth == Truth::True);
@@ -236,7 +243,8 @@ TEST(hear_answers_questions) {
     CHECK(say("Is the sky blue?").text == "Yes.");
     CHECK(say("Is the sky blue?").because == (std::vector<std::string>{"The sky is blue."}));
     CHECK(say("Is the door closed?").text == "No.");
-    CHECK(say("Is the sky green?").text.starts_with("I don't know."));
+    CHECK(say("Is the sky green?").text == "No.");  // K1: the sky is blue
+    CHECK(say("Is the sky high?").text.starts_with("I don't know."));
     CHECK(say("Is the moon made of cheese?").text == "I don't know.");
     CHECK(say("What is the sky?").text == "The sky is blue.");
     CHECK(say("What colour is the sky?").text == "The sky is blue.");
@@ -358,6 +366,111 @@ TEST(hear_with_the_dictionary_suggests_and_takes_categories) {
     CHECK(brain.hear(ops.from_text("Zqxjkv.")).text == "Noted. What is \"Zqxjkv\"?");
 }
 
+namespace {
+
+std::string_view trim_view(std::string_view s) {
+    while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r')) {
+        s.remove_prefix(1);
+    }
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
+}  // namespace
+
+TEST(truth_suite_with_exclusive_attributes) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_truth.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::Assimilation assimilation{rules()};
+    const larry::AtomOperations ops;
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata);
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The door is closed.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The water is hot.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Tom has three apples.", {"proper noun", "verb", "numeral", "noun"});
+    teach("It is Monday.", {"pronoun", "auxiliary verb", "proper noun"});
+    teach("The car is red.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Tom is tall.", {"proper noun", "auxiliary verb", "adjective"});
+    teach("The cat is asleep.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The cup is full.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is deep.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Penguins do not fly.", {"noun", "auxiliary verb", "adverb", "verb"});
+    teach("Birds fly.", {"noun", "verb"});
+
+    const std::filesystem::path suite = std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "truth.txt";
+    std::ifstream in{suite, std::ios::binary};
+    CHECK(static_cast<bool>(in));
+    std::size_t cases = 0;
+    std::size_t failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        const std::string_view text = trim_view(line);
+        if (text.empty() || text.front() == '#') {
+            continue;
+        }
+        const std::size_t separator = text.find(" | ");
+        CHECK(separator != std::string_view::npos);
+        if (separator == std::string_view::npos) {
+            continue;
+        }
+        const std::string_view expected = trim_view(text.substr(0, separator));
+        const std::string claim{trim_view(text.substr(separator + 3))};
+        ++cases;
+        const Verdict verdict = brain.truth(ops.from_text(claim));
+        const std::string_view got = verdict.truth == Truth::True    ? "true"
+                                     : verdict.truth == Truth::False ? "false"
+                                                                     : "unknown";
+        if (got != expected) {
+            ++failed;
+            std::println(stderr, "truth.txt line {}: \"{}\" expected {}, got {}", number, claim,
+                         expected, got);
+        }
+        // A decided answer names a conception; a false by exclusivity names the rule.
+        if (verdict.truth != Truth::Unknown) {
+            CHECK(!verdict.because.empty());
+        }
+    }
+    CHECK(cases >= 45);
+    CHECK(failed == 0);
+
+    const Verdict green = brain.truth(ops.from_text("the sky is green"));
+    CHECK(green.truth == Truth::False);
+    CHECK(green.rules.size() == 1);
+    CHECK(green.rules.size() == 1 &&
+          green.rules.front() == "green and blue are both of the kind colour, and a thing has one at a time");
+    CHECK(!green.because.empty() && ops.text(green.because.front().description.atom) == "The sky is blue.");
+    const Verdict five = brain.truth(ops.from_text("Tom has five apples"));
+    CHECK(five.truth == Truth::False);
+    CHECK(five.rules.size() == 1 && five.rules.front().starts_with("5 and 3 are both of the kind number"));
+    CHECK(brain.truth(ops.from_text("the sky is blue")).rules.empty());
+    // A withdrawn conception decides nothing.
+    cache.add_validator("pedro");
+    CHECK(brain.decide(brain.proposed().front().description.metadata, larry::Status::Withdrawn, "pedro"));
+    CHECK(brain.truth(ops.from_text("the sky is green")).truth == Truth::Unknown);
+    // A question answered by the rule names the rule; so does a false claim,
+    // which hear stores as a proposal, so the question goes first.
+    const larry::Reply question = brain.hear(ops.from_text("Is the door open?"), "user:pedro");
+    CHECK(question.text == "No.");
+    CHECK(std::ranges::any_of(question.because, [](const std::string& b) { return b.starts_with("rule: open and closed"); }));
+    const larry::Reply conflict = brain.hear(ops.from_text("The door is open."), "user:pedro");
+    CHECK(conflict.text.starts_with("That conflicts with what I know: The door is closed."));
+    CHECK(std::ranges::any_of(conflict.because, [](const std::string& b) { return b.starts_with("rule: open and closed"); }));
+    CHECK(brain.hear(ops.from_text("Is the door open?"), "user:pedro").text == "Yes.");  // now proposed
+}
+
 TEST(hear_handles_orders_assumptions_and_expressions) {
     const larry::Memory& memory = hearing_brain().memory();
     const larry::Reply order = say("Close the window.");
@@ -368,7 +481,7 @@ TEST(hear_handles_orders_assumptions_and_expressions) {
     CHECK(assumption.text == "Noted as an assumption, not as a truth.");
     CHECK(assumption.stored);
     CHECK(memory.count() == before + 1);
-    CHECK(say("Is the sky green?").text.starts_with("I don't know."));
+    CHECK(say("Is the sky green?").text == "No.");  // the assumption is no evidence; the sky is blue
     CHECK(say("Hello!").text == "Hello!");
     CHECK(say("Thank you.").text == "Thank you.");
     CHECK(!say("Hello!").because.empty());

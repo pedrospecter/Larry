@@ -155,24 +155,47 @@ std::pair<std::int64_t, std::int64_t> Brain::sync(std::int64_t pull) {
     return {pushed, pulled};
 }
 
+std::vector<Bytes> Brain::spellings(const Bytes& word) const {
+    // A core word in digits was stored as "three" or as "3": both are looked up.
+    std::vector<Bytes> out{word};
+    for (const auto& [number, digits] : rules_->number_words()) {
+        if (digits == word && !in(out, number)) {
+            out.push_back(number);
+        }
+    }
+    return out;
+}
+
 std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
     std::vector<StoredAtom> out;
     if (form.words.empty() || (cloud && cloud_ == nullptr)) {
         return out;
     }
+    const auto uses_of = [&](const Bytes& word) {
+        std::size_t uses = 0;
+        for (const Bytes& spelling : spellings(word)) {
+            uses += memory_->uses(spelling).size();
+        }
+        return uses;
+    };
     const Bytes* rarest = &form.words.front();
-    std::size_t fewest = memory_->uses(*rarest).size();
+    std::size_t fewest = uses_of(*rarest);
     for (const Bytes& word : form.words) {
-        const std::size_t uses = memory_->uses(word).size();
+        const std::size_t uses = uses_of(word);
         if (uses < fewest) {
             fewest = uses;
             rarest = &word;
         }
     }
-    std::vector<StoredAtom> found = cloud ? cloud_->containing(*rarest) : memory_->containing(*rarest);
-    for (StoredAtom& atom : found) {
-        if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn) {
-            out.push_back(std::move(atom));
+    std::vector<std::int64_t> ids;
+    for (const Bytes& spelling : spellings(*rarest)) {
+        std::vector<StoredAtom> found = cloud ? cloud_->containing(spelling) : memory_->containing(spelling);
+        for (StoredAtom& atom : found) {
+            if (atom.description.category.bytes == affirmation && atom.status != Status::Withdrawn &&
+                std::ranges::find(ids, atom.id) == ids.end()) {
+                ids.push_back(atom.id);
+                out.push_back(std::move(atom));
+            }
         }
     }
     return out;
@@ -215,10 +238,40 @@ Core Brain::core_of(std::vector<Bytes> words) const {
         if (in(do_support, word)) {
             continue;
         }
+        // A number word reads as its digits: "three" is "3".
+        for (const auto& [number, digits] : rules_->number_words()) {
+            if (number == word) {
+                word = digits;
+                break;
+            }
+        }
         out.words.push_back(std::move(word));
     }
     out.negated = negations % 2 == 1;
     return out;
+}
+
+namespace {
+
+bool is_digits(const Bytes& word) {
+    return !word.empty() && std::ranges::all_of(word, [](std::uint8_t c) { return c >= '0' && c <= '9'; });
+}
+
+}  // namespace
+
+Bytes Brain::exclusive_group(const Bytes& a, const Bytes& b) const {
+    if (a == b) {
+        return {};
+    }
+    if (is_digits(a) && is_digits(b)) {
+        return bytes_of("number");
+    }
+    for (const BaseRules::Exclusive& group : rules_->exclusives()) {
+        if (in(group.words, a) && in(group.words, b)) {
+            return group.name.empty() ? bytes_of("exclusive") : group.name;
+        }
+    }
+    return {};
 }
 
 Core Brain::core(const Description& d) const {
@@ -321,6 +374,53 @@ Verdict Brain::truth(const Description& claim) const {
             }
             verdict.because.push_back(std::move(false_because));
             return verdict;
+        }
+    }
+    // K1: a conception that gives the same thing another exclusive attribute
+    // makes the claim false, and its negation true. The cache first.
+    for (const bool cloud : {false, true}) {
+        for (const Core& form : forms) {
+            std::map<std::int64_t, StoredAtom> seen;
+            for (const Bytes& word : form.words) {
+                for (StoredAtom& atom : candidates(Core{{word}, false}, cloud)) {
+                    seen.try_emplace(atom.id, std::move(atom));
+                }
+            }
+            for (auto& [id, atom] : seen) {
+                const Core stored = core(atom.description);
+                if (stored.negated || stored.words.size() != form.words.size()) {
+                    continue;
+                }
+                std::size_t differing = form.words.size();
+                std::size_t count = 0;
+                for (std::size_t i = 0; i < form.words.size(); ++i) {
+                    if (form.words[i] != stored.words[i]) {
+                        differing = i;
+                        ++count;
+                    }
+                }
+                if (count != 1) {
+                    continue;
+                }
+                const Bytes group = exclusive_group(form.words[differing], stored.words[differing]);
+                if (group.empty()) {
+                    continue;
+                }
+                const auto text_of = [](const Bytes& b) {
+                    return std::string(b.begin(), b.end());
+                };
+                verdict.truth = form.negated ? Truth::True : Truth::False;
+                verdict.from_cloud = cloud;
+                verdict.rules.push_back(std::format(
+                    "{} and {} are both of the kind {}, and a thing has one at a time",
+                    text_of(form.words[differing]), text_of(stored.words[differing]),
+                    text_of(group)));
+                if (cloud) {
+                    cache(atom);
+                }
+                verdict.because.push_back(std::move(atom));
+                return verdict;
+            }
         }
     }
     // Unknown: the affirmations that share the most content words with the
@@ -481,6 +581,9 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         for (const StoredAtom& atom : verdict.because) {
             reply.because.push_back((verdict.from_cloud ? "cloud: " : "") + text_of(atom));
         }
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
+        }
         for (const StoredAtom& atom : verdict.nearest) {
             reply.because.push_back("nearest: " + text_of(atom));
         }
@@ -503,6 +606,9 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         reply.text = "That conflicts with what I know: " + text_of(verdict.because.front()) +
                      " I keep both and note the conflict.";
         reply.because.push_back(text_of(verdict.because.front()));
+        for (const std::string& rule : verdict.rules) {
+            reply.because.push_back("rule: " + rule);
+        }
         reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
         return reply;
     }

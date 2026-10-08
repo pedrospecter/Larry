@@ -32,6 +32,9 @@ struct Verdict {
     Truth truth = Truth::Unknown;
     /// The conceptions that decided it: one for true or false.
     std::vector<StoredAtom> because;
+    /// The rules that decided it, as text: "blue and green are both colours,
+    /// and a thing has one colour at a time".
+    std::vector<std::string> rules;
     /// When unknown, the conceptions that share the most words with the concept.
     std::vector<StoredAtom> nearest;
     /// Whether the answer came from the cloud, not from the cache.
@@ -66,12 +69,15 @@ public:
     Brain(const BaseRules& rules, Memory& memory, Database* cloud = nullptr,
           const Dictionary* dictionary = nullptr);
 
-    /// R1 (first step): is this concept true? A concept is true when an
+    /// R1 (first step) and K1: is this concept true? A concept is true when an
     /// affirmation in memory has the same core with the same polarity, false
-    /// when one has the same core with the opposite polarity, and unknown
-    /// otherwise. A yes/no question ("Is the sky blue?") is read as the
-    /// statements it asks about ("the sky is blue"). Larry never produces an
-    /// answer it cannot trace to conceptions.
+    /// when one has the same core with the opposite polarity, and false too
+    /// when one gives the same thing another exclusive attribute ("the sky is
+    /// green" against "the sky is blue": a thing has one colour at a time);
+    /// the negation of such a false concept is true. Unknown otherwise. A
+    /// yes/no question ("Is the sky blue?") is read as the statements it asks
+    /// about ("the sky is blue"). Larry never produces an answer it cannot
+    /// trace to conceptions and rules.
     [[nodiscard]] Verdict truth(const Sentence& claim) const;
     [[nodiscard]] Verdict truth(const Description& claim) const;
 
@@ -143,11 +149,15 @@ public:
 private:
     [[nodiscard]] std::vector<Bytes> expanded_words(const Description& d) const;
     [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
+    /// The exclusive group two different words share, or empty: "colour".
+    [[nodiscard]] Bytes exclusive_group(const Bytes& a, const Bytes& b) const;
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;
 
     /// The conceptions of the cache or the cloud that contain the rarest word
     /// of a core, affirmations only.
     [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
+    /// The spellings a core word may have in a stored atom: "3" and "three".
+    [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.
     void cache(const StoredAtom& atom) const;
 

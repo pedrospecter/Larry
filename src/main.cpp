@@ -519,6 +519,9 @@ int run(std::span<const std::string_view> args) {
                                    ? ""
                                    : std::format(" (validated by {})", atom.decided_by));
         }
+        for (const std::string& rule : verdict.rules) {
+            std::println("rule: {}", rule);
+        }
         for (const larry::StoredAtom& atom : verdict.nearest) {
             std::println("I know: {}", larry.ops.text(atom.description.atom));
         }

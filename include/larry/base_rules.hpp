@@ -110,6 +110,20 @@ public:
     /// Marker phrases of sarcasm, from sarcasm.txt.
     [[nodiscard]] const std::vector<Bytes>& sarcasm() const noexcept { return sarcasm_; }
 
+    /// A group of exclusive attributes: values a thing has one of at a time.
+    struct Exclusive {
+        Bytes name;
+        std::vector<Bytes> words;
+    };
+
+    /// The exclusive attributes, from exclusives.txt (K1).
+    [[nodiscard]] const std::vector<Exclusive>& exclusives() const noexcept { return exclusives_; }
+
+    /// Number words and their digits ("three" and "3"), from number_words.txt.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& number_words() const noexcept {
+        return number_words_;
+    }
+
     /// Reads one rule file. Throws std::runtime_error when the file cannot be
     /// read or a line is not hex bytes.
     [[nodiscard]] static std::vector<Bytes> read(const std::filesystem::path& file);
@@ -143,6 +157,8 @@ private:
     std::vector<std::pair<Bytes, Bytes>> auxiliaries_;
     std::vector<std::pair<Bytes, Bytes>> emotions_;
     std::vector<Bytes> sarcasm_;
+    std::vector<Exclusive> exclusives_;
+    std::vector<std::pair<Bytes, Bytes>> number_words_;
 };
 
 }  // namespace larry
