@@ -58,6 +58,7 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
       assimilation_(rules, dictionary, grammar),
       tolerance_(rules, grammar),
       harness_(rules),
+      arithmetic_(rules),
       cognition_(),
       memory_(&memory),
       cloud_(cloud) {
@@ -844,6 +845,11 @@ std::vector<std::string> Brain::abilities() const {
     return out;
 }
 
+std::optional<Calculation> Brain::calculate(const Sentence& sentence) const {
+    const AtomOperations ops;
+    return arithmetic_.calculate(ops.text(sentence));
+}
+
 Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     return respond(sentence, source, true);
 }
@@ -867,6 +873,18 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         reply.text = "I can do that: " + what + ".";
         reply.because.push_back(std::format("command: \"{}\" is {}", cmd->pattern, cmd->operation));
         reply.command = std::move(cmd);
+        return reply;
+    }
+    // M1: a calculation is done, not looked up, and nothing is stored.
+    if (const std::optional<Calculation> calc = calculate(sentence)) {
+        if (!calc->defined) {
+            reply.text = "That is " + calc->result + ".";
+        } else if (calc->comparison) {
+            reply.text = store ? (calc->holds ? "Yes." : "No.") : (calc->holds ? "true" : "false");
+        } else {
+            reply.text = calc->result;
+        }
+        reply.because.push_back("rule: " + calc->rule());
         return reply;
     }
     const Reading reading = read(said);

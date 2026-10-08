@@ -71,9 +71,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   ask <text>                   answer a question, or judge a claim, and store
                                nothing: a question gets yes, no, the conception
                                that answers it or "I don't know"; a claim gets
-                               true, false or I don't know; with the reasons, the
-                               reading of a sentence off the grammar, and what
-                               is unusual in it
+                               true, false or I don't know; a calculation its
+                               result ("What is two plus three?"); with the
+                               reasons, the reading of a sentence off the
+                               grammar, and what is unusual in it
   say <text>                   hear one sentence and reply: an affirmation is
                                stored, a question answered, an order done when
                                it is a command Larry knows (see

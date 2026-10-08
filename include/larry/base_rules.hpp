@@ -128,6 +128,13 @@ public:
     /// The Grammar class parses them.
     [[nodiscard]] const std::vector<Bytes>& grammar() const noexcept { return grammar_; }
 
+    /// The words of arithmetic, from arithmetic.txt (M1): operator words with
+    /// their symbols, and the "frame" words that may stand around a
+    /// calculation. The Arithmetic class reads them.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& arithmetic() const noexcept {
+        return arithmetic_;
+    }
+
     /// The commands, from commands.txt (W3): each a pattern of words with '*'
     /// for an argument, and the operation it is. The Brain matches them.
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& commands() const noexcept {
@@ -187,6 +194,7 @@ private:
     std::vector<std::pair<Bytes, Bytes>> tolerance_;
     std::vector<std::pair<Bytes, Bytes>> content_;
     std::vector<std::pair<Bytes, Bytes>> commands_;
+    std::vector<std::pair<Bytes, Bytes>> arithmetic_;
 };
 
 }  // namespace larry

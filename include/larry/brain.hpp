@@ -1,5 +1,6 @@
 #pragma once
 
+#include "larry/arithmetic.hpp"
 #include "larry/assimilation.hpp"
 #include "larry/base_rules.hpp"
 #include "larry/cognition.hpp"
@@ -142,6 +143,9 @@ public:
     /// "please", match a pattern in commands.txt; nothing otherwise.
     [[nodiscard]] std::optional<Command> command(const Description& d) const;
 
+    /// M1: the calculation a sentence asks for, when it is arithmetic.
+    [[nodiscard]] std::optional<Calculation> calculate(const Sentence& sentence) const;
+
     /// W3: what Larry can do, as the first pattern of each operation:
     /// "search for *", "define *", ...
     [[nodiscard]] std::vector<std::string> abilities() const;
@@ -280,6 +284,7 @@ private:
     Assimilation assimilation_;
     Tolerance tolerance_;
     Harness harness_;
+    Arithmetic arithmetic_;
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;
