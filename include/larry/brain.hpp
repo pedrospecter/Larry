@@ -485,7 +485,9 @@ private:
     /// stores what it hears only when `store` is set.
     [[nodiscard]] Reply respond(const Sentence& sentence, std::string_view source, bool store);
     [[nodiscard]] std::vector<Bytes> expanded_words(const Description& d) const;
-    [[nodiscard]] Core core_of(std::vector<Bytes> words) const;
+    /// The core of words; a number word that is a determiner here ("um" in
+    /// Portuguese is "a" and "one") stays a word, not digits.
+    [[nodiscard]] Core core_of(std::vector<Bytes> words, const std::vector<Bytes>& determiners = {}) const;
     /// The exclusive group two different words share, or empty: "colour".
     [[nodiscard]] Bytes exclusive_group(const Bytes& a, const Bytes& b) const;
     [[nodiscard]] bool is_auxiliary(const Bytes& folded_word, const Bytes& category) const;

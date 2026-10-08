@@ -168,6 +168,7 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                second, lookups per second, the time to answer,
                                the start-up time, the bytes per atom
 
+LARRY_LANGUAGE picks the constellation: en (default) or pt (A12).
 Memory, the cache on this machine, is the file LARRY_MEMORY names, or
 memory/<locale>.atoms. When the file does not exist yet, Larry rebuilds it
 from the lessons first. The cloud, the record of conceptions, is the
@@ -187,6 +188,8 @@ std::string_view name(larry::Language language) {
     switch (language) {
     case larry::Language::English:
         return "English";
+    case larry::Language::Portuguese:
+        return "Portuguese";
     }
     return "unknown";
 }
@@ -304,9 +307,21 @@ std::unique_ptr<larry::Dictionary> open_dictionary(larry::Language language) {
     return std::make_unique<larry::Dictionary>(file);
 }
 
+/// A12: the constellation from LARRY_LANGUAGE ("en", "pt"); English otherwise.
+larry::Language language_from_environment() {
+    const char* const code = std::getenv("LARRY_LANGUAGE");
+    if (code != nullptr && *code != '\0') {
+        if (const std::optional<larry::Language> language = larry::language_named(code)) {
+            return *language;
+        }
+        std::println(stderr, "larry: no constellation \"{}\"; English it is", code);
+    }
+    return larry::Language::English;
+}
+
 struct Larry {
     std::string user{user_name()};
-    larry::Constellation constellation{larry::Language::English};
+    larry::Constellation constellation{language_from_environment()};
     larry::BaseRules rules{constellation.language()};
     std::unique_ptr<larry::Dictionary> dictionary{open_dictionary(constellation.language())};
     larry::Grammar grammar{rules};

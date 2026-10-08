@@ -1512,7 +1512,7 @@ std::vector<Bytes> Brain::expanded_words(const Description& d) const {
     return out;
 }
 
-Core Brain::core_of(std::vector<Bytes> words) const {
+Core Brain::core_of(std::vector<Bytes> words, const std::vector<Bytes>& determiners) const {
     Core out;
     std::size_t negations = 0;
     for (Bytes& word : words) {
@@ -1523,11 +1523,14 @@ Core Brain::core_of(std::vector<Bytes> words) const {
         if (in(do_support, word)) {
             continue;
         }
-        // A number word reads as its digits: "three" is "3".
-        for (const auto& [number, digits] : rules_->number_words()) {
-            if (number == word) {
-                word = digits;
-                break;
+        // A number word reads as its digits: "three" is "3"; not a determiner
+        // that is also a number word ("um", "uma" in Portuguese).
+        if (!std::ranges::contains(determiners, word)) {
+            for (const auto& [number, digits] : rules_->number_words()) {
+                if (number == word) {
+                    word = digits;
+                    break;
+                }
             }
         }
         out.words.push_back(std::move(word));
@@ -1560,7 +1563,15 @@ Bytes Brain::exclusive_group(const Bytes& a, const Bytes& b) const {
 }
 
 Core Brain::core(const Description& d) const {
-    return core_of(expanded_words(d));
+    static const Bytes determiner = bytes_of("determiner");
+    const AtomOperations ops;
+    std::vector<Bytes> determiners;
+    for (const Entity& e : d.entities.entities) {
+        if (e.category == determiner) {
+            determiners.push_back(ops.fold(e.word));
+        }
+    }
+    return core_of(expanded_words(d), determiners);
 }
 
 bool Brain::is_auxiliary(const Bytes& folded_word, const Bytes& category) const {

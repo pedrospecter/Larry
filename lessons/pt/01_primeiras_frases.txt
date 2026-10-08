@@ -1,0 +1,67 @@
+# Lição 1: as primeiras frases. Uma frase, depois a categoria de cada uma das suas
+# entidades, separadas por vírgulas. Linhas em branco separam as lições (PLAN.md, F7, Q9).
+# As categorias são as treze do Larry, em inglês, porque são o vocabulário do Larry e
+# não da língua.
+
+O céu é azul.
+determiner, noun, auxiliary verb, adjective
+
+A relva é verde.
+determiner, noun, auxiliary verb, adjective
+
+O mar é largo.
+determiner, noun, auxiliary verb, adjective
+
+Os pássaros voam.
+determiner, noun, verb
+
+O gato dorme.
+determiner, noun, verb
+
+As crianças dormem.
+determiner, noun, verb
+
+A Maria foi para a cozinha.
+determiner, proper noun, verb, preposition, determiner, noun
+
+O João tem três maçãs.
+determiner, proper noun, verb, numeral, noun
+
+Os pinguins não voam.
+determiner, noun, adverb, verb
+
+Um pardal é um pássaro.
+determiner, noun, auxiliary verb, determiner, noun
+
+Um pássaro é um animal.
+determiner, noun, auxiliary verb, determiner, noun
+
+A porta está fechada.
+determiner, noun, auxiliary verb, adjective
+
+O cão é grande.
+determiner, noun, auxiliary verb, adjective
+
+O Pedro gosta de café.
+determiner, proper noun, verb, preposition, noun
+
+Eu gosto de pão.
+pronoun, verb, preposition, noun
+
+Ela é alta.
+pronoun, auxiliary verb, adjective
+
+O livro está aqui.
+determiner, noun, auxiliary verb, adverb
+
+Fecha a porta.
+verb, determiner, noun
+
+O céu está azul?
+determiner, noun, auxiliary verb, adjective
+
+Olá!
+interjection
+
+Suponha que o céu é verde.
+verb, conjunction, determiner, noun, auxiliary verb, adjective

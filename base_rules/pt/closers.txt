@@ -1,0 +1,10 @@
+# Quotes and brackets that may follow the end of a sentence.
+22
+27
+29
+5d
+7d
+e2809d
+e28099
+c2bb
+e280ba

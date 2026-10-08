@@ -95,7 +95,7 @@ target_compile_options(larry PRIVATE ${LARRY_WARNINGS})
 # database test needs a PostgreSQL server (scripts/setup.sh starts one) and
 # reports "skipped" (exit 77) when it cannot connect.
 enable_testing()
-set(LARRY_TESTS algebra arithmetic assimilation atom_operations babi base_rules bench brain calendar cognition connection content database dictionary forms grammar harness lesson measure memory study tolerance web)
+set(LARRY_TESTS algebra arithmetic assimilation atom_operations babi base_rules bench brain calendar cognition connection content database dictionary forms grammar harness lesson measure memory portuguese study tolerance web)
 foreach(name ${LARRY_TESTS})
     add_executable(test_${name} tests/test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE larry_core)

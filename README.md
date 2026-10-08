@@ -129,6 +129,7 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry think 2                     # S7: conflicts found, general atoms proposed (R5), what waits (S3)
     ./build/larry attention                   # the words to ask about, the conflicts to settle, the proposals
     ./build/larry plan "open the door"        # S2: the steps, from "To open the door, turn the key." and the like
+    LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"   # 5: the second constellation, Portuguese (A12)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
     ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
