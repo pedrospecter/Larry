@@ -22,7 +22,10 @@ their categories, types and contexts, the dictionary of each language
 (`dictionary/en/words.txt`, 192,960 words from Moby; `dictionary/pt/words.txt`,
 21,391 words from the Bosque treebank; always there), and a cache of
 recent conceptions in `memory/en.atoms`. The cloud, where the conceptions
-live for good, is the PostgreSQL server `LARRY_DB` names. A question is
+live for good, is the PostgreSQL server `LARRY_DB` names. A language model
+(`larry consult`, `larry extract`) is a source like the web: it proposes, the
+user validates. Its key is `ANTHROPIC_API_KEY` in `.env` (never printed), the
+model `LARRY_LLM_MODEL` (claude-opus-5-5 by default). A question is
 answered from the cache at once; what the cache cannot answer, Larry
 searches in the cloud and remembers.
 
@@ -135,6 +138,9 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry goal "Close the door."      # That would make: The door is closed. ... and the plan, or no way known (S1, S2)
     ./build/larry explain "The street is wet."   # Perhaps It rains. because: If it rains, the street is wet. (R6, R9)
     ./build/larry translate "The sky is blue." pt   # O céu é azul. (G7: word by word on the image, said with the Portuguese files)
+    ./build/larry consult "Penguins fly."     # Larry's answer, then a language model's second opinion; nothing stored (W5)
+    ./build/larry extract notes.txt 10        # the facts the model reads there, heard as proposals from llm:<model>, for you to validate
+    ./build/larry code src/json.cpp           # what a source file defines, uses and calls, as sentences; --store keeps them (D1)
     ./build/larry plan "open the door"        # S2: the steps, from "To open the door, turn the key." and the like
     LARRY_LANGUAGE=pt ./build/larry ask "Quanto é dois mais três?"   # 5: the second constellation, Portuguese (A12)
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left

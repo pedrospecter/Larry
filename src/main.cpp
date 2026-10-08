@@ -17,6 +17,8 @@
 #include "larry/memory.hpp"
 #include "larry/study.hpp"
 #include "larry/tolerance.hpp"
+#include "larry/advisor.hpp"
+#include "larry/code.hpp"
 #include "larry/web.hpp"
 
 #include <algorithm>
@@ -72,6 +74,17 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                the rules Larry holds ("If it rains, ...", R9)
   translate <text> <locale>    G7: the sentence said in the other constellation
                                (en, pt), word by word on its image
+  consult <claim or question>  W5: Larry's answer, then a language model's
+                               second opinion; nothing stored (the key comes
+                               from ANTHROPIC_API_KEY in .env; the model from
+                               LARRY_LLM_MODEL, claude-opus-5-5 by default)
+  extract <file or text> [n]   W5: the facts the model reads in the text, at
+                               most n (20), each heard as a proposal from the
+                               source llm:<model>, for you to validate
+  code <file> [--store]        the definitions, uses and calls of a source
+                               file (C++, C#, JavaScript, Python) as sentences,
+                               by base_rules/code/<language>.txt; --store hears
+                               them as proposals from code:<file>
   grammar <text>               which grammar pattern each sentence fits and the
                                role of each word, or where it breaks and what
                                was expected there; "grammar" alone lists the
@@ -1039,6 +1052,101 @@ int run(std::span<const std::string_view> args) {
         for (const std::string& because : g->because) {
             std::println("  because: {}", because);
         }
+        return 0;
+    }
+    if (command == "consult") {
+        if (rest.empty()) {
+            throw std::runtime_error("consult needs a claim or a question");
+        }
+        // W5: Larry's own answer, then the model's second opinion. Nothing is
+        // stored: the model is a source, never a validator (R2b, Q24).
+        const larry::Advisor advisor;
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Reply reply = larry.brain.answer(sentence);
+            std::println("larry: {}", reply.text);
+            for (const std::string& because : reply.because) {
+                std::println("  because: {}", because);
+            }
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            const std::string text{larry.ops.text(sentence)};
+            try {
+                if (as_text(d.category.bytes) == "question") {
+                    const std::string answer = advisor.ask(text);
+                    std::println("{}: {}", advisor.model(), answer.empty() ? "(declined)" : answer);
+                } else {
+                    const larry::Opinion opinion = advisor.opinion(text);
+                    std::println("{}: {}{}{}", advisor.model(), opinion.refused ? "(declined)" : opinion.verdict,
+                                 opinion.reason.empty() ? "" : ": ", opinion.reason);
+                }
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: {}", e.what());
+                return 1;
+            }
+        }
+        std::println("  (nothing stored: the model is a source, not a validator)");
+        return 0;
+    }
+    if (command == "extract") {
+        if (rest.empty()) {
+            throw std::runtime_error("extract needs a file or a text");
+        }
+        // W5: the facts the model reads in the text, each heard as a proposal
+        // from the source llm:<model>, for the user to validate.
+        std::size_t limit = 20;
+        std::span<const std::string_view> given = rest;
+        if (given.size() > 1 && std::ranges::all_of(given.back(), [](char c) { return c >= '0' && c <= '9'; })) {
+            limit = std::stoull(std::string{given.back()});
+            given = given.subspan(0, given.size() - 1);
+        }
+        std::string text = join(given);
+        if (given.size() == 1 && std::filesystem::is_regular_file(given.front())) {
+            std::ifstream in{std::filesystem::path{given.front()}, std::ios::binary};
+            std::stringstream buffer;
+            buffer << in.rdbuf();
+            text = buffer.str();
+        }
+        const larry::Advisor advisor;
+        std::vector<std::string> facts;
+        try {
+            facts = advisor.propose(text, limit);
+        } catch (const std::exception& e) {
+            std::println(stderr, "larry: {}", e.what());
+            return 1;
+        }
+        if (facts.empty()) {
+            std::println("{} proposed nothing.", advisor.model());
+            return 0;
+        }
+        for (const std::string& fact : facts) {
+            for (const larry::Sentence& sentence : larry.assimilation.sentences(fact)) {
+                const larry::Reply reply = larry.brain.hear(sentence, advisor.source());
+                std::println("{}  ->  {}", fact, reply.text);
+            }
+        }
+        std::println("{} facts proposed by {}; larry validate judges them.", facts.size(), advisor.model());
+        return 0;
+    }
+    if (command == "code") {
+        if (rest.empty()) {
+            throw std::runtime_error("code needs a source file");
+        }
+        // Code as sentences: what the file defines, uses and calls; with
+        // --store, heard as proposals from the source code:<file>.
+        const bool store = rest.back() == "--store";
+        const std::filesystem::path file{store ? rest.front() : rest.back()};
+        const larry::Code code;
+        const std::vector<larry::CodeFact> facts = code.read(file);
+        for (const larry::CodeFact& fact : facts) {
+            if (store) {
+                const larry::Reply reply = larry.brain.hear(larry.ops.from_text(fact.sentence),
+                                                           "code:" + file.filename().string());
+                std::println("{}  ->  {}", fact.sentence, reply.text);
+            } else {
+                std::println("{:>5}: {}", fact.line, fact.sentence);
+            }
+        }
+        std::println("{} sentences from {} ({}){}", facts.size(), file.filename().string(), larry::Code::language_of(file),
+                     store ? ", stored as proposals" : "");
         return 0;
     }
     if (command == "translate") {
