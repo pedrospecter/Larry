@@ -1341,4 +1341,219 @@ std::string Assimilation::sentence_of(const ImageElectron& image, const Memory* 
     return sentence;
 }
 
+std::vector<std::size_t> Assimilation::attachments(const Description& d) const {
+    const AtomOperations ops;
+    static const Bytes noun = bytes_of("noun");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes pronoun = bytes_of("pronoun");
+    static const Bytes numeral = bytes_of("numeral");
+    static const Bytes adjective = bytes_of("adjective");
+    static const Bytes adverb = bytes_of("adverb");
+    static const Bytes verb = bytes_of("verb");
+    static const Bytes auxiliary_verb = bytes_of("auxiliary verb");
+    static const Bytes preposition = bytes_of("preposition");
+    static const Bytes conjunction = bytes_of("conjunction");
+    static const Bytes guessed = bytes_of("guessed");
+    static const std::array<std::string_view, 8> roles = {"subject", "predicate", "object",   "attribute",
+                                                          "complement", "modifier", "link", "none"};
+    const std::vector<Entity>& entities = d.entities.entities;
+    const std::size_t n = entities.size();
+    std::vector<std::size_t> out(n, root);
+    if (n == 0) {
+        return out;
+    }
+    const auto role_of = [&](const Entity& e) -> std::string_view {
+        for (auto it = e.types.rbegin(); it != e.types.rend(); ++it) {
+            if (*it == guessed) {
+                continue;
+            }
+            for (const std::string_view role : roles) {
+                if (std::string_view{reinterpret_cast<const char*>(it->data()), it->size()} == role) {
+                    return role;
+                }
+            }
+            break;
+        }
+        return "none";
+    };
+    // 1. The groups: runs of one role, split before a preposition and at a conjunction.
+    struct Group {
+        std::string_view role;
+        std::size_t first;
+        std::size_t last;
+        std::size_t head;
+    };
+    std::vector<Group> groups;
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::string_view role = role_of(entities[i]);
+        const Bytes& category = entities[i].category;
+        const bool starts = groups.empty() || groups.back().role != role || category == preposition ||
+                            category == conjunction || entities[groups.back().last].category == conjunction;
+        if (starts) {
+            groups.push_back({role, i, i, i});
+        } else {
+            groups.back().last = i;
+        }
+    }
+    for (Group& g : groups) {
+        // The head: the last noun-like word; for an attribute the last adjective when there is no noun.
+        std::size_t head = g.last;
+        bool found = false;
+        for (std::size_t i = g.last + 1; i-- > g.first;) {
+            const Bytes& c = entities[i].category;
+            if (c == noun || c == proper_noun || c == pronoun || c == numeral) {
+                head = i;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            for (std::size_t i = g.last + 1; i-- > g.first;) {
+                const Bytes& c = entities[i].category;
+                if (c == adjective || c == verb || (g.role == "predicate" && c == auxiliary_verb)) {
+                    head = i;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            // A group of a preposition alone, or of unknown words: its last word.
+            head = g.last;
+        }
+        g.head = head;
+    }
+    // 2. What holds the sentence: the main verb, or the attribute's head after a copula.
+    std::size_t verb_head = root;
+    std::size_t attribute_head = root;
+    for (const Group& g : groups) {
+        if (g.role == "predicate") {
+            std::size_t main = root;
+            for (std::size_t i = g.first; i <= g.last; ++i) {
+                if (entities[i].category == verb) {
+                    main = i;
+                }
+            }
+            if (main == root) {
+                main = g.head;
+            }
+            verb_head = main;  // the last predicate group
+        } else if (g.role == "attribute" && attribute_head == root) {
+            attribute_head = g.head;
+        }
+    }
+    bool copula = false;
+    if (verb_head != root && entities[verb_head].category == auxiliary_verb && attribute_head != root) {
+        copula = std::ranges::contains(rules_->copulas(), ops.fold(entities[verb_head].word));
+        if (!copula) {
+            for (const auto& [contraction, expansion] : rules_->contractions()) {
+                if (contraction == ops.fold(entities[verb_head].word)) {
+                    const std::vector<Bytes> parts = split(expansion, ' ');
+                    copula = !parts.empty() && std::ranges::contains(rules_->copulas(), parts.front());
+                }
+            }
+        }
+    }
+    const std::size_t top = copula ? attribute_head : verb_head;
+    // 3. Attach: within a group to its head; the heads to what holds the sentence.
+    for (std::size_t gi = 0; gi < groups.size(); ++gi) {
+        const Group& g = groups[gi];
+        for (std::size_t i = g.first; i <= g.last; ++i) {
+            if (i != g.head) {
+                out[i] = g.head;
+            }
+        }
+        const Bytes& head_category = entities[g.head].category;
+        if (g.role == "predicate") {
+            if (g.head == verb_head) {
+                out[g.head] = copula ? attribute_head : root;
+            } else {
+                out[g.head] = top;  // another verb or auxiliary of the predicate
+            }
+            // The auxiliaries of the predicate attach to the main verb, or to the attribute with a copula.
+            for (std::size_t i = g.first; i <= g.last; ++i) {
+                if (i != verb_head && entities[i].category == auxiliary_verb) {
+                    out[i] = top == root ? verb_head : top;
+                }
+            }
+        } else if (g.role == "attribute" && g.head == attribute_head && copula) {
+            out[g.head] = root;
+        } else if (g.role == "modifier") {
+            // An adverb before an adjective modifies it; else what holds the sentence.
+            const bool before_attribute = gi + 1 < groups.size() && groups[gi + 1].role == "attribute";
+            out[g.head] = before_attribute ? groups[gi + 1].head : top;
+        } else if (g.role == "link" || head_category == conjunction) {
+            // "and" attaches to the group after it; that group's head to the group before.
+            if (gi + 1 < groups.size()) {
+                out[g.head] = groups[gi + 1].head;
+            } else {
+                out[g.head] = top;
+            }
+        } else if (gi > 0 && (groups[gi - 1].role == "link" || entities[groups[gi - 1].head].category == conjunction) &&
+                   gi > 1 && groups[gi - 2].role == g.role) {
+            out[g.head] = groups[gi - 2].head;  // the second of two joined groups
+        } else {
+            out[g.head] = top;
+        }
+        if (g.head == top) {
+            out[g.head] = root;
+        }
+    }
+    // A preposition attaches to its group's head when it is not the head itself.
+    for (std::size_t i = 0; i < n; ++i) {
+        if (out[i] == i) {
+            out[i] = root;
+        }
+    }
+    return out;
+}
+
+ImageElectron Assimilation::translate(const ImageElectron& image, const std::vector<std::pair<Bytes, Bytes>>& pairs,
+                                      std::vector<Bytes>* missing) const {
+    const std::string text(image.bytes.begin(), image.bytes.end());
+    std::string out;
+    std::size_t from = 0;
+    bool first = true;
+    while (from <= text.size()) {
+        const std::size_t at = text.find(" | ", from);
+        const std::string part = text.substr(from, at == std::string::npos ? std::string::npos : at - from);
+        std::string translated = part;
+        const std::size_t colon = part.find(": ");
+        if (!first && part != "not" && colon != std::string::npos) {
+            translated = part.substr(0, colon + 2);
+            bool space = false;
+            for (const Bytes& token : split(bytes_of(part.substr(colon + 2)), ' ')) {
+                Bytes word = token;
+                const bool mark = token.size() > 2 && token.front() == '(' && token.back() == ')';
+                const bool number = !token.empty() && std::ranges::all_of(token, [](std::uint8_t c) { return c >= '0' && c <= '9'; });
+                const bool capital = !token.empty() && token.front() >= 'A' && token.front() <= 'Z';
+                if (!mark && !number && !capital) {
+                    bool found = false;
+                    for (const auto& [here, there] : pairs) {
+                        if (here == token) {
+                            word = there;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found && missing != nullptr && !std::ranges::contains(*missing, token)) {
+                        missing->push_back(token);
+                    }
+                }
+                translated += (space ? " " : "") + std::string(word.begin(), word.end());
+                space = true;
+            }
+        }
+        out += (first ? "" : " | ") + translated;
+        first = false;
+        if (at == std::string::npos) {
+            break;
+        }
+        from = at + 3;
+    }
+    ImageElectron result;
+    result.bytes.assign(out.begin(), out.end());
+    return result;
+}
+
 }  // namespace larry

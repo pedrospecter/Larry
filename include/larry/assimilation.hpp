@@ -115,6 +115,28 @@ public:
     /// an image that is not one.
     [[nodiscard]] std::string sentence_of(const ImageElectron& image, const Memory* memory) const;
 
+    /// A8 (first step): which entity each entity attaches to, as an index,
+    /// or `root` for the one that holds the sentence. The entities of a role
+    /// form a group, split at a preposition or a conjunction; a group's head
+    /// is its last noun, proper noun, pronoun or numeral (its last adjective
+    /// for an attribute), and the other words of the group attach to it. The
+    /// subject, the objects and the complements attach to the main verb; a
+    /// preposition attaches to its own group's head; an auxiliary attaches to
+    /// the main verb; with a copula and an attribute, the attribute's head
+    /// holds the sentence and the subject and the copula attach to it, as the
+    /// treebanks have it. A modifier attaches to the attribute after it, else
+    /// to what holds the sentence; a conjunction to the group after it, whose
+    /// head attaches to the group before.
+    [[nodiscard]] std::vector<std::size_t> attachments(const Description& d) const;
+
+    /// G7 (first step): the image with each base word that has a pair in
+    /// `pairs` replaced by its other word, the marks, the roles, the numbers
+    /// and the proper nouns kept; the words with no pair are listed in
+    /// `missing` when given. The other constellation says it (sentence_of).
+    [[nodiscard]] ImageElectron translate(const ImageElectron& image, const std::vector<std::pair<Bytes, Bytes>>& pairs,
+                                          std::vector<Bytes>* missing = nullptr) const;
+    static constexpr std::size_t root = static_cast<std::size_t>(-1);
+
 
 private:
     struct Span {

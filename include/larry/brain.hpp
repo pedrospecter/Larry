@@ -291,6 +291,58 @@ public:
     };
     [[nodiscard]] Plan plan(std::string_view goal) const;
 
+    /// A9: the image of a stored conception, from its reading when it has one
+    /// (K3, A11), else from its description. Not stored: made when needed.
+    [[nodiscard]] ImageElectron image_of(const StoredAtom& atom) const;
+    /// G1, G2: the conception said again from its image, in the
+    /// constellation's words; its text as stored when the image gives no
+    /// sentence.
+    [[nodiscard]] std::string restate(const StoredAtom& atom) const;
+    /// G2: the answer that fits a question with a gap: the words of the
+    /// conception the question does not have ("blue" for "What is the sky?"
+    /// and "The sky is blue."), as a sentence; empty when every word is in
+    /// the question.
+    [[nodiscard]] std::string short_answer(const Description& question, const StoredAtom& atom) const;
+
+    /// S1 (first step): the goal an order sets, the state that would satisfy
+    /// it (C11), from goals.txt ("close *" gives "* is closed"), else the
+    /// thing with the first copula and the participle of the verb ("Paint the
+    /// fence." gives "The fence is painted."); nothing for a sentence that
+    /// is no order of that shape.
+    [[nodiscard]] std::optional<std::string> goal_of(const Description& order) const;
+    /// S1: what an order would make, whether it is so already (R1), and the
+    /// plan to reach it (S2) when it is not.
+    struct Goal {
+        std::string state;
+        bool satisfied = false;
+        Plan plan;
+        std::vector<std::string> because;
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] std::optional<Goal> goal(const Description& order) const;
+
+    /// R9 (first step): a rule as an atom: a stored sentence that opens with
+    /// a word of conditions.txt ("If it rains, the street is wet."), read as
+    /// its condition and its result.
+    struct Rule {
+        StoredAtom atom;
+        std::string condition;  ///< "it rains"
+        std::string result;     ///< "the street is wet"
+    };
+    [[nodiscard]] std::optional<Rule> rule_of(const StoredAtom& atom) const;
+    /// The rules whose result is about the words of a claim, newest first.
+    [[nodiscard]] std::vector<Rule> rules_about(const Core& claim) const;
+
+    /// R6 (first step): the best explanation of an observation: for each rule
+    /// whose result is the observation, its condition as the assumption that
+    /// would explain it, with what is known of that condition (R1).
+    struct Explanation {
+        std::string assumption;  ///< "It rains."
+        Rule rule;
+        Truth known = Truth::Unknown;  ///< Whether the assumption is known to hold.
+    };
+    [[nodiscard]] std::vector<Explanation> explain(const Description& observation) const;
+
     /// A11 (first step): the sentence with its third-person pronouns replaced
     /// by what they refer to in the conceptions heard before (the molecule
     /// being heard newest first, then the atoms in play, then the cache):
@@ -368,12 +420,23 @@ public:
     /// S3 (first step): what Larry would think about, in order: the words it
     /// could not describe (A5), the conflicts nobody settled (R2), and the
     /// proposals waiting for the user (R5).
+    /// S6 (first step): words nobody could categorize that sit in the same
+    /// place (the categories before and after them), where the context
+    /// votes for no category: a new category to propose to the user.
+    struct NewCategory {
+        std::vector<Bytes> words;
+        Bytes before;  ///< The category before, or empty at the start.
+        Bytes after;   ///< The category after, or empty at the end.
+    };
     struct Attention {
         std::vector<Question> questions;
         std::vector<Bond> conflicts;
         std::vector<StoredAtom> proposals;
+        std::vector<NewCategory> new_categories;
         [[nodiscard]] std::string text() const;
     };
+    /// S6: what Larry would say to propose a new category, in the language.
+    [[nodiscard]] std::string proposal_text(const NewCategory& category) const;
     [[nodiscard]] Attention attention() const;
 
     /// S7 (first step): what Larry does with no input, within a budget of
@@ -516,18 +579,7 @@ private:
     /// The core Larry thinks with: of the reading when the conception has
     /// one (Q29, A11), else of the conception as said.
     [[nodiscard]] Core thinking_core(const StoredAtom& atom) const;
-    /// A9: the image of a stored conception, from its reading when it has one
-    /// (K3, A11), else from its description. Not stored: made when needed.
-    [[nodiscard]] ImageElectron image_of(const StoredAtom& atom) const;
-    /// G1, G2: the conception said again from its image, in the
-    /// constellation's words; its text as stored when the image gives no
-    /// sentence.
-    [[nodiscard]] std::string restate(const StoredAtom& atom) const;
-    /// G2: the answer that fits a question with a gap: the words of the
-    /// conception the question does not have ("blue" for "What is the sky?"
-    /// and "The sky is blue."), as a sentence; empty when every word is in
-    /// the question.
-    [[nodiscard]] std::string short_answer(const Description& question, const StoredAtom& atom) const;
+
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.

@@ -1,0 +1,6 @@
+# Conditions (R9, R6): the word that opens a condition, '=', the word that may open its result
+# ("If it rains, then the street is wet."); a comma does the same. The condition is a rule as an
+# atom: when the condition is true, the result is.
+6966=7468656e
+7768656e=7468656e
+7768656e65766572=7468656e

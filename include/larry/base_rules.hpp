@@ -4,6 +4,8 @@
 #include "larry/electron.hpp"
 
 #include <filesystem>
+#include <map>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -113,6 +115,13 @@ public:
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& references() const noexcept { return references_; }
     /// names.txt (A11, Q37): a first name and its gender ("masculine" or "feminine").
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& names() const noexcept { return names_; }
+    /// goals.txt (S1): the shape of an order and the state that satisfies it ("close *", "* is closed").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& goals() const noexcept { return goals_; }
+    /// conditions.txt (R9, R6): the word that opens a condition and the word that may open its result ("if", "then").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& conditions() const noexcept { return conditions_; }
+    /// to_<locale>.txt (G7): a base word of this constellation and its word in
+    /// the other; read when first asked, empty when there is no such file.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& translations(std::string_view locale) const;
 
     /// Verb phrases that change a state and the state they leave (R3), from
     /// states.txt: "moved to" and "is in", "picked up" and "has".
@@ -233,6 +242,9 @@ private:
     std::vector<std::pair<Bytes, Bytes>> relations_;
     std::vector<std::pair<Bytes, Bytes>> references_;
     std::vector<std::pair<Bytes, Bytes>> names_;
+    std::vector<std::pair<Bytes, Bytes>> goals_;
+    std::vector<std::pair<Bytes, Bytes>> conditions_;
+    mutable std::map<std::string, std::vector<std::pair<Bytes, Bytes>>> translations_;
     std::vector<std::pair<Bytes, Bytes>> replies_;
     std::vector<Bytes> conjunctions_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;

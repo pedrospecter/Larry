@@ -43,6 +43,8 @@ TEST(conllu_is_read_with_text_and_tokens) {
         CHECK(sentences[0].text == "The sky is blue.");
         CHECK(sentences[0].tokens.size() == 5);
         CHECK(sentences[0].tokens[1].form == "sky" && sentences[0].tokens[1].upos == "NOUN");
+        CHECK(sentences[0].tokens[1].id == 2 && sentences[0].tokens[1].head == 4);  // sky attaches to blue (A8)
+        CHECK(sentences[0].tokens[3].head == 0);                                     // blue is the root
         CHECK(sentences[1].tokens.size() == 9);  // the range line "2-3" is kept before its parts
         CHECK(sentences[1].tokens[1].form == "don't" && sentences[1].tokens[1].covers == 2);
         CHECK(sentences[1].tokens[3].form == "n't" && sentences[1].tokens[3].upos == "PART");
@@ -64,6 +66,8 @@ TEST(entities_align_to_token_runs) {
     CHECK(sky.has_value());
     if (sky) {
         CHECK(sky->categories == (std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")}));
+        // A8: the entity each attaches to: the -> sky, sky -> blue, is -> blue, blue -> root.
+        CHECK(sky->heads == (std::vector<std::size_t>{1, 3, 3, larry::Aligned::root}));
     }
     // "don't" is one entity for Larry and two tokens here: the first token's category; "New York" is one entity.
     const std::optional<larry::Aligned> birds = larry::align(sentences[1], assimilation);
@@ -122,6 +126,10 @@ TEST(the_curve_on_the_tiny_set) {
         CHECK(curve[2].correct == 17);
         CHECK(curve[2].accuracy() == 1.0);
         CHECK(curve[2].text().starts_with("taught 4 sentences (17 words): 100.0% of 17 test words right, 0.0% unknown"));
+        // A8: the attachments are scored too; the tiny set is all simple sentences.
+        CHECK(curve[2].attachable == 17);
+        CHECK(curve[2].attached >= 12);
+        CHECK(curve[2].text().find("% attached to the right word") != std::string::npos);
     }
     CHECK(told.size() == 6);
     CHECK(!std::filesystem::exists(scratch));

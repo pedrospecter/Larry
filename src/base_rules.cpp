@@ -104,6 +104,8 @@ BaseRules::BaseRules(Language language) : language_(language) {
     replies_ = read_pairs(dir / "replies.txt");
     references_ = read_pairs(dir / "references.txt");
     names_ = read_pairs(dir / "names.txt");
+    goals_ = read_pairs(dir / "goals.txt");
+    conditions_ = read_pairs(dir / "conditions.txt");
     std::ranges::stable_sort(relations_, [](const auto& a, const auto& b) {
         return std::ranges::count(a.first, ' ') > std::ranges::count(b.first, ' ');  // longest phrase first
     });
@@ -146,6 +148,20 @@ BaseRules::BaseRules(Language language) : language_(language) {
     units_ = read_pairs(dir / "units.txt");
     dates_ = read_pairs(dir / "dates.txt");
     algebra_ = read_pairs(dir / "algebra.txt");
+}
+
+const std::vector<std::pair<Bytes, Bytes>>& BaseRules::translations(std::string_view locale) const {
+    const std::string key{locale};
+    const auto found = translations_.find(key);
+    if (found != translations_.end()) {
+        return found->second;
+    }
+    const std::filesystem::path file = directory() / ("to_" + key + ".txt");
+    std::vector<std::pair<Bytes, Bytes>> pairs;
+    if (std::filesystem::exists(file)) {
+        pairs = read_pairs(file);
+    }
+    return translations_.emplace(key, std::move(pairs)).first->second;
 }
 
 }  // namespace larry

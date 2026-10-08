@@ -268,6 +268,192 @@ std::string Brain::short_answer(const Description& question, const StoredAtom& a
     return out + ".";
 }
 
+namespace {
+
+std::string lower_trimmed(std::string text) {
+    for (char& c : text) {
+        c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    }
+    while (!text.empty() && (text.back() == '.' || text.back() == ' ' || text.back() == '!' || text.back() == '?')) {
+        text.pop_back();
+    }
+    while (!text.empty() && text.front() == ' ') {
+        text.erase(text.begin());
+    }
+    return text;
+}
+
+std::string as_sentence(std::string text, char end = '.') {
+    if (text.empty()) {
+        return text;
+    }
+    if (text[0] >= 'a' && text[0] <= 'z') {
+        text[0] = static_cast<char>(text[0] - 'a' + 'A');
+    }
+    return text + end;
+}
+
+}  // namespace
+
+std::optional<std::string> Brain::goal_of(const Description& order) const {
+    const AtomOperations ops;
+    if (order.entities.entities.empty()) {
+        return std::nullopt;
+    }
+    const std::string text = lower_trimmed(std::string{ops.text(order.atom)});
+    // goals.txt: "close *" gives "* is closed".
+    for (const auto& [shape, state] : rules_->goals()) {
+        const std::string pattern(shape.begin(), shape.end());
+        const std::size_t star = pattern.find('*');
+        if (star == std::string::npos) {
+            if (pattern == text) {
+                return as_sentence(std::string(state.begin(), state.end()));
+            }
+            continue;
+        }
+        const std::string prefix = pattern.substr(0, star);
+        const std::string suffix = pattern.substr(star + 1);
+        if (text.size() <= prefix.size() + suffix.size() || !text.starts_with(prefix) || !text.ends_with(suffix)) {
+            continue;
+        }
+        const std::string thing = text.substr(prefix.size(), text.size() - prefix.size() - suffix.size());
+        std::string out(state.begin(), state.end());
+        const std::size_t at = out.find('*');
+        if (at != std::string::npos) {
+            out.replace(at, 1, thing);
+        }
+        return as_sentence(out);
+    }
+    // Else: the thing, the first copula, and the participle of the verb.
+    static const Bytes verb = bytes_of("verb");
+    const Entity& first = order.entities.entities.front();
+    if (!first.category.empty() && first.category != verb) {
+        return std::nullopt;
+    }
+    if (order.entities.entities.size() < 2 || rules_->copulas().empty()) {
+        return std::nullopt;
+    }
+    const Bytes base = ops.fold(first.word);
+    Bytes participle = assimilation_.word_form(base, verb, bytes_of("participle"), memory_);
+    if (participle == base) {
+        participle = assimilation_.word_form(base, verb, bytes_of("past"), memory_);
+    }
+    std::string thing;
+    for (std::size_t i = 1; i < order.entities.entities.size(); ++i) {
+        const Entity& e = order.entities.entities[i];
+        thing += (thing.empty() ? "" : " ") + std::string(e.word.begin(), e.word.end());
+    }
+    const Bytes& copula = rules_->copulas().front();
+    return as_sentence(lower_trimmed(thing) + " " + std::string(copula.begin(), copula.end()) + " " +
+                       std::string(participle.begin(), participle.end()));
+}
+
+std::optional<Brain::Goal> Brain::goal(const Description& order) const {
+    const AtomOperations ops;
+    const std::optional<std::string> state = goal_of(order);
+    if (!state) {
+        return std::nullopt;
+    }
+    Goal out;
+    out.state = *state;
+    const Verdict verdict = truth(ops.from_text(out.state));
+    out.satisfied = verdict.truth == Truth::True;
+    for (const StoredAtom& atom : verdict.because) {
+        out.because.emplace_back(ops.text(atom.description.atom));
+    }
+    out.because.emplace_back("rule: an order is a goal, the state that would satisfy it (S1)");
+    if (!out.satisfied) {
+        out.plan = plan(lower_trimmed(std::string{ops.text(order.atom)}));
+    }
+    return out;
+}
+
+std::string Brain::Goal::text() const {
+    return state;
+}
+
+std::optional<Brain::Rule> Brain::rule_of(const StoredAtom& atom) const {
+    const AtomOperations ops;
+    if (atom.status == Status::Withdrawn) {
+        return std::nullopt;
+    }
+    const std::string text = lower_trimmed(atom.reading.empty() ? std::string{ops.text(atom.description.atom)} : atom.reading);
+    for (const auto& [opener, closer] : rules_->conditions()) {
+        const std::string open(opener.begin(), opener.end());
+        if (!text.starts_with(open + " ")) {
+            continue;
+        }
+        const std::string rest = text.substr(open.size() + 1);
+        const std::string then = " " + std::string(closer.begin(), closer.end()) + " ";
+        const std::size_t comma = rest.find(',');
+        const std::size_t closing = rest.find(then);
+        std::size_t split = std::min(comma, closing);
+        if (split == std::string::npos || split == 0) {
+            continue;
+        }
+        Rule rule{atom, lower_trimmed(rest.substr(0, split)), {}};
+        std::string result = rest.substr(split == comma ? split + 1 : split + then.size());
+        result = lower_trimmed(result);
+        const std::string closer_word(closer.begin(), closer.end());
+        if (result.starts_with(closer_word + " ")) {
+            result = result.substr(closer_word.size() + 1);
+        }
+        if (result.empty()) {
+            continue;
+        }
+        rule.result = result;
+        return rule;
+    }
+    return std::nullopt;
+}
+
+std::vector<Brain::Rule> Brain::rules_about(const Core& claim) const {
+    std::vector<Rule> out;
+    std::vector<std::int64_t> seen;
+    for (const auto& [opener, closer] : rules_->conditions()) {
+        for (const StoredAtom& atom : memory_->containing(opener)) {
+            if (std::ranges::contains(seen, atom.id)) {
+                continue;
+            }
+            seen.push_back(atom.id);
+            std::optional<Rule> rule = rule_of(atom);
+            if (!rule) {
+                continue;
+            }
+            // About the claim: every content word of the claim is in the result.
+            bool about = !claim.words.empty();
+            for (const Bytes& word : claim.words) {
+                const std::string w(word.begin(), word.end());
+                if ((" " + rule->result + " ").find(" " + w + " ") == std::string::npos) {
+                    about = false;
+                    break;
+                }
+            }
+            if (about) {
+                out.push_back(std::move(*rule));
+            }
+        }
+    }
+    std::ranges::sort(out, [](const Rule& a, const Rule& b) { return a.atom.id > b.atom.id; });
+    return out;
+}
+
+std::vector<Brain::Explanation> Brain::explain(const Description& observation) const {
+    const AtomOperations ops;
+    std::vector<Explanation> out;
+    const Core seen = core(observation);
+    for (const Rule& rule : rules_about(seen)) {
+        const Core result = core(assimilation_.describe(ops.from_text(rule.result), memory_));
+        if (result.words != seen.words || result.negated != seen.negated) {
+            continue;
+        }
+        Explanation e{as_sentence(rule.condition), rule, Truth::Unknown};
+        e.known = truth(ops.from_text(e.assumption)).truth;
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
 Core Brain::thinking_core(const StoredAtom& atom) const {
     if (atom.reading.empty()) {
         return core(atom.description);
@@ -780,12 +966,70 @@ Brain::Attention Brain::attention() const {
             out.proposals.push_back(atom);
         }
     }
+    // S6: the words nobody could categorize, by the place they sit in; two
+    // or more in one place where the context votes for nothing are a
+    // category Larry does not have.
+    std::map<std::pair<Bytes, Bytes>, std::vector<Bytes>> places;
+    for (const Question& q : out.questions) {
+        if (!q.guess.empty()) {
+            continue;  // guessed, open, or a slip of a known word
+        }
+        for (const WordUse& use : memory_->uses(q.word)) {
+            if (!use.category.empty()) {
+                continue;
+            }
+            // The context votes for nothing: no known word sits after the
+            // same category before, nor before the same category after.
+            bool votes = false;
+            for (const WordUse& other : memory_->uses(use.before)) {
+                if (!use.before.empty() && !other.after_category.empty()) {
+                    votes = true;
+                }
+            }
+            for (const WordUse& other : memory_->uses(use.after)) {
+                if (!use.after.empty() && !other.before_category.empty()) {
+                    votes = true;
+                }
+            }
+            if (votes) {
+                continue;
+            }
+            std::vector<Bytes>& words = places[{use.before_category, use.after_category}];
+            if (!std::ranges::contains(words, q.word)) {
+                words.push_back(q.word);
+            }
+        }
+    }
+    for (auto& [place, words] : places) {
+        if (words.size() >= 2) {
+            out.new_categories.push_back({std::move(words), place.first, place.second});
+        }
+    }
     return out;
 }
 
+std::string Brain::proposal_text(const NewCategory& category) const {
+    std::string words;
+    for (std::size_t i = 0; i < category.words.size(); ++i) {
+        words += (i == 0 ? "" : i + 1 == category.words.size() ? " " + say("and") + " " : ", ") + "\"" +
+                 std::string(category.words[i].begin(), category.words[i].end()) + "\"";
+    }
+    const std::string before(category.before.begin(), category.before.end());
+    const std::string after(category.after.begin(), category.after.end());
+    std::string place;
+    if (!before.empty() && !after.empty()) {
+        place = std::vformat(say("between"), std::make_format_args(before, after));
+    } else if (before.empty()) {
+        place = std::vformat(say("at the start"), std::make_format_args(after));
+    } else {
+        place = std::vformat(say("at the end"), std::make_format_args(before));
+    }
+    return std::vformat(say("new category"), std::make_format_args(words, place));
+}
+
 std::string Brain::Attention::text() const {
-    return std::format("{} words to ask about, {} conflicts to settle, {} proposals waiting", questions.size(),
-                       conflicts.size(), proposals.size());
+    return std::format("{} words to ask about, {} conflicts to settle, {} proposals waiting, {} new categories to propose",
+                       questions.size(), conflicts.size(), proposals.size(), new_categories.size());
 }
 
 Brain::Thought Brain::think(double seconds) {
@@ -1926,6 +2170,44 @@ Verdict Brain::decide(const Description& claim, const Bytes* except) const {
             return verdict;
         }
     }
+    // R9 (first step): a rule as an atom. "If it rains, the street is wet."
+    // makes "the street is wet" true when "it rains" is, and its negation
+    // false; two rules deep at most, so a circle of rules ends.
+    {
+        static thread_local int depth = 0;
+        struct Depth {
+            int& d;
+            explicit Depth(int& value) : d(value) { ++d; }
+            ~Depth() { --d; }
+        };
+        if (depth < 2) {
+            const Depth guard{depth};
+            const AtomOperations ops;
+            for (const Core& form : forms) {
+                for (const Rule& rule : rules_about(form)) {
+                    if (except != nullptr && rule.atom.description.metadata.bytes == *except) {
+                        continue;
+                    }
+                    const Core result = core(assimilation_.describe(ops.from_text(rule.result), memory_));
+                    if (result.words != form.words) {
+                        continue;
+                    }
+                    const Verdict condition = decide(assimilation_.describe(ops.from_text(rule.condition), memory_), except);
+                    if (condition.truth != Truth::True) {
+                        continue;
+                    }
+                    verdict.truth = result.negated == form.negated ? Truth::True : Truth::False;
+                    verdict.because.push_back(rule.atom);
+                    for (const StoredAtom& atom : condition.because) {
+                        verdict.because.push_back(atom);
+                    }
+                    verdict.rules.push_back(std::format("the rule \"{}\" applies, since \"{}\" holds (R9)",
+                                                        ops.text(rule.atom.description.atom), rule.condition));
+                    return verdict;
+                }
+            }
+        }
+    }
     // K1: a conception that gives the same thing another exclusive attribute
     // makes the claim false, and its negation true. The cache first.
     for (const bool cloud : {false, true}) {
@@ -2395,6 +2677,22 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         return reply;
     }
     if (qualification == "order") {
+        // S1: the order is a goal, the state that would satisfy it; so already,
+        // or a plan to reach it (S2), or no way known yet.
+        if (const std::optional<Goal> g = goal(d)) {
+            reply.text += std::vformat(say("goal"), std::make_format_args(g->state));
+            if (g->satisfied) {
+                reply.text += " " + std::vformat(say("already so"), std::make_format_args(g->state));
+            } else if (!g->plan.steps.empty()) {
+                reply.text += " " + g->plan.text();
+            } else {
+                reply.text += " " + g->plan.no_way;
+            }
+            for (const std::string& because : g->because) {
+                reply.because.push_back(because);
+            }
+            return reply;
+        }
         reply.text += say("cannot do");
         for (const std::string& ability : abilities()) {
             reply.text += " " + ability + ",";

@@ -17,6 +17,8 @@
 #include "larry/memory.hpp"
 #include "larry/study.hpp"
 #include "larry/tolerance.hpp"
+#include "larry/advisor.hpp"
+#include "larry/code.hpp"
 #include "larry/web.hpp"
 
 #include <algorithm>
@@ -65,6 +67,24 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   rebuild                      empty memory and teach every lesson in
                                lessons/<locale>/, in name order
   compare <text> <text>        compare two sentences: C1 to C5
+  groups <text>                A8: the word each word attaches to, by its group
+  goal <order>                 S1: the state the order would make, whether it
+                               is so already, and the plan to reach it (S2)
+  explain <observation>        R6: the assumption that would explain it, from
+                               the rules Larry holds ("If it rains, ...", R9)
+  translate <text> <locale>    G7: the sentence said in the other constellation
+                               (en, pt), word by word on its image
+  consult <claim or question>  W5: Larry's answer, then a language model's
+                               second opinion; nothing stored (the key comes
+                               from ANTHROPIC_API_KEY in .env; the model from
+                               LARRY_LLM_MODEL, claude-opus-5-5 by default)
+  extract <file or text> [n]   W5: the facts the model reads in the text, at
+                               most n (20), each heard as a proposal from the
+                               source llm:<model>, for you to validate
+  code <file> [--store]        the definitions, uses and calls of a source
+                               file (C++, C#, JavaScript, Python) as sentences,
+                               by base_rules/code/<language>.txt; --store hears
+                               them as proposals from code:<file>
   grammar <text>               which grammar pattern each sentence fits and the
                                role of each word, or where it breaks and what
                                was expected there; "grammar" alone lists the
@@ -719,7 +739,7 @@ std::string execute(Larry& larry, const larry::Command& command) {
             if (atom.status == larry::Status::Withdrawn || as_text(atom.description.category.bytes) != "affirmation") {
                 continue;
             }
-            out += std::format("{}{}", out.empty() ? "" : " ", larry.ops.text(atom.description.atom));
+            out += std::format("{}{}", out.empty() ? "" : " ", larry.brain.restate(atom));  // G6: said again (G1)
             if (++shown == 5) {
                 break;
             }
@@ -993,6 +1013,190 @@ int run(std::span<const std::string_view> args) {
     }
     if (command == "rebuild") {
         larry.rebuild(true);
+        return 0;
+    }
+    if (command == "groups") {
+        if (rest.empty()) {
+            throw std::runtime_error("groups needs a sentence");
+        }
+        // A8: each word, and the word it attaches to.
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(join(rest)), &larry.memory);
+        const std::vector<std::size_t> heads = larry.assimilation.attachments(d);
+        for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
+            const larry::Entity& e = d.entities.entities[i];
+            const std::string head = heads[i] == larry::Assimilation::root
+                                         ? std::string{"root"}
+                                         : std::string(d.entities.entities[heads[i]].word.begin(),
+                                                       d.entities.entities[heads[i]].word.end());
+            std::println("{:<16} -> {}", std::string(e.word.begin(), e.word.end()), head);
+        }
+        return 0;
+    }
+    if (command == "goal") {
+        if (rest.empty()) {
+            throw std::runtime_error("goal needs an order");
+        }
+        // S1: the state the order would make, whether it is so, and the plan.
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(join(rest)), &larry.memory);
+        const std::optional<larry::Brain::Goal> g = larry.brain.goal(d);
+        if (!g) {
+            std::println("{}", larry.brain.say("cannot do"));
+            return 0;
+        }
+        std::println("{}", std::vformat(larry.brain.say("goal"), std::make_format_args(g->state)));
+        if (g->satisfied) {
+            std::println("{}", std::vformat(larry.brain.say("already so"), std::make_format_args(g->state)));
+        } else {
+            std::println("{}", g->plan.text());
+        }
+        for (const std::string& because : g->because) {
+            std::println("  because: {}", because);
+        }
+        return 0;
+    }
+    if (command == "consult") {
+        if (rest.empty()) {
+            throw std::runtime_error("consult needs a claim or a question");
+        }
+        // W5: Larry's own answer, then the model's second opinion. Nothing is
+        // stored: the model is a source, never a validator (R2b, Q24).
+        const larry::Advisor advisor;
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Reply reply = larry.brain.answer(sentence);
+            std::println("larry: {}", reply.text);
+            for (const std::string& because : reply.because) {
+                std::println("  because: {}", because);
+            }
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            const std::string text{larry.ops.text(sentence)};
+            try {
+                if (as_text(d.category.bytes) == "question") {
+                    const std::string answer = advisor.ask(text);
+                    std::println("{}: {}", advisor.model(), answer.empty() ? "(declined)" : answer);
+                } else {
+                    const larry::Opinion opinion = advisor.opinion(text);
+                    std::println("{}: {}{}{}", advisor.model(), opinion.refused ? "(declined)" : opinion.verdict,
+                                 opinion.reason.empty() ? "" : ": ", opinion.reason);
+                }
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: {}", e.what());
+                return 1;
+            }
+        }
+        std::println("  (nothing stored: the model is a source, not a validator)");
+        return 0;
+    }
+    if (command == "extract") {
+        if (rest.empty()) {
+            throw std::runtime_error("extract needs a file or a text");
+        }
+        // W5: the facts the model reads in the text, each heard as a proposal
+        // from the source llm:<model>, for the user to validate.
+        std::size_t limit = 20;
+        std::span<const std::string_view> given = rest;
+        if (given.size() > 1 && std::ranges::all_of(given.back(), [](char c) { return c >= '0' && c <= '9'; })) {
+            limit = std::stoull(std::string{given.back()});
+            given = given.subspan(0, given.size() - 1);
+        }
+        std::string text = join(given);
+        if (given.size() == 1 && std::filesystem::is_regular_file(given.front())) {
+            std::ifstream in{std::filesystem::path{given.front()}, std::ios::binary};
+            std::stringstream buffer;
+            buffer << in.rdbuf();
+            text = buffer.str();
+        }
+        const larry::Advisor advisor;
+        std::vector<std::string> facts;
+        try {
+            facts = advisor.propose(text, limit);
+        } catch (const std::exception& e) {
+            std::println(stderr, "larry: {}", e.what());
+            return 1;
+        }
+        if (facts.empty()) {
+            std::println("{} proposed nothing.", advisor.model());
+            return 0;
+        }
+        for (const std::string& fact : facts) {
+            for (const larry::Sentence& sentence : larry.assimilation.sentences(fact)) {
+                const larry::Reply reply = larry.brain.hear(sentence, advisor.source());
+                std::println("{}  ->  {}", fact, reply.text);
+            }
+        }
+        std::println("{} facts proposed by {}; larry validate judges them.", facts.size(), advisor.model());
+        return 0;
+    }
+    if (command == "code") {
+        if (rest.empty()) {
+            throw std::runtime_error("code needs a source file");
+        }
+        // Code as sentences: what the file defines, uses and calls; with
+        // --store, heard as proposals from the source code:<file>.
+        const bool store = rest.back() == "--store";
+        const std::filesystem::path file{store ? rest.front() : rest.back()};
+        const larry::Code code;
+        const std::vector<larry::CodeFact> facts = code.read(file);
+        for (const larry::CodeFact& fact : facts) {
+            if (store) {
+                const larry::Reply reply = larry.brain.hear(larry.ops.from_text(fact.sentence),
+                                                           "code:" + file.filename().string());
+                std::println("{}  ->  {}", fact.sentence, reply.text);
+            } else {
+                std::println("{:>5}: {}", fact.line, fact.sentence);
+            }
+        }
+        std::println("{} sentences from {} ({}){}", facts.size(), file.filename().string(), larry::Code::language_of(file),
+                     store ? ", stored as proposals" : "");
+        return 0;
+    }
+    if (command == "translate") {
+        if (rest.size() < 2) {
+            throw std::runtime_error("translate needs a sentence and a locale (en, pt)");
+        }
+        // G7: the image here, its words by to_<locale>.txt, said there with
+        // the other constellation's rules and memory.
+        const std::string_view locale = rest.back();
+        const std::optional<larry::Language> named = larry::language_named(locale);
+        if (!named) {
+            throw std::runtime_error(std::format("translate: no constellation named {} (en, pt)", locale));
+        }
+        const larry::Language target = *named;
+        const larry::BaseRules there{target};
+        const std::unique_ptr<larry::Dictionary> dictionary = open_dictionary(target);
+        const larry::Grammar grammar{there};
+        const larry::Assimilation other{there, dictionary.get(), &grammar};
+        larry::Memory memory_there{larry::Memory::file_from_environment(target)};
+        const std::string text = join(rest.subspan(0, rest.size() - 1));
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(text)) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            std::vector<larry::Bytes> missing;
+            const larry::ImageElectron image = larry.assimilation.translate(d.image, larry.rules.translations(locale), &missing);
+            const std::string said = other.sentence_of(image, &memory_there);
+            std::println("{}", said.empty() ? std::string{"?"} : said);
+            std::println("  image: {}", as_text(image.bytes));
+            for (const larry::Bytes& word : missing) {
+                const std::string w(word.begin(), word.end());
+                std::println("  {}", std::vformat(larry.brain.say("no translation"), std::make_format_args(w)));
+            }
+        }
+        return 0;
+    }
+    if (command == "explain") {
+        if (rest.empty()) {
+            throw std::runtime_error("explain needs an observation");
+        }
+        // R6: the assumption that would explain it, from the rules (R9).
+        const larry::Description d = larry.assimilation.describe(larry.ops.from_text(join(rest)), &larry.memory);
+        const std::vector<larry::Brain::Explanation> found = larry.brain.explain(d);
+        if (found.empty()) {
+            std::println("{}", larry.brain.say("no explanation"));
+            return 0;
+        }
+        for (const larry::Brain::Explanation& e : found) {
+            std::println("{}", std::vformat(larry.brain.say("perhaps"), std::make_format_args(e.assumption)));
+            std::println("  because: {}", larry.ops.text(e.rule.atom.description.atom));
+            std::println("  known: {}", e.known == larry::Truth::True ? "true" : e.known == larry::Truth::False ? "false" : "unknown");
+        }
         return 0;
     }
     if (command == "grammar") {
@@ -1583,6 +1787,9 @@ int run(std::span<const std::string_view> args) {
         }
         for (const larry::StoredAtom& atom : a.proposals) {
             std::println("  decide: \"{}\" ({})", larry.ops.text(atom.description.atom), atom.sources.empty() ? "" : atom.sources.front());
+        }
+        for (const larry::Brain::NewCategory& c : a.new_categories) {
+            std::println("  category: {}", larry.brain.proposal_text(c));  // S6
         }
         return 0;
     }
