@@ -729,7 +729,7 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cache.store(grass.atom, grass.metadata, larry::Status::Proposed, "lesson:2");
     const larry::Description cat = describe("The cat is small.", {"determiner", "noun", "auxiliary verb", "adjective"});
     cloud->store(cat.atom, cat.metadata, larry::Status::Validated, "pi");
-    const auto [pushed, pulled, redescribed] = brain.sync(100);
+    const auto [pushed, pulled, redescribed, refreshed] = brain.sync(100);
     CHECK(pushed == 1);
     CHECK(pulled == 2);  // the cat and the withdrawn moon
     CHECK(cloud->find(grass.metadata)->sources == std::vector<std::string>{"lesson:2"});
@@ -771,6 +771,19 @@ TEST(the_cache_answers_first_and_the_cloud_second) {
     cloud->set_reading(cloud->find(third.metadata)->id, "The moon is white.");
     CHECK(brain.sync(100).pulled == 1);
     CHECK(cache.find(third.metadata)->reading == "The moon is white.");
+    // N2c: the cloud is the record. A decision taken there reaches the cache
+    // at refresh, and so does a reading; what the cache alone holds stays.
+    cloud->set_status(cloud->find(grass.metadata)->id, larry::Status::Withdrawn, "pedro");
+    cloud->set_reading(cloud->find(sun.metadata)->id, "The sun is hot!");
+    CHECK(cache.find(grass.metadata)->status == larry::Status::Proposed);
+    CHECK(brain.truth(ops.from_text("the grass is tall")).truth == Truth::True);
+    CHECK(brain.refresh() == 2);
+    CHECK(cache.find(grass.metadata)->status == larry::Status::Withdrawn);
+    CHECK(cache.find(grass.metadata)->decided_by == "pedro");
+    CHECK(cache.find(sun.metadata)->reading == "The sun is hot!");
+    CHECK(brain.truth(ops.from_text("the grass is tall")).truth == Truth::Unknown);
+    CHECK(brain.refresh() == 0);
+    CHECK(brain.sync(100).refreshed == 0);
     // A description that is not complete never replaces one that is.
     larry::Description guessed = sun;
     guessed.entities.entities[3].types.push_back(b("guessed"));

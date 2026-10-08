@@ -175,14 +175,23 @@ public:
         std::int64_t pushed = 0;       ///< Conceptions the cloud lacked.
         std::int64_t pulled = 0;       ///< Conceptions the cache lacked.
         std::int64_t redescribed = 0;  ///< Conceptions the cloud held with an older description.
+        std::int64_t refreshed = 0;    ///< Cached conceptions whose standing the cloud changed.
         bool operator==(const Synced&) const = default;
     };
 
     /// N2: pushes every conception of the cache that the cloud does not have,
     /// gives the cloud the cache's description where it holds an older one
-    /// (Q28), and pulls the cloud's most recent conceptions into the cache.
-    /// Throws when there is no cloud.
+    /// (Q28), pulls the cloud's most recent conceptions into the cache, and
+    /// refreshes the standing of the cached ones. Throws when there is no
+    /// cloud.
     Synced sync(std::int64_t pull);
+
+    /// N2c: the cloud is the record. Every cached conception takes the
+    /// status, the decision and the reading the cloud holds for it, in one
+    /// query. How many changed; nothing without a cloud. Larry does this
+    /// when it starts with a cloud, so that a question is answered by what
+    /// the record says, not by what the cache remembered.
+    std::int64_t refresh();
 
     /// R1 (first step): the conceptions that answer a question that opens
     /// with a question word: those whose core has the known words of the

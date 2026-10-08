@@ -232,7 +232,37 @@ Brain::Synced Brain::sync(std::int64_t pull) {
         cache(atom);
         ++out.pulled;
     }
+    out.refreshed = refresh();
     return out;
+}
+
+std::int64_t Brain::refresh() {
+    if (cloud_ == nullptr) {
+        return 0;
+    }
+    const AtomOperations ops;
+    std::map<Bytes, Database::Standing> record;
+    for (Database::Standing& s : cloud_->standings()) {
+        Bytes identity = s.identity;
+        record.emplace(std::move(identity), std::move(s));
+    }
+    std::int64_t changed = 0;
+    for (const StoredAtom& atom : memory_->all()) {
+        const auto held = record.find(ops.identity(atom.description.metadata));
+        if (held == record.end()) {
+            continue;
+        }
+        const Database::Standing& s = held->second;
+        if (atom.status != s.status || atom.decided_by != s.decided_by) {
+            memory_->set_status(atom.description.metadata, s.status, s.decided_by);
+            ++changed;
+        }
+        if (!s.reading.empty() && atom.reading != s.reading) {
+            memory_->set_reading(atom.description.metadata, s.reading);
+            ++changed;
+        }
+    }
+    return changed;
 }
 
 std::vector<Bytes> Brain::spellings(const Bytes& word) const {

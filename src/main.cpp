@@ -248,10 +248,20 @@ struct Larry {
             rebuild(false);
         }
         // A cloud with nothing in it gets what the cache holds: the first
-        // contact of a machine that already learned.
+        // contact of a machine that already learned. Otherwise the cloud is
+        // the record: the cache takes its standing for what it holds (N2c).
         if (cloud && cloud->count() == 0 && memory.count() > 0) {
             const larry::Brain::Synced synced = brain.sync(0);
             std::println(stderr, "larry: the cloud was empty; pushed {} conceptions to it", synced.pushed);
+        } else if (cloud) {
+            try {
+                if (const std::int64_t refreshed = brain.refresh(); refreshed > 0) {
+                    std::println(stderr, "larry: the cloud changed the standing of {} cached conception{}",
+                                 refreshed, refreshed == 1 ? "" : "s");
+                }
+            } catch (const std::exception& e) {
+                std::println(stderr, "larry: the cloud did not answer for the standings: {}", e.what());
+            }
         }
     }
 
@@ -798,8 +808,9 @@ int run(std::span<const std::string_view> args) {
             pull = std::stoll(std::string{rest[0]});
         }
         const larry::Brain::Synced synced = larry.brain.sync(pull);
-        std::println("{} conceptions pushed to the cloud, {} pulled into the cache, {} described anew in the cloud",
-                     synced.pushed, synced.pulled, synced.redescribed);
+        std::println("{} conceptions pushed to the cloud, {} pulled into the cache, {} described anew in the cloud, "
+                     "{} cached ones given the cloud's standing",
+                     synced.pushed, synced.pulled, synced.redescribed, synced.refreshed);
         std::println("{} conceptions here, {} in the cloud", larry.memory.count(),
                      larry.cloud->count());
         return 0;
