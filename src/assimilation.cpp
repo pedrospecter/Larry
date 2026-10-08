@@ -551,11 +551,11 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
         // A6 (first step): an unknown or open word takes the category that
         // known words have in the same context, the words before and after
         // it, when the votes have one winner. It is a guess, marked as one.
-        // For an open word only its candidates may win.
+        // For an open word only its candidates may win. A word one slip away
+        // from a known one (A2b) is guessed the same way and asked about too.
         for (std::size_t i = 0; i < n; ++i) {
             const bool open = d.notes[i].source == Source::Open;
-            if ((d.notes[i].source != Source::Unknown && !open) || !d.notes[i].near.empty() ||
-                !d.entities.entities[i].category.empty()) {
+            if ((d.notes[i].source != Source::Unknown && !open) || !d.entities.entities[i].category.empty()) {
                 continue;
             }
             const std::vector<Bytes> allowed = d.notes[i].candidates;

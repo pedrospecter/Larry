@@ -2534,6 +2534,14 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
             } else {
                 reply.because.emplace_back("rule: " + d.notes[i].form + " (A4)");
             }
+            if (!d.notes[i].near.empty() && !asked) {
+                // A2b: a guessed word one slip from a known one is asked about too.
+                const Bytes& near = d.notes[i].near.front();
+                const std::string near_word(near.begin(), near.end());
+                reply.text += " " + std::vformat(say("did you mean"), std::make_format_args(near_word));
+                reply.because.emplace_back("rule: the dictionary knows a word one slip away (A2b)");
+                asked = true;
+            }
         } else if (d.notes[i].source == Source::Unknown && !asked) {
             const std::string asked_word{word};
             reply.text += " " + std::vformat(say("what is"), std::make_format_args(asked_word));

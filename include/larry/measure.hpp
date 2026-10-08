@@ -18,7 +18,8 @@ namespace larry {
 /// Larry reads it: its text and its tokens with their part of speech.
 struct UdToken {
     std::string form;
-    std::string upos;  ///< "NOUN", "VERB", "PUNCT", ...
+    std::string upos;         ///< "NOUN", "VERB", "PUNCT", ...; empty for a multiword token.
+    std::size_t covers = 0;   ///< A multiword token ("1-2 do"): how many of the tokens that follow it spells.
 };
 struct UdSentence {
     std::string text;
@@ -26,8 +27,9 @@ struct UdSentence {
 };
 
 /// Reads a CoNLL-U file: the "# text =" line and the token lines of each
-/// sentence; ranges ("1-2") and empty nodes ("1.1") are skipped. Throws
-/// std::runtime_error when the file cannot be read.
+/// sentence; a range ("1-2 do", a word written as one and analysed as two)
+/// is kept before its parts with `covers` set; empty nodes ("1.1") are
+/// skipped. Throws std::runtime_error when the file cannot be read.
 [[nodiscard]] std::vector<UdSentence> read_conllu(const std::filesystem::path& file);
 
 /// Larry's category for a Universal Dependencies part of speech, or empty

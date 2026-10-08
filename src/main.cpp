@@ -156,10 +156,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
   count                        how many conceptions, word uses, bonds and
                                molecules memory holds
   measure [n ...]              A6: the accuracy of Larry's categories on the
-                               Universal Dependencies English test set, taught
-                               n training sentences (100 300 1000 3000 all),
-                               from memory alone and with the dictionary; the
-                               treebank comes from scripts/ud.sh
+                               Universal Dependencies test set of the language
+                               (English EWT, Portuguese Bosque), taught n
+                               training sentences (100 300 1000 3000 all), from
+                               memory alone and with the dictionary; the
+                               treebank comes from scripts/ud.sh [en|pt]
   babi [task]                  the bAbI tasks (Weston and others, 2015): each
                                story heard, its questions answered and judged;
                                one task, or every task scripts/babi.sh fetched
@@ -778,12 +779,16 @@ int run(std::span<const std::string_view> args) {
     const std::string_view command = args[0];
     const std::span<const std::string_view> rest = args.subspan(1);
     if (command == "measure") {
-        // A6: its own rules, a scratch file, the treebank under content/ud/.
+        // A6: the constellation's rules, a scratch file, the treebank of its
+        // language under content/ud/ (English EWT, Portuguese Bosque).
+        const larry::Language language = language_from_environment();
+        const std::string treebank = language == larry::Language::Portuguese ? "pt_bosque" : "en_ewt";
         const std::filesystem::path dir = std::filesystem::path{LARRY_CONTENT_DIR} / "ud";
-        const std::filesystem::path train = dir / "en_ewt-ud-train.conllu";
-        const std::filesystem::path test = dir / "en_ewt-ud-test.conllu";
+        const std::filesystem::path train = dir / (treebank + "-ud-train.conllu");
+        const std::filesystem::path test = dir / (treebank + "-ud-test.conllu");
         if (!std::filesystem::exists(train) || !std::filesystem::exists(test)) {
-            throw std::runtime_error("measure needs the treebank: run scripts/ud.sh first");
+            throw std::runtime_error(std::format("measure needs the treebank: run scripts/ud.sh {} first",
+                                                 larry::locale(language)));
         }
         std::vector<std::int64_t> counts;
         for (const std::string_view given : rest) {
@@ -792,11 +797,11 @@ int run(std::span<const std::string_view> args) {
         if (counts.empty()) {
             counts = {100, 300, 1000, 3000, std::numeric_limits<std::int64_t>::max()};
         }
-        const larry::BaseRules rules{larry::Language::English};
+        const larry::BaseRules rules{language};
         const std::vector<larry::UdSentence> training = larry::read_conllu(train);
         const std::vector<larry::UdSentence> testing = larry::read_conllu(test);
-        std::println("{} training sentences, {} test sentences", training.size(), testing.size());
-        const std::unique_ptr<larry::Dictionary> dictionary = open_dictionary(larry::Language::English);
+        std::println("{}: {} training sentences, {} test sentences", treebank, training.size(), testing.size());
+        const std::unique_ptr<larry::Dictionary> dictionary = open_dictionary(language);
         for (const bool with_dictionary : {false, true}) {
             if (with_dictionary && !dictionary) {
                 break;

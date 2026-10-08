@@ -43,8 +43,10 @@ TEST(conllu_is_read_with_text_and_tokens) {
         CHECK(sentences[0].text == "The sky is blue.");
         CHECK(sentences[0].tokens.size() == 5);
         CHECK(sentences[0].tokens[1].form == "sky" && sentences[0].tokens[1].upos == "NOUN");
-        CHECK(sentences[1].tokens.size() == 8);  // the range line "1-2" is skipped
-        CHECK(sentences[1].tokens[2].form == "n't" && sentences[1].tokens[2].upos == "PART");
+        CHECK(sentences[1].tokens.size() == 9);  // the range line "2-3" is kept before its parts
+        CHECK(sentences[1].tokens[1].form == "don't" && sentences[1].tokens[1].covers == 2);
+        CHECK(sentences[1].tokens[3].form == "n't" && sentences[1].tokens[3].upos == "PART");
+        CHECK(sentences[1].tokens[3].covers == 0);
     }
     CHECK_THROWS(larry::read_conllu("/no/such/file.conllu"), std::runtime_error);
     CHECK(larry::category_for("NOUN") == b("noun"));
@@ -72,6 +74,27 @@ TEST(entities_align_to_token_runs) {
     CHECK(larry::align(sentences[3], assimilation)->categories.size() == 4);
     // A symbol has no category: not aligned.
     CHECK(!larry::align(sentences[4], assimilation).has_value());
+}
+
+TEST(a_word_written_as_one_aligns_to_its_parts) {
+    // Portuguese "do" is "de o" in the treebank: the entity is the word as
+    // written, with the category of its first part (preposition).
+    const larry::BaseRules portuguese{larry::Language::Portuguese};
+    const larry::Assimilation assimilation{portuguese};
+    const std::vector<UdSentence> sentences =
+        larry::read_conllu(std::filesystem::path{LARRY_TEST_DATA_DIR} / "ud" / "tiny_pt.conllu");
+    CHECK(sentences.size() == 2);
+    const std::optional<larry::Aligned> cat = larry::align(sentences[0], assimilation);
+    CHECK(cat.has_value());
+    if (cat) {
+        CHECK(cat->categories == (std::vector<Bytes>{b("determiner"), b("noun"), b("preposition"), b("noun"), b("verb")}));
+    }
+    const std::optional<larry::Aligned> maria = larry::align(sentences[1], assimilation);
+    CHECK(maria.has_value());
+    if (maria) {
+        CHECK(maria->categories ==
+              (std::vector<Bytes>{b("determiner"), b("proper noun"), b("verb"), b("preposition"), b("noun")}));
+    }
 }
 
 TEST(the_curve_on_the_tiny_set) {

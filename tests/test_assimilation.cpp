@@ -434,11 +434,12 @@ TEST(describe_with_the_dictionary) {
     const larry::Description alone = with.describe(ops().from_text("Azure"), &memory);
     CHECK(alone.notes[0].source == larry::Source::Open);
     CHECK(alone.notes[0].candidates.size() >= 2);
-    // Nobody knows the word: unknown, with the words one slip away.
+    // Nobody knows the word: the words one slip away are noted, to ask about,
+    // and the context guesses meanwhile (A2b, A6).
     const larry::Description slip = with.describe(ops().from_text("The skyy is blue."), &memory);
-    CHECK(slip.notes[1].source == larry::Source::Unknown);
+    CHECK(slip.notes[1].source == larry::Source::Guess);
     CHECK(!slip.notes[1].near.empty() && slip.notes[1].near.front() == (Bytes{'s', 'k', 'y'}));  // known to memory: first
-    CHECK(slip.entities.entities[1].category.empty());
+    CHECK(slip.entities.entities[1].category == (Bytes{'n', 'o', 'u', 'n'}));
     CHECK(with.describe(ops().from_text("Zqxjkv"), &memory).notes[0].near.empty());
     // Without the dictionary nothing changes.
     CHECK(assimilation().describe(ops().from_text("Oh, the sky."), &memory).notes[0].source == larry::Source::Unknown);

@@ -397,7 +397,7 @@ TEST(hear_with_the_dictionary_suggests_and_takes_categories) {
         cache.store(d.atom, d.metadata);
     };
     teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
-    CHECK(brain.hear(ops.from_text("The skyy is blue.")).text == "Noted. What is \"skyy\"? Did you mean \"sky\"?");
+    CHECK(brain.hear(ops.from_text("The skyy is blue.")).text == "Noted. I take \"skyy\" as noun. Did you mean \"sky\"?");
     CHECK(brain.hear(ops.from_text("Oh, the sky is blue.")).text == "I know. The sky is blue.");
     CHECK(brain.hear(ops.from_text("The sky is azure.")).text.ends_with(" I take \"azure\" as adjective."));
     CHECK(brain.hear(ops.from_text("Zqxjkv.")).text == "Noted. What is \"Zqxjkv\"?");

@@ -77,10 +77,24 @@ std::vector<UdSentence> read_conllu(const std::filesystem::path& file) {
             continue;
         }
         const std::vector<std::string> fields = split_tabs(line);
-        if (fields.size() < 4 || !all_digits(fields[0])) {
-            continue;  // a range "1-2", an empty node "1.1", or not a token
+        if (fields.size() < 4) {
+            continue;
         }
-        current.tokens.push_back({fields[1], fields[3]});
+        const std::size_t dash = fields[0].find('-');
+        if (dash != std::string::npos && all_digits(std::string_view{fields[0]}.substr(0, dash)) &&
+            all_digits(std::string_view{fields[0]}.substr(dash + 1))) {
+            // A multiword token: the word as written, before its parts.
+            const std::size_t first = std::stoull(fields[0].substr(0, dash));
+            const std::size_t last = std::stoull(fields[0].substr(dash + 1));
+            if (last >= first) {
+                current.tokens.push_back({fields[1], {}, last - first + 1});
+            }
+            continue;
+        }
+        if (!all_digits(fields[0])) {
+            continue;  // an empty node "1.1", or not a token
+        }
+        current.tokens.push_back({fields[1], fields[3], 0});
     }
     flush();
     return out;
@@ -120,12 +134,30 @@ std::optional<Aligned> align(const UdSentence& sentence, const Assimilation& ass
         bool matched = false;
         std::string run;
         for (std::size_t k = j; k < sentence.tokens.size() && k < j + 8; ++k) {
-            run += sentence.tokens[k].form;
+            const UdToken& token = sentence.tokens[k];
+            if (token.covers > 0) {
+                // A word written as one ("do" for "de o"): it is the entity
+                // when the run so far and it spell the entity; else its parts
+                // follow and are tried one by one.
+                if (run + token.form == wanted) {
+                    const std::size_t part = k + 1;
+                    const Bytes category = part < sentence.tokens.size() ? category_for(sentence.tokens[part].upos) : Bytes{};
+                    if (category.empty()) {
+                        return std::nullopt;
+                    }
+                    out.categories.push_back(category);
+                    j = k + 1 + token.covers;
+                    matched = true;
+                    break;
+                }
+                continue;
+            }
+            run += token.form;
             if (run == wanted) {
                 // The category of the first token that is no punctuation.
                 Bytes category;
                 for (std::size_t t = j; t <= k && category.empty(); ++t) {
-                    if (sentence.tokens[t].upos != "PUNCT") {
+                    if (sentence.tokens[t].covers == 0 && sentence.tokens[t].upos != "PUNCT") {
                         category = category_for(sentence.tokens[t].upos);
                     }
                 }

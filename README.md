@@ -18,8 +18,9 @@ Without libpq the build still works, with the cache alone.
 ## The machine and the cloud
 
 The machine keeps the language: the sentences it has met, the words with
-their categories, types and contexts, the English dictionary
-(`dictionary/en/words.txt`, 192,960 words, always there), and a cache of
+their categories, types and contexts, the dictionary of each language
+(`dictionary/en/words.txt`, 192,960 words from Moby; `dictionary/pt/words.txt`,
+21,391 words from the Bosque treebank; always there), and a cache of
 recent conceptions in `memory/en.atoms`. The cloud, where the conceptions
 live for good, is the PostgreSQL server `LARRY_DB` names. A question is
 answered from the cache at once; what the cache cannot answer, Larry
