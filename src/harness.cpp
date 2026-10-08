@@ -156,6 +156,13 @@ std::vector<Relation> Harness::relations(const Description& d) const {
             object_head = i;
         }
     }
+    // A negated sentence says what is not: "The sky is not green" makes
+    // green no attribute of the sky, so it has no relation to judge.
+    for (const Bytes& word : folded) {
+        if (std::ranges::contains(rules_->negation_words(), word)) {
+            return out;
+        }
+    }
     // A question that opens with a question word asks for the attribute:
     // "What is the sky?" has none to judge.
     const bool asks = n > 0 && std::ranges::contains(rules_->question_words(), folded.front());
