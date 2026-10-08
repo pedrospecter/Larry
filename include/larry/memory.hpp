@@ -192,8 +192,12 @@ public:
     [[nodiscard]] std::vector<StoredAtom> all() const;
 
     /// Where a word (as the index keys it, see AtomOperations::fold) is used,
-    /// in atom and position order.
-    [[nodiscard]] std::vector<WordUse> uses(const Bytes& word) const;
+    /// in atom and position order. A reference into the index: it lasts
+    /// until the index changes.
+    [[nodiscard]] const std::vector<WordUse>& uses(const Bytes& word) const;
+
+    /// How many uses a word has, without walking them (N2).
+    [[nodiscard]] std::int64_t count_uses(const Bytes& word) const;
 
     /// The categories a word has been seen with, in category order. Uses with
     /// no category, and guessed ones, do not count.
@@ -257,6 +261,7 @@ private:
     std::size_t add_member(const Bytes& molecule, const Bytes& identity, std::string_view who, std::string_view when,
                            bool write);
     void index(std::int64_t id, const MetadataElectron& metadata);
+    void index(std::int64_t id, const std::vector<Entity>& entities);
     void unindex(std::int64_t id);
     /// Replaces the description of a record, in the maps and the index.
     void describe(std::int64_t id, const MetadataElectron& metadata);
@@ -267,6 +272,9 @@ private:
     std::map<Bytes, std::int64_t> by_identity_;
     std::map<Bytes, std::int64_t> by_metadata_;
     std::map<Bytes, std::vector<WordUse>> words_;
+    /// N2: per word, how many uses have each category, kept as the index
+    /// changes, so that categories_of() walks no uses.
+    std::map<Bytes, std::map<Bytes, std::int64_t>> categories_;
     std::int64_t word_uses_ = 0;
     std::vector<std::string> validators_;
     std::vector<Bond> bonds_;

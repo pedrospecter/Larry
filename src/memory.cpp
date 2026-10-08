@@ -209,15 +209,16 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             bad("is not an atom");
         }
         const MetadataElectron electron{*metadata};
-        Bytes identity;
+        Electrons electrons;  // read once: the identity, the index and the completeness come from it (N2)
         try {
-            identity = ops.identity(electron);
+            electrons = ops.electrons(electron);
         } catch (const std::invalid_argument&) {
             if (tag != "atom") {
                 bad("changes an atom that is not there");
             }
             throw;
         }
+        const Bytes identity = ops.identity(electrons);
         if (tag == "atom") {
             if (f.size() < first + 2) {
                 bad("is not an atom");
@@ -246,7 +247,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
                         first_record.sources.push_back(std::move(source));
                     }
                 }
-                if (first_record.metadata.bytes != electron.bytes && ops.complete(electron)) {
+                if (first_record.metadata.bytes != electron.bytes && ops.complete(electrons)) {
                     describe(held->second, electron);
                 }
                 continue;
@@ -255,7 +256,7 @@ Memory::Memory(std::filesystem::path file) : file_(std::move(file)) {
             const auto id = static_cast<std::int64_t>(atoms_.size());
             by_identity_.emplace(identity, id);
             by_metadata_.emplace(*metadata, id);
-            index(id, atoms_.back().metadata);
+            index(id, electrons.entities.entities);
             continue;
         }
         const auto found = by_identity_.find(identity);
@@ -345,6 +346,7 @@ void Memory::clear() {
     by_identity_.clear();
     by_metadata_.clear();
     words_.clear();
+    categories_.clear();
     word_uses_ = 0;
     std::filesystem::create_directories(file_.parent_path().empty() ? "." : file_.parent_path());
     std::ofstream out{file_, std::ios::binary | std::ios::trunc};
@@ -512,8 +514,11 @@ std::vector<Bond> Memory::bonds_of(const BondEnd& end) const {
 }
 
 void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
+    index(id, AtomOperations{}.electrons(metadata).entities.entities);
+}
+
+void Memory::index(std::int64_t id, const std::vector<Entity>& entities) {
     const AtomOperations ops;
-    const std::vector<Entity> entities = ops.electrons(metadata).entities.entities;
     // A guessed category is no evidence: the index keeps it empty.
     static const Bytes guessed{'g', 'u', 'e', 's', 's', 'e', 'd'};
     const auto category_of = [&](std::size_t i) {
@@ -527,7 +532,11 @@ void Memory::index(std::int64_t id, const MetadataElectron& metadata) {
                     .after = i + 1 < entities.size() ? ops.fold(entities[i + 1].word) : Bytes{},
                     .before_category = i > 0 ? category_of(i - 1) : Bytes{},
                     .after_category = i + 1 < entities.size() ? category_of(i + 1) : Bytes{}};
-        words_[ops.fold(entities[i].word)].push_back(std::move(use));
+        Bytes word = ops.fold(entities[i].word);
+        if (!use.category.empty()) {
+            ++categories_[word][use.category];
+        }
+        words_[std::move(word)].push_back(std::move(use));
         ++word_uses_;
     }
 }
@@ -539,6 +548,19 @@ void Memory::unindex(std::int64_t id) {
         const auto found = words_.find(ops.fold(entity.word));
         if (found == words_.end()) {
             continue;
+        }
+        for (const WordUse& use : found->second) {
+            if (use.atom == id && !use.category.empty()) {
+                const auto counted = categories_.find(found->first);
+                if (counted != categories_.end()) {
+                    if (--counted->second[use.category] <= 0) {
+                        counted->second.erase(use.category);
+                    }
+                    if (counted->second.empty()) {
+                        categories_.erase(counted);
+                    }
+                }
+            }
         }
         const auto removed = std::erase_if(found->second, [&](const WordUse& use) { return use.atom == id; });
         word_uses_ -= static_cast<std::int64_t>(removed);
@@ -561,7 +583,8 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
                      std::string_view source) {
     const AtomOperations ops;
     const std::span<const std::uint8_t> bytes = ops.bytes(atom);
-    const Bytes identity = ops.identity(metadata);  // validates before anything is written
+    const Electrons electrons = ops.electrons(metadata);  // validates before anything is written
+    const Bytes identity = ops.identity(electrons);
     const auto found = by_identity_.find(identity);
     if (found != by_identity_.end()) {
         Record& record = atoms_[static_cast<std::size_t>(found->second - 1)];
@@ -584,7 +607,7 @@ Stored Memory::store(const Sentence& atom, const MetadataElectron& metadata, Sta
     const auto id = static_cast<std::int64_t>(atoms_.size());
     by_identity_.emplace(identity, id);
     by_metadata_.emplace(metadata.bytes, id);
-    index(id, metadata);
+    index(id, electrons.entities.entities);
     return Stored::New;
 }
 
@@ -721,27 +744,28 @@ std::vector<StoredAtom> Memory::with_status(Status status) const {
     return out;
 }
 
-std::vector<WordUse> Memory::uses(const Bytes& word) const {
+const std::vector<WordUse>& Memory::uses(const Bytes& word) const {
+    static const std::vector<WordUse> none;
     const auto found = words_.find(word);
-    if (found == words_.end()) {
-        return {};
-    }
-    return found->second;
+    return found == words_.end() ? none : found->second;
 }
 
 std::vector<CategoryCount> Memory::categories_of(const Bytes& word) const {
-    std::map<Bytes, std::int64_t> counts;
-    for (const WordUse& use : uses(word)) {
-        if (!use.category.empty()) {
-            ++counts[use.category];
-        }
-    }
     std::vector<CategoryCount> out;
-    out.reserve(counts.size());
-    for (const auto& [category, count] : counts) {
+    const auto counted = categories_.find(word);
+    if (counted == categories_.end()) {
+        return out;
+    }
+    out.reserve(counted->second.size());
+    for (const auto& [category, count] : counted->second) {
         out.push_back({category, count});
     }
     return out;
+}
+
+std::int64_t Memory::count_uses(const Bytes& word) const {
+    const auto found = words_.find(word);
+    return found == words_.end() ? 0 : static_cast<std::int64_t>(found->second.size());
 }
 
 std::vector<Bytes> Memory::words() const {

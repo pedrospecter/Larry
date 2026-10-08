@@ -389,7 +389,7 @@ std::vector<StoredAtom> Brain::candidates(const Core& form, bool cloud) const {
     const auto uses_of = [&](const Bytes& word) {
         std::size_t uses = 0;
         for (const Bytes& spelling : spellings(word)) {
-            uses += memory_->uses(spelling).size();
+            uses += static_cast<std::size_t>(memory_->count_uses(spelling));
         }
         return uses;
     };

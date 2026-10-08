@@ -60,6 +60,11 @@ public:
     /// guessed: a description worth keeping over an earlier one.
     [[nodiscard]] bool complete(const MetadataElectron& metadata) const;
 
+    /// The same two, from electrons already read back, so that a reader
+    /// parses the metadata once (N2).
+    [[nodiscard]] Bytes identity(const Electrons& electrons) const;
+    [[nodiscard]] bool complete(const Electrons& electrons) const;
+
     /// A word as the word index keys it: ASCII letters in lower case, every
     /// other byte as it is.
     [[nodiscard]] Bytes fold(std::span<const std::uint8_t> word) const;
