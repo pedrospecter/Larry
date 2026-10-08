@@ -309,8 +309,9 @@ TEST(hear_stores_affirmations_and_checks_novelty) {
     CHECK(say("The sea is blue.").text == "Noted. I take \"sea\" as noun.");
     CHECK(say("Zorp.").text == "Noted. What is \"Zorp\"?");
     const larry::Reply conflict = say("The sky is not blue.");
-    // N6: the paraphrase "the sky is blue", said last, is in play and answers first.
-    CHECK(conflict.text.starts_with("That conflicts with what I know: the sky is blue"));
+    // N6: the paraphrase "the sky is blue", said last, is in play and answers
+    // first; Q14: it came from the same source, so the later stands and it is withdrawn.
+    CHECK(conflict.text.starts_with("That contradicts what you told me before: the sky is blue The later stands; I withdrew the earlier."));
     CHECK(conflict.stored);
     const larry::Reply unknown = say("The sky is azure.");
     CHECK(unknown.text.starts_with("Noted. \"azure\" was never attribute of sky; of sky I know as attribute of: blue (proposed)"));
@@ -977,6 +978,93 @@ TEST(the_latest_state_answers_where_and_is_in) {
     CHECK(cache.count() == 3);
     // Not a state: the usual way.
     CHECK(brain.answer(ops.from_text("Where is the sky?")).text == "I don't know.");
+}
+
+TEST(a_conflict_from_the_same_source_withdraws_the_earlier_and_others_are_asked) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_q14.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories, std::string_view source) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, source);
+        return d;
+    };
+    // From a lesson, then the user says the opposite: different sources, both kept, Larry asks.
+    const larry::Description sky = teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"}, "lesson:test");
+    const larry::Reply asked = brain.hear(ops.from_text("The sky is not blue."), "user:pedro");
+    CHECK(asked.text.starts_with("That conflicts with what I know: The sky is blue. I keep both and note the conflict. Which is true: \"The sky is not blue.\" or \"The sky is blue.\"?"));
+    CHECK(cache.find(sky.metadata)->status == larry::Status::Proposed);
+    CHECK(std::ranges::any_of(asked.because, [](const std::string& b) { return b.starts_with("rule: from different sources"); }));
+    // The user contradicts the user: the later stands, the earlier is withdrawn by the rule.
+    (void)brain.hear(ops.from_text("The door is open."), "user:pedro");
+    const larry::Reply later = brain.hear(ops.from_text("The door is not open."), "user:pedro");
+    CHECK(later.text.starts_with("That contradicts what you told me before: The door is open. The later stands; I withdrew the earlier."));
+    const larry::Description door = assimilation.describe(ops.from_text("The door is open."), &cache);
+    CHECK(cache.find(door.metadata)->status == larry::Status::Withdrawn);
+    CHECK(cache.find(door.metadata)->decided_by.starts_with("rule: the later from the same source stands"));
+    CHECK(brain.answer(ops.from_text("Is the door open?")).text == "No.");
+    // A validated conception is not withdrawn by a rule: Larry asks.
+    (void)brain.hear(ops.from_text("The grass is green."), "user:pedro");
+    const larry::Description grass = assimilation.describe(ops.from_text("The grass is green."), &cache);
+    cache.set_status(grass.metadata, larry::Status::Validated, "pedro");
+    const larry::Reply kept = brain.hear(ops.from_text("The grass is not green."), "user:pedro");
+    CHECK(kept.text.starts_with("That conflicts with what I know: The grass is green."));
+    CHECK(kept.text.find("Which is true") != std::string::npos);
+    CHECK(cache.find(grass.metadata)->status == larry::Status::Validated);
+    CHECK(std::ranges::any_of(kept.because, [](const std::string& b) { return b.starts_with("rule: a validator decided the earlier"); }));
+}
+
+TEST(knowing_what_it_knows_about_a_subject) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_know.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const larry::Assimilation assimilation{rules()};
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories, std::string_view source) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata, larry::Status::Proposed, source);
+        return d;
+    };
+    const larry::Description sky = teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"}, "lesson:test");
+    teach("Clouds cross the sky.", {"noun", "verb", "determiner", "noun"}, "lesson:test");
+    cache.set_status(sky.metadata, larry::Status::Validated, "pedro");
+    larry::Brain::Knowledge k = brain.knowledge("Sky");
+    CHECK(k.word == b("sky"));
+    CHECK(k.validated.size() == 1);
+    CHECK(k.proposed.size() == 1);
+    CHECK(k.withdrawn.empty());
+    CHECK(k.categories.size() == 1 && k.categories.front().category == b("noun") && k.categories.front().count == 2);
+    CHECK(k.sure_uses == 2);
+    CHECK(k.unsure_uses == 0);
+    CHECK(k.conflicts.empty());
+    CHECK(k.cannot == std::vector<std::string>{"where Sky is"});
+    CHECK(k.text().starts_with("\"sky\": 2 conceptions (1 validated, 1 proposed, 0 withdrawn); known as noun (2); 2 uses with a category, 0 guessed or unknown; 0 conflicts, 0 other bonds; I cannot say where Sky is"));
+    // A conflict shows, and a guessed use counts as unsure.
+    (void)brain.hear(ops.from_text("The sky is not blue."), "user:pedro");
+    (void)brain.hear(ops.from_text("Zorp likes the sky."), "user:pedro");
+    k = brain.knowledge("sky");
+    CHECK(k.conflicts.size() == 1);
+    CHECK(k.proposed.size() == 3);
+    CHECK(k.sure_uses == 4);
+    larry::Brain::Knowledge z = brain.knowledge("zorp");
+    CHECK(z.proposed.size() == 1);
+    CHECK(z.unsure_uses + z.sure_uses == 1);
+    CHECK(z.cannot.size() == 2);
+    CHECK(brain.knowledge("nobody").text().starts_with("\"nobody\": 0 conceptions"));
 }
 
 TEST(working_memory_holds_what_is_in_play) {

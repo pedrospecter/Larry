@@ -129,6 +129,10 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conversation, with its conceptions in order
   molecule <name>              one molecule: its conceptions in order, who said
                                each and when
+  know <word>                  what Larry knows about a subject (S4): its
+                               conceptions by status, the categories it was
+                               taught or seen with, its guessed uses, its
+                               conflicts and bonds, and what it cannot answer
   forms <word>                 what the word is a form of (A4): its base, the
                                category and feature its ending or its irregular
                                pair gives, the rule, and its "form of" bonds
@@ -1493,6 +1497,34 @@ int run(std::span<const std::string_view> args) {
                 larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
             std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
                          held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
+    if (command == "know") {
+        if (rest.size() != 1) {
+            throw std::runtime_error("know needs one word");
+        }
+        const larry::Brain::Knowledge k = larry.brain.knowledge(rest[0]);
+        std::println("{}", k.text());
+        const auto list = [&](std::string_view status, const std::vector<larry::StoredAtom>& atoms) {
+            for (std::size_t i = 0; i < atoms.size() && i < 10; ++i) {
+                std::println("  {:<10} {}", status, larry.ops.text(atoms[i].description.atom));
+            }
+            if (atoms.size() > 10) {
+                std::println("  {:<10} and {} more", status, atoms.size() - 10);
+            }
+        };
+        list("validated", k.validated);
+        list("proposed", k.proposed);
+        list("withdrawn", k.withdrawn);
+        for (const larry::Bond& b : k.conflicts) {
+            const std::optional<larry::StoredAtom> from = larry.brain.conception_at(b.from);
+            const std::optional<larry::StoredAtom> to = larry.brain.conception_at(b.to);
+            std::println("  conflict   \"{}\" with \"{}\"", from ? std::string{larry.ops.text(from->description.atom)} : "?",
+                         to ? std::string{larry.ops.text(to->description.atom)} : "?");
+        }
+        for (const larry::Bond& b : k.bonds) {
+            std::println("  bond       {} --{}--> {}", as_text(b.from.bytes), as_text(b.kind), as_text(b.to.bytes));
         }
         return 0;
     }

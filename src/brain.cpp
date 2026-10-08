@@ -275,6 +275,75 @@ std::optional<Reply> Brain::state_of(const Description& question) const {
     return std::nullopt;
 }
 
+Brain::Knowledge Brain::knowledge(std::string_view subject) const {
+    const AtomOperations ops;
+    Knowledge out;
+    out.word = ops.fold(std::span{reinterpret_cast<const std::uint8_t*>(subject.data()), subject.size()});
+    for (StoredAtom& atom : memory_->containing(out.word)) {
+        (atom.status == Status::Validated ? out.validated
+         : atom.status == Status::Withdrawn ? out.withdrawn
+                                            : out.proposed)
+            .push_back(std::move(atom));
+    }
+    out.categories = memory_->categories_of(out.word);
+    for (const WordUse& use : memory_->uses(out.word)) {
+        (use.category.empty() ? out.unsure_uses : out.sure_uses) += 1;
+    }
+    static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};
+    const auto has_word = [&](const StoredAtom& atom) {
+        return std::ranges::any_of(atom.description.entities.entities,
+                                   [&](const Entity& e) { return ops.fold(e.word) == out.word; });
+    };
+    for (const Bond& bond : memory_->bonds()) {
+        if (bond.kind != conflicts) {
+            continue;
+        }
+        const std::optional<StoredAtom> from = conception_at(bond.from);
+        const std::optional<StoredAtom> to = conception_at(bond.to);
+        if ((from && has_word(*from)) || (to && has_word(*to))) {
+            out.conflicts.push_back(bond);
+        }
+    }
+    for (const Bond& bond : memory_->bonds_of(BondEnd{BondEnd::Kind::Entity, out.word})) {
+        if (bond.kind != conflicts) {
+            out.bonds.push_back(bond);
+        }
+    }
+    // What it cannot answer: the plain questions about the subject.
+    const std::string name{subject};
+    if (answers(assimilation_.describe(ops.from_text("What is " + name + "?"), memory_)).empty() &&
+        answers(assimilation_.describe(ops.from_text("What is the " + name + "?"), memory_)).empty()) {
+        out.cannot.push_back("what " + name + " is");
+    }
+    if (!state_of(assimilation_.describe(ops.from_text("Where is " + name + "?"), memory_)) &&
+        !state_of(assimilation_.describe(ops.from_text("Where is the " + name + "?"), memory_))) {
+        out.cannot.push_back("where " + name + " is");
+    }
+    return out;
+}
+
+std::string Brain::Knowledge::text() const {
+    const std::string name(word.begin(), word.end());
+    std::string out = std::format("\"{}\": {} conceptions ({} validated, {} proposed, {} withdrawn)", name,
+                                  validated.size() + proposed.size() + withdrawn.size(), validated.size(),
+                                  proposed.size(), withdrawn.size());
+    if (!categories.empty()) {
+        out += "; known as";
+        for (const CategoryCount& c : categories) {
+            out += std::format(" {} ({})", std::string(c.category.begin(), c.category.end()), c.count);
+        }
+    }
+    out += std::format("; {} uses with a category, {} guessed or unknown", sure_uses, unsure_uses);
+    out += std::format("; {} conflicts, {} other bonds", conflicts.size(), bonds.size());
+    if (!cannot.empty()) {
+        out += "; I cannot say";
+        for (std::size_t i = 0; i < cannot.size(); ++i) {
+            out += (i == 0 ? " " : " or ") + cannot[i];
+        }
+    }
+    return out;
+}
+
 std::vector<Brain::Question> Brain::questions(const Description& d) const {
     const AtomOperations ops;
     std::vector<Question> out;
@@ -1477,21 +1546,38 @@ Reply Brain::respond(const Sentence& sentence, std::string_view source, bool sto
         return reply;
     }
     if (verdict.truth == Truth::False) {
-        reply.text += "That conflicts with what I know: " + text_of(verdict.because.front()) +
-                     " I keep both and note the conflict.";
-        reply.because.push_back(text_of(verdict.because.front()));
+        const StoredAtom earlier = verdict.because.front();
         for (const std::string& rule : verdict.rules) {
             reply.because.push_back("rule: " + rule);
         }
-        reply.because.emplace_back("rule: a conflict is recorded, not chosen silently (R2)");
         // N3: the conflict is a bond between the two conceptions, from the
         // rule or the comparison that found it.
         static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};
         const std::string origin = verdict.rules.empty()
                                        ? "comparison: the same core with the opposite polarity (R1)"
                                        : "rule: " + verdict.rules.front();
-        (void)bond(Bond{conflicts, BondEnd::atom(said.metadata),
-                        BondEnd::atom(verdict.because.front().description.metadata), {origin}});
+        (void)bond(Bond{conflicts, BondEnd::atom(said.metadata), BondEnd::atom(earlier.description.metadata), {origin}});
+        // Q14 (R2c): from the same source, the later stands and the earlier is
+        // withdrawn, unless a validator decided the earlier: then only a
+        // validator undoes it, and Larry asks (G5).
+        const bool same_source = !earlier.sources.empty() &&
+                                 std::ranges::all_of(earlier.sources, [&](const std::string& s) { return s == source; });
+        if (same_source && earlier.status != Status::Validated) {
+            (void)set_status(earlier.description.metadata, Status::Withdrawn,
+                             "rule: the later from the same source stands (Q14)");
+            reply.text += "That contradicts what you told me before: " + text_of(earlier) +
+                         " The later stands; I withdrew the earlier.";
+            reply.because.push_back("withdrawn: " + text_of(earlier));
+            reply.because.emplace_back("rule: from the same source, the later stands and the earlier is withdrawn (Q14, R2)");
+            reply.because.emplace_back("bond: conflicts with, recorded (N3)");
+            return reply;
+        }
+        reply.text += "That conflicts with what I know: " + text_of(earlier) + " I keep both and note the conflict." +
+                      " Which is true: \"" + std::string{ops.text(said.atom)} + "\" or \"" + text_of(earlier) + "\"?";
+        reply.because.push_back(text_of(earlier));
+        reply.because.emplace_back(same_source
+                                       ? "rule: a validator decided the earlier; only a validator undoes it (R2b), so Larry asks (G5)"
+                                       : "rule: from different sources, both are kept and marked, and Larry asks (Q14, R2, G5)");
         reply.because.emplace_back("bond: conflicts with, recorded (N3)");
         return reply;
     }

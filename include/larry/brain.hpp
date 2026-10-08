@@ -252,6 +252,27 @@ public:
     /// about a state or no conception set one.
     [[nodiscard]] std::optional<Reply> state_of(const Description& question) const;
 
+    /// S4: what Larry knows about a subject (a word): the conceptions that
+    /// hold it by status, the categories it was taught or seen with, how
+    /// many uses have a category and how many are guessed or unknown, the
+    /// conflicts among its conceptions, its other bonds, and the plain
+    /// questions it cannot answer ("what sky is", "where sky is").
+    struct Knowledge {
+        Bytes word;
+        std::vector<StoredAtom> validated;
+        std::vector<StoredAtom> proposed;
+        std::vector<StoredAtom> withdrawn;
+        std::vector<CategoryCount> categories;
+        std::int64_t sure_uses = 0;
+        std::int64_t unsure_uses = 0;
+        std::vector<Bond> conflicts;
+        std::vector<Bond> bonds;
+        std::vector<std::string> cannot;
+        /// One line: "\"sky\": 3 conceptions (1 validated, 2 proposed, 0 withdrawn); known as noun (3); ...".
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Knowledge knowledge(std::string_view subject) const;
+
     /// A5: a question Larry asks about a word it cannot describe from
     /// memory: unknown, open between categories, or guessed.
     struct Question {

@@ -230,7 +230,7 @@ Milestone 2 (reached 2026-10-08): Larry describes sentences it has never seen, a
 - [ ] C8, C9, C14, C15 Comparisons of truth
 - [ ] C10, C11 Comparisons of use
 - [ ] R1 Answering from memory (Q13)
-- [ ] R2 Truth keeping (Q14)
+- [ ] R2 Truth keeping (Q14): R2c done, a conflict from the same source withdraws the earlier (Q14); from different sources both stay, bonded, and Larry asks; done when concluded atoms and their withdrawal exist (R4).
 - [ ] R3 State and time: first step done (R3a), the latest state answers "where is" and "is X in Y"; bAbI task 1: 100%.
 - [x] F9 The bAbI runner: `larry babi [task]` hears each story, answers its questions and judges them; `scripts/babi.sh` fetches what is reachable (task 1); the original files are read too (Q36).
 
@@ -251,7 +251,7 @@ Milestone 4: the bAbI scores for tasks 1 to 18 are on record. Tasks 19 and 20 co
 - [ ] G2 Answers as sentences
 - [ ] G3 Conversation (Q13)
 - [ ] G4 Explaining
-- [ ] G5 Asking
+- [x] G5 Asking: Larry asks about a word it cannot describe (A5) and about a conflict it cannot settle (R2c).
 - [ ] G6 Longer output
 
 Milestone 5: `larry chat` holds a conversation and answers "why?" after any reply.
@@ -260,7 +260,7 @@ Milestone 5: `larry chat` holds a conversation and answers "why?" after any repl
 - [ ] S1 Goals from orders
 - [ ] S2 Planning
 - [ ] S3 Attention
-- [ ] S4 Knowing what it knows
+- [x] S4 Knowing what it knows: `larry know <word>`, `Brain::knowledge`.
 - [ ] S5 Reading on its own
 - [ ] S6 New categories
 - [ ] S7 Idle thinking
@@ -486,6 +486,7 @@ First step done (R1a, `Brain::truth`, `Brain::answers`, `larry ask`): a sentence
 **R2 · Truth keeping.** Atoms are assumed truths, so some will turn out false. Each atom gets a status (assumed, concluded, in conflict, withdrawn) and its support: its source, or the atoms it was concluded from. When C9 finds a conflict, Larry records it and does not choose silently. When an atom is withdrawn, so is everything concluded only from it.
 Done when: a suite passes, and bAbI tasks 9 and 10 are measured. Needs C9, N3, Q14.
 First step done (R2a, R2b): the status is proposed, validated or withdrawn, with the sources that gave the conception and who decided. Only a validator validates or withdraws, with `larry validate`; `larry validators add` names them, anyone the first, then only a validator; `LARRY_USER` says who is talking. A second source never validates by itself, as the user asked: it only adds to the conception's sources. A withdrawn conception is no evidence. A conflict (R1a's negation) is reported and both atoms are kept. Not yet: concluded atoms and their support, withdrawal of what was concluded.
+R2c done (Q14): when what Larry hears conflicts with a conception from the same source alone, the later stands and the earlier is withdrawn by the rule ("That contradicts what you told me before: ... The later stands; I withdrew the earlier."), with `decided_by` naming the rule; a conception a validator decided is not withdrawn by a rule, and from different sources both are kept and bonded "conflicts with" (N3), and Larry asks which is true (G5). The "in conflict" status of the plan is the bond: `larry know` and `larry bonds` show it.
 
 **R3 · State and time.** The world changes. "Mary went to the kitchen. Mary went to the garden." is a change, and the two sentences do not conflict. A later atom about the same thing replaces the earlier one as the present state, and both stay in memory in order.
 Done when: bAbI tasks 1, 6, 12 and 14 are measured. Needs N4, R2.
@@ -523,6 +524,7 @@ First step done (G3a, `Brain::hear`, `larry say`, `larry chat`): an affirmation 
 **G4 · Explaining.** After any reply, "why?" lists the atoms and rules used, as sentences.
 
 **G5 · Asking.** Larry asks when it finds a gap or a conflict (A5, R2).
+Done (G5): a gap is a word Larry cannot describe from memory: "What is "Zorp"?" when it hears one, and one question per such word when it reads a text (A5, `larry read`, `larry answer`); a conflict it cannot settle by Q14 ends with "Which is true: "..." or "..."?" (R2c), and `larry validate` is where the user answers.
 
 **G6 · Longer output.** Summarize a molecule, describe a thing from everything known about it, and give steps in order.
 
@@ -548,6 +550,7 @@ Done when: bAbI tasks 19 and 20 are measured and a suite of small planning probl
 **S3 · Attention.** A queue of what to think about, with a CPU budget for each turn. Open questions, conflicts, atoms waiting for novelty and unfinished goals compete for it.
 
 **S4 · Knowing what it knows.** For any subject Larry reports what it knows, what was taught and what it guessed, where it holds conflicts, and what it cannot answer.
+Done (S4): `Brain::knowledge(word)` and `larry know <word>`: the conceptions that hold the word by status (validated, proposed, withdrawn), the categories it was taught or seen with and how often, how many of its uses have a category and how many are guessed or unknown, the conflicts among its conceptions (the "conflicts with" bonds), its other bonds ("form of"), and the plain questions Larry cannot answer about it ("what sky is", "where sky is").
 
 **S5 · Reading on its own.** Given a text, Larry reads at level 2, keeps what passes novelty, and lists its questions. Teaching sentence by sentence cannot reach the amount of knowledge Larry needs, so the project depends on this item more than any other.
 Done when: after reading a set of texts unaided, Larry answers questions about them, measured on MCTest (short children's stories with multiple-choice questions).
@@ -684,3 +687,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | A6 | 22 test executables pass in the four builds; measure: 3 tests on a tiny treebank. `larry measure 100 300 1000 3000 all` on the Universal Dependencies English EWT test set (18,253 words in 1,819 aligned sentences), one minute in all. From memory alone, taught 100 / 300 / 1,000 / 3,000 / 11,109 sentences: 66.0 / 70.6 / 75.7 / 78.4 / 77.3% right, 11.2 / 8.5 / 4.9 / 2.6 / 1.4% unknown. With the dictionary: 77.4 / 79.5 / 81.3 / 81.8 / 78.8% right, 4.0 / 3.5 / 2.9 / 2.3 / 1.7% unknown. Milestone 2 reached. | The curve rises to 3,000 sentences and falls after: with more atoms, more words have several categories and "the most used" picks wrong where the context would pick right (A6's most specific context is the next step). Memory-based taggers reach about 96% (section 7, A6): Larry is 15 points short with its categories from memory and the dictionary alone, before any context rule. Q34 asks the user for the target. |
 | 2026-10-08 | A7 | 22 test executables pass in the four builds; assimilation: 12 tests, the hand-labelled suite of 26 sentences. | The suite found no error in the roles with the grammar: the known gaps (questions, two verbs) are covered by patterns now (K2). The emotion of a verb ("loves") colours the whole atom, which is what Q1 asked for and may be too much: "She loves him." is a fact, not a joy. Q35 asks. |
 | 2026-10-08 | R3a, F9 | 23 test executables pass in the four builds; babi: 5 tests; brain: 22. `larry babi 1`: 100% of 1,000 questions right in 200 stories, in 4.8 s. | The first bAbI number. Task 1 needs the latest state alone; the runner is ready for the other tasks once their stories are on the machine. The JSON reader of W1 is its own module now (`json.hpp`). |
+| 2026-10-08 | R2c, G5, S4 | 23 test executables pass in the four builds; brain: 24 tests. The user contradicting the user: the earlier is withdrawn and "Is the door open?" answers No; a lesson contradicted by the user: both stay and Larry asks. | Q14 applied as the user answered it; a validated conception is the one exception, because only a validator undoes a validation (R2b). "Knowing what it knows" is a report from what exists (statuses, the index, the bonds), with no new store: S4 cost one function. |
