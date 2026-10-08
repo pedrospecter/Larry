@@ -31,6 +31,26 @@ bool in(const std::vector<Bytes>& list, const Bytes& item) {
     return std::ranges::contains(list, item);
 }
 
+// The parts of a rule value ("person;masculine"), split at a separator.
+std::vector<Bytes> split_on(const Bytes& text, std::uint8_t separator) {
+    std::vector<Bytes> out;
+    Bytes current;
+    for (const std::uint8_t b : text) {
+        if (b == separator) {
+            if (!current.empty()) {
+                out.push_back(std::move(current));
+                current.clear();
+            }
+        } else {
+            current.push_back(b);
+        }
+    }
+    if (!current.empty()) {
+        out.push_back(std::move(current));
+    }
+    return out;
+}
+
 // The words of an expansion ("is not"), split at spaces.
 std::vector<Bytes> split_words(const Bytes& text) {
     std::vector<Bytes> out;
@@ -794,10 +814,57 @@ std::optional<Description> Brain::refer(const Description& d) const {
     static const Bytes object_role = bytes_of("object");
     static const Bytes link_role = bytes_of("link");
     static const Bytes plural = bytes_of("plural");
-    static const std::vector<std::string> persons = {"he", "she", "him"};
-    static const std::vector<std::string> things = {"it"};
-    static const std::vector<std::string> plurals = {"they", "them"};
+    static const Bytes person_kind = bytes_of("person");
+    static const Bytes thing_kind = bytes_of("thing");
+    static const Bytes many_kind = bytes_of("many");
+    static const Bytes owner_kind = bytes_of("owner");
+    static const Bytes masculine = bytes_of("masculine");
+    static const Bytes feminine = bytes_of("feminine");
     const std::vector<Entity>& entities = d.entities.entities;
+    // What a pronoun stands for, from references.txt: its kind and, for a
+    // person, the gender of the name it takes.
+    struct Reference {
+        bool person = false;
+        bool thing = false;
+        bool many = false;
+        bool owner = false;
+        Bytes gender;
+    };
+    const auto reference_of = [&](const Bytes& word) -> std::optional<Reference> {
+        for (const auto& [pronoun_word, what] : rules_->references()) {
+            if (pronoun_word != word) {
+                continue;
+            }
+            Reference out;
+            for (const Bytes& part : split_on(what, ';')) {
+                if (part == person_kind) {
+                    out.person = true;
+                } else if (part == thing_kind) {
+                    out.thing = true;
+                } else if (part == many_kind) {
+                    out.many = true;
+                } else if (part == owner_kind) {
+                    out.owner = true;
+                } else if (part == masculine || part == feminine) {
+                    out.gender = part;
+                }
+            }
+            return out;
+        }
+        return std::nullopt;
+    };
+    // The gender of a phrase, from the first of its words names.txt knows
+    // ("O João", "Mary Smith"); empty when the file knows none of them.
+    const auto gender_of = [&](const std::string& phrase) -> Bytes {
+        for (const Bytes& word : split_words(bytes_of(phrase))) {
+            for (const auto& [known, gender] : rules_->names()) {
+                if (known == word) {
+                    return gender;
+                }
+            }
+        }
+        return {};
+    };
     // What a pronoun may stand for, from a conception: its subject phrase and
     // its object phrases, as written, with their kind and number.
     struct Phrase {
@@ -880,18 +947,19 @@ std::optional<Description> Brain::refer(const Description& d) const {
         if (e.category != pronoun) {
             continue;
         }
-        const Bytes folded = ops.fold(e.word);
-        const std::string word(folded.begin(), folded.end());
-        const bool person = std::ranges::contains(persons, word);
-        const bool thing = std::ranges::contains(things, word);
-        const bool many = std::ranges::contains(plurals, word);
-        // "her" refers when nothing it could own follows.
-        const bool her = word == "her" && (i + 1 == entities.size() ||
-                                           (entities[i + 1].category != noun && entities[i + 1].category != adjective &&
-                                            entities[i + 1].category != determiner));
-        if (!person && !thing && !many && !her) {
+        const std::optional<Reference> reference = reference_of(ops.fold(e.word));
+        if (!reference) {
             continue;
         }
+        // A word that also owns ("her book") refers when nothing it could own follows.
+        const bool owns = reference->owner && i + 1 < entities.size() &&
+                          (entities[i + 1].category == noun || entities[i + 1].category == adjective ||
+                           entities[i + 1].category == determiner);
+        if (owns) {
+            continue;
+        }
+        const bool many = reference->many;
+        const bool thing = reference->thing;
         if (!fetched) {
             recent = newest_first();
             fetched = true;
@@ -917,9 +985,14 @@ std::optional<Description> Brain::refer(const Description& d) const {
             const Description resolved =
                 atom.reading.empty() ? atom.description : assimilation_.describe(ops.from_text(atom.reading), memory_);
             for (const Phrase& phrase : phrases_of(resolved)) {
-                const bool fits = many ? phrase.plural
-                                  : thing ? (!phrase.proper && !phrase.plural)
-                                          : (phrase.proper && !phrase.plural);
+                bool fits = many ? phrase.plural
+                            : thing ? (!phrase.proper && !phrase.plural)
+                                    : (phrase.proper && !phrase.plural);
+                // A gendered pronoun takes a name of its gender, or one nobody knows the gender of.
+                if (fits && !many && !thing && !reference->gender.empty()) {
+                    const Bytes gender = gender_of(phrase.text);
+                    fits = gender.empty() || gender == reference->gender;
+                }
                 if (fits && !std::ranges::contains(own, phrase.text)) {
                     referent = phrase;
                     break;

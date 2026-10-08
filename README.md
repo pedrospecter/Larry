@@ -123,6 +123,7 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry forms skies                 # skies is a form of sky: noun plural, by the ending (A4)
     ./build/larry know sky                    # what Larry knows about a subject, and what it cannot answer (S4)
     ./build/larry say "She went to the kitchen."   # after "Mary went to the garden.": I read it as "Mary went to the kitchen." (A11)
+    ./build/larry say "He is tired."          # after "Sandra ... Daniel ...": Daniel, by the gender of the names in names.txt
     ./build/larry say "A sparrow is a bird."  # bonds sparrow to bird, "is a kind of" (A10); with "A bird is an animal.":
     ./build/larry ask "Is a sparrow an animal?"    # Yes, chained (R4)
     ./build/larry ask "Do robins fly?"        # Probably yes: robins and sparrows are both kinds of bird, and sparrows fly (R8)

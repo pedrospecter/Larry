@@ -105,6 +105,10 @@ public:
     /// Verb phrases of defining sentences and the bond they leave between the
     /// two things (A10), from relations.txt: "is a" and "is a kind of".
     [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& relations() const noexcept { return relations_; }
+    /// references.txt (A11): a pronoun and what it stands for ("person;masculine", "thing", "many").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& references() const noexcept { return references_; }
+    /// names.txt (A11, Q37): a first name and its gender ("masculine" or "feminine").
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& names() const noexcept { return names_; }
 
     /// Verb phrases that change a state and the state they leave (R3), from
     /// states.txt: "moved to" and "is in", "picked up" and "has".
@@ -221,6 +225,8 @@ private:
     std::vector<std::pair<Bytes, Bytes>> irregular_;
     std::vector<std::pair<Bytes, Bytes>> states_;
     std::vector<std::pair<Bytes, Bytes>> relations_;
+    std::vector<std::pair<Bytes, Bytes>> references_;
+    std::vector<std::pair<Bytes, Bytes>> names_;
     std::vector<std::pair<Bytes, Bytes>> replies_;
     std::vector<Bytes> conjunctions_;
     std::vector<std::pair<Bytes, Bytes>> pronouns_;

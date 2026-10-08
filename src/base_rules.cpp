@@ -100,6 +100,8 @@ BaseRules::BaseRules(Language language) : language_(language) {
     states_ = read_pairs(dir / "states.txt");
     relations_ = read_pairs(dir / "relations.txt");
     replies_ = read_pairs(dir / "replies.txt");
+    references_ = read_pairs(dir / "references.txt");
+    names_ = read_pairs(dir / "names.txt");
     std::ranges::stable_sort(relations_, [](const auto& a, const auto& b) {
         return std::ranges::count(a.first, ' ') > std::ranges::count(b.first, ' ');  // longest phrase first
     });

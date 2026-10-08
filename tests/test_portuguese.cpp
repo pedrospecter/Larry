@@ -231,6 +231,14 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     const larry::Reply heard = brain.hear(ops.from_text("O mar é verde."), "user:pedro");
     CHECK(heard.stored);
     CHECK(cache.count() == 22);
+    // A11 with gender (Q37): "ela" takes the latest feminine name and "ele" the latest
+    // masculine one, from references.txt and names.txt.
+    (void)brain.hear(ops.from_text("A Maria foi ao jardim."), "user:pedro");
+    (void)brain.hear(ops.from_text("O João foi ao escritório."), "user:pedro");
+    const larry::Reply ela = brain.hear(ops.from_text("Ela foi à cozinha."), "user:pedro");
+    CHECK(std::ranges::contains(ela.because, std::string{"read as: A Maria foi à cozinha."}));
+    const larry::Reply ele = brain.hear(ops.from_text("Ele está cansado."), "user:pedro");
+    CHECK(std::ranges::contains(ele.because, std::string{"read as: O João está cansado."}));
 }
 
 int main() {
