@@ -603,8 +603,7 @@ Description Assimilation::describe(const Sentence& atom, Memory* memory,
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
     types(d);
-    const std::span<const std::uint8_t> bytes = ops.bytes(atom);
-    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.image = image(d, memory);
     d.metadata = ops.metadata(d.category, d.type, d.entities);
     return d;
 }
@@ -623,10 +622,10 @@ void Assimilation::redescribe(Description& d) const {
     const std::string_view qualification = name(cognition.qualify(d.atom, d.entities, *rules_));
     d.category.bytes.assign(qualification.begin(), qualification.end());
     types(d);
-    const std::span<const std::uint8_t> bytes = ops.bytes(d.atom);
-    d.image.bytes.assign(bytes.begin(), bytes.end());
+    d.image = image(d, nullptr);
     d.metadata = ops.metadata(d.category, d.type, d.entities);
 }
+
 
 namespace {
 
@@ -711,8 +710,7 @@ void Assimilation::types(Description& d) const {
     static const Bytes preposition = bytes_of("preposition");
     static const Bytes interjection = bytes_of("interjection");
     static const Bytes conjunction = bytes_of("conjunction");
-    static const std::vector<Bytes> copulas = {bytes_of("is"), bytes_of("are"), bytes_of("was"),
-                                               bytes_of("were"), bytes_of("am")};
+    const std::vector<Bytes>& copulas = rules_->copulas();  // copulas.txt (A7)
 
     std::vector<Entity>& entities = d.entities.entities;
     const std::size_t n = entities.size();
@@ -743,6 +741,7 @@ void Assimilation::types(Description& d) const {
             for (const auto& [key, value] : table) {
                 if (key == word) {
                     out = split(value, ';');
+                    std::erase(out, bytes_of("support"));  // a mark for the image (A9), not a feature
                     return true;
                 }
             }
@@ -802,8 +801,18 @@ void Assimilation::types(Description& d) const {
             break;
         }
     }
-    bool copula = predicate < n && entities[predicate].category == auxiliary_verb &&
-                  std::ranges::contains(copulas, folded[predicate]);
+    // The copula may be inside a contraction ("isn't"): its first word counts.
+    Bytes head = predicate < n ? folded[predicate] : Bytes{};
+    for (const auto& [contraction, expansion] : rules_->contractions()) {
+        if (contraction == head) {
+            const std::vector<Bytes> parts = split(expansion, ' ');
+            if (!parts.empty()) {
+                head = parts.front();
+            }
+            break;
+        }
+    }
+    bool copula = predicate < n && entities[predicate].category == auxiliary_verb && std::ranges::contains(copulas, head);
     for (std::size_t i = predicate + 1; copula && i < n; ++i) {
         if (entities[i].category == verb) {
             copula = false;
@@ -859,6 +868,143 @@ void Assimilation::types(Description& d) const {
     type.push_back(' ');
     type.insert(type.end(), emotion.begin(), emotion.end());
     d.type.bytes = std::move(type);
+}
+
+ImageElectron Assimilation::image(const Description& d, const Memory* memory) const {
+    const AtomOperations ops;
+    static const Bytes interjection = bytes_of("interjection");
+    static const Bytes proper_noun = bytes_of("proper noun");
+    static const Bytes auxiliary_verb = bytes_of("auxiliary verb");
+    static const Bytes guessed = bytes_of("guessed");
+    static const Bytes support = bytes_of("support");
+    static const std::array<std::string_view, 8> order = {"subject", "predicate", "object",   "attribute",
+                                                          "complement", "modifier", "link", "none"};
+    // The marks that carry meaning; "present", "third person", "singular" and
+    // "base" are the plain case and are not written.
+    static const std::vector<Bytes> marks = {bytes_of("plural"),      bytes_of("past"),        bytes_of("progressive"),
+                                             bytes_of("participle"),  bytes_of("comparative"), bytes_of("superlative")};
+    const auto role_of = [&](const Entity& e) -> std::string_view {
+        for (auto it = e.types.rbegin(); it != e.types.rend(); ++it) {
+            if (*it == guessed) {
+                continue;
+            }
+            for (const std::string_view role : order) {
+                if (std::string_view{reinterpret_cast<const char*>(it->data()), it->size()} == role) {
+                    return role;
+                }
+            }
+            break;  // the role is the last type: the features come before it
+        }
+        return "none";
+    };
+    std::map<std::string_view, std::vector<std::string>> groups;
+    bool negated = false;
+    for (const Entity& e : d.entities.entities) {
+        if (e.category == interjection) {
+            continue;
+        }
+        const std::string_view role = role_of(e);
+        const Bytes folded = ops.fold(e.word);
+        // A contraction is its words.
+        std::vector<Bytes> words;
+        for (const auto& [contraction, expansion] : rules_->contractions()) {
+            if (contraction == folded) {
+                for (const Bytes& part : split(expansion, ' ')) {
+                    words.push_back(part);
+                }
+                break;
+            }
+        }
+        if (words.empty()) {
+            words.push_back(folded);
+        }
+        std::vector<std::string> pending_marks;  // do-support leaves its time to the next word
+        for (const Bytes& word : words) {
+            if (std::ranges::contains(rules_->articles(), word)) {
+                continue;
+            }
+            if (std::ranges::contains(rules_->negation_words(), word)) {
+                negated = !negated;
+                continue;
+            }
+            bool is_number = false;
+            for (const auto& [number, digits] : rules_->number_words()) {
+                if (number == word) {
+                    groups[role].emplace_back(digits.begin(), digits.end());
+                    is_number = true;
+                    break;
+                }
+            }
+            if (is_number) {
+                continue;
+            }
+            // Do-support (auxiliaries.txt, "support"): dropped, its time kept.
+            // The word of an auxiliary verb, of a contraction ("don't"), or of
+            // an entity nobody categorized; a verb "do" stays ("I do my work").
+            if (e.category == auxiliary_verb || e.category.empty() || words.size() > 1) {
+                bool supports = false;
+                for (const auto& [auxiliary, features] : rules_->auxiliaries()) {
+                    if (auxiliary == word) {
+                        const std::vector<Bytes> parts = split(features, ';');
+                        supports = std::ranges::contains(parts, support);
+                        if (supports) {
+                            for (const Bytes& part : parts) {
+                                if (std::ranges::contains(marks, part)) {
+                                    pending_marks.emplace_back(part.begin(), part.end());
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (supports) {
+                    continue;
+                }
+            }
+            // The base form, by the pairs and the endings (A4); an ending
+            // counts only when its category is the entity's.
+            std::optional<Form> form = form_of(word, memory);
+            if (!form && !e.category.empty()) {
+                form = forms_.by_ending(word);
+                if (form && form->category != e.category) {
+                    form.reset();
+                }
+            }
+            std::string text = e.category == proper_noun ? std::string(e.word.begin(), e.word.end())
+                                                         : std::string(word.begin(), word.end());
+            std::vector<std::string> word_marks = std::move(pending_marks);
+            pending_marks.clear();
+            if (form) {
+                text.assign(form->base.begin(), form->base.end());
+                if (std::ranges::contains(marks, form->feature)) {
+                    word_marks.emplace_back(form->feature.begin(), form->feature.end());
+                }
+            }
+            for (const std::string& mark : word_marks) {
+                text += " (" + mark + ")";
+            }
+            groups[role].push_back(std::move(text));
+        }
+    }
+    std::string out(d.category.bytes.begin(), d.category.bytes.end());
+    for (const std::string_view role : order) {
+        const auto found = groups.find(role);
+        if (found == groups.end() || found->second.empty()) {
+            continue;
+        }
+        out += " | ";
+        out += role;
+        out += ":";
+        for (const std::string& word : found->second) {
+            out += " " + word;
+        }
+    }
+    if (negated) {
+        out += " | not";
+    }
+    ImageElectron image;
+    image.bytes.assign(out.begin(), out.end());
+    return image;
 }
 
 }  // namespace larry

@@ -811,7 +811,8 @@ StoredAtom Memory::read(std::int64_t id) const {
     d.category = std::move(electrons.category);
     d.type = std::move(electrons.type);
     d.entities = std::move(electrons.entities);
-    d.image.bytes = record.bytes;
+    // The image (A9) is not stored: Brain::image_of makes it again from the
+    // description, or from the reading when there is one.
     return out;
 }
 

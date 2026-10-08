@@ -324,6 +324,10 @@ TEST(c5_same_structure) {
               &Cognition::same_structure);
 }
 
+TEST(c6_same_meaning) {
+    run_suite("c6_same_meaning.txt", larry::ComparisonKind::SameMeaning, &Cognition::same_meaning);
+}
+
 TEST(comparison_results_as_bytes) {
     // The result as bytes is deterministic and names the kind, the answer,
     // the matches, what matched nothing, and the pattern.

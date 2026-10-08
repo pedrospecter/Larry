@@ -234,7 +234,7 @@ TEST(describe_without_memory) {
     CHECK(d.notes.size() == 2);
     CHECK(d.notes[0].source == larry::Source::Unknown);
     CHECK(d.entities.entities[0].category.empty());
-    CHECK(d.image.bytes == (Bytes{'T', 'h', 'e', ' ', 's', 'k', 'y', '.'}));
+    CHECK(std::string(d.image.bytes.begin(), d.image.bytes.end()) == "affirmation | subject: sky");  // A9: the article dropped
     CHECK(d.atom.size() == 64);
     CHECK(d.category.bytes == (Bytes{'a', 'f', 'f', 'i', 'r', 'm', 'a', 't', 'i', 'o', 'n'}));
     CHECK(!d.metadata.bytes.empty());

@@ -1,0 +1,23 @@
+# C6 same meaning: are the images equal (A9)? The image has the words in their
+# base form grouped by role, the articles and interjections dropped, a number
+# word as digits, a contraction expanded, and marks for the plural, the time
+# and the negation.
+yes | The sky is blue. | the sky is blue | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+yes | The sky is blue. | Sky is blue. | determiner, noun, auxiliary verb, adjective | noun, auxiliary verb, adjective
+yes | Oh, the sky is blue. | The sky is blue. | interjection, determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+yes | The sky is not blue. | The sky isn't blue. | determiner, noun, auxiliary verb, adverb, adjective | determiner, noun, auxiliary verb, adjective
+yes | Penguins do not fly. | Penguins don't fly. | noun, auxiliary verb, adverb, verb | noun, auxiliary verb, verb
+yes | Mary has three apples. | Mary has 3 apples. | proper noun, verb, numeral, noun | proper noun, verb, numeral, noun
+yes | Birds fly. | The birds fly. | noun, verb | determiner, noun, verb
+yes | Mary went to the garden. | Mary went to the garden | proper noun, verb, preposition, determiner, noun | proper noun, verb, preposition, determiner, noun
+yes | The children are sleeping. | The children are sleeping. | determiner, noun, auxiliary verb, verb | determiner, noun, auxiliary verb, verb
+no | The sky is blue. | The sea is blue. | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+no | The sky is blue. | The sky is not blue. | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adverb, adjective
+no | The sky was blue. | The sky is blue. | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+no | The dog chased the cat. | The cat chased the dog. | determiner, noun, verb, determiner, noun | determiner, noun, verb, determiner, noun
+no | Mary went to the garden. | Mary goes to the garden. | proper noun, verb, preposition, determiner, noun | proper noun, verb, preposition, determiner, noun
+no | The skies are grey. | The sky is grey. | determiner, noun, auxiliary verb, adjective | determiner, noun, auxiliary verb, adjective
+no | Is the sky blue? | The sky is blue. | auxiliary verb, determiner, noun, adjective | determiner, noun, auxiliary verb, adjective
+no | The sky is very blue. | The sky is blue. | determiner, noun, auxiliary verb, adverb, adjective | determiner, noun, auxiliary verb, adjective
+no | Penguins do not fly. | Penguins fly. | noun, auxiliary verb, adverb, verb | noun, verb
+yes | the sky is blue | the sky is blue

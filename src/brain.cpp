@@ -227,6 +227,14 @@ std::vector<StoredAtom> Brain::newest_first() const {
     return out;
 }
 
+ImageElectron Brain::image_of(const StoredAtom& atom) const {
+    const AtomOperations ops;
+    if (!atom.reading.empty()) {
+        return assimilation_.describe(ops.from_text(atom.reading), memory_).image;
+    }
+    return assimilation_.image(atom.description, memory_);
+}
+
 Core Brain::thinking_core(const StoredAtom& atom) const {
     if (atom.reading.empty()) {
         return core(atom.description);
@@ -253,7 +261,7 @@ std::optional<Brain::Relation> Brain::relation_in(const Core& form, const Descri
     static const Bytes adjective = bytes_of("adjective");
     static const Bytes verb = bytes_of("verb");
     static const Bytes determiner = bytes_of("determiner");
-    static const std::vector<Bytes> articles = {bytes_of("a"), bytes_of("an"), bytes_of("the")};
+    const std::vector<Bytes>& articles = rules_->articles();
     if (form.words.size() < 3) {
         return std::nullopt;
     }
@@ -575,7 +583,7 @@ std::vector<Brain::Proposal> Brain::propose() {
     const AtomOperations ops;
     static const Bytes kind_of = bytes_of("is a kind of");
     static const Bytes noun = bytes_of("noun");
-    static const std::vector<Bytes> articles = {bytes_of("a"), bytes_of("an"), bytes_of("the")};
+    const std::vector<Bytes>& articles = rules_->articles();
     std::vector<Proposal> out;
     // The kinds: for each thing, the things that are a kind of it.
     std::map<Bytes, std::vector<Bytes>> members;

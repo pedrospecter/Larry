@@ -516,6 +516,9 @@ private:
     /// The core Larry thinks with: of the reading when the conception has
     /// one (Q29, A11), else of the conception as said.
     [[nodiscard]] Core thinking_core(const StoredAtom& atom) const;
+    /// A9: the image of a stored conception, from its reading when it has one
+    /// (K3, A11), else from its description. Not stored: made when needed.
+    [[nodiscard]] ImageElectron image_of(const StoredAtom& atom) const;
     /// The spellings a core word may have in a stored atom: "3" and "three".
     [[nodiscard]] std::vector<Bytes> spellings(const Bytes& word) const;
     /// Puts a conception the cloud gave into the cache.

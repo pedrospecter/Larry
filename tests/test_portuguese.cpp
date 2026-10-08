@@ -239,6 +239,11 @@ TEST(the_brain_thinks_in_portuguese_rules) {
     CHECK(std::ranges::contains(ela.because, std::string{"read as: A Maria foi à cozinha."}));
     const larry::Reply ele = brain.hear(ops.from_text("Ele está cansado."), "user:pedro");
     CHECK(std::ranges::contains(ele.because, std::string{"read as: O João está cansado."}));
+    // A9: the image from the Portuguese files: the article dropped, "é" as "ser".
+    const larry::Description azul = assimilation().describe(ops.from_text("O céu é azul."), &cache);
+    CHECK(std::string(azul.image.bytes.begin(), azul.image.bytes.end()) ==
+          "affirmation | subject: céu | predicate: ser | attribute: azul");
+    CHECK(larry::Cognition{}.same_meaning(azul, assimilation().describe(ops.from_text("Céu é azul."), &cache)).holds);
 }
 
 int main() {

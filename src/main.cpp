@@ -739,10 +739,10 @@ std::string execute(Larry& larry, const larry::Command& command) {
         const larry::Description a = larry.assimilation.describe(larry.ops.from_text(argument(0)), &larry.memory);
         const larry::Description b = larry.assimilation.describe(larry.ops.from_text(argument(1)), &larry.memory);
         const auto yes = [](bool holds) { return holds ? "yes" : "no"; };
-        return std::format("identity {}, same form {}, aligned {}, different {}, same structure {}.",
+        return std::format("identity {}, same form {}, aligned {}, different {}, same structure {}, same meaning {}.",
                            yes(larry.cognition.identity(a, b).holds), yes(larry.cognition.same_form(a, b).holds),
                            yes(larry.cognition.align(a, b).holds), yes(larry.cognition.difference(a, b).holds),
-                           yes(larry.cognition.same_structure(a, b).holds));
+                           yes(larry.cognition.same_structure(a, b).holds), yes(larry.cognition.same_meaning(a, b).holds));
     }
     if (op == "count") {
         return std::format("{} conceptions and {} word uses here{}.", larry.memory.count(), larry.memory.count_words(),

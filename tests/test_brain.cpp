@@ -837,7 +837,7 @@ TEST(a_conflict_is_a_bond_between_the_two_conceptions) {
         CHECK(from_said.front().kind == b("conflicts with"));
         CHECK(from_said.front().from == larry::BondEnd::atom(said.metadata));
         CHECK(brain.conception_at(from_said.front().to).has_value());
-        CHECK(brain.conception_at(from_said.front().to)->description.image.bytes == b("The sky is blue."));
+        CHECK(ops.text(brain.conception_at(from_said.front().to)->description.atom) == "The sky is blue.");
         CHECK(from_said.front().origins.size() == 1);
         CHECK(!from_said.front().origins.empty() && from_said.front().origins.front().starts_with("comparison: "));
     }
@@ -1366,7 +1366,7 @@ TEST(working_memory_holds_what_is_in_play) {
     // What was heard and stored is in play, newest first.
     CHECK(brain.hear(ops.from_text("The grass is green."), "user:pedro").stored);
     CHECK(brain.working().size() == 1);
-    CHECK(brain.working().front().description.image.bytes == b("The grass is green."));
+    CHECK(ops.text(brain.working().front().description.atom) == "The grass is green.");
     // What answered a question is in play.
     CHECK(brain.answer(ops.from_text("Is the sky blue?")).text == "Yes.");
     CHECK(brain.working().size() == 2);
@@ -1374,7 +1374,7 @@ TEST(working_memory_holds_what_is_in_play) {
     // The same atom again moves to the front, not in twice.
     (void)brain.hear(ops.from_text("The grass is green."), "user:pedro");
     CHECK(brain.working().size() == 2);
-    CHECK(brain.working().front().description.image.bytes == b("The grass is green."));
+    CHECK(ops.text(brain.working().front().description.atom) == "The grass is green.");
     // What is in play answers first: a question about the sky finds the sky's conception among the candidates first.
     const larry::Verdict verdict = brain.truth(ops.from_text("the sky is blue"));
     CHECK(verdict.truth == Truth::True);
@@ -1383,7 +1383,7 @@ TEST(working_memory_holds_what_is_in_play) {
         (void)brain.hear(ops.from_text(std::format("Thing{} is here.", i)), "user:pedro");
     }
     CHECK(brain.working().size() == larry::Brain::working_limit);
-    CHECK(brain.working().front().description.image.bytes == b("Thing39 is here."));
+    CHECK(ops.text(brain.working().front().description.atom) == "Thing39 is here.");
     brain.forget_working();
     CHECK(brain.working().empty());
 }

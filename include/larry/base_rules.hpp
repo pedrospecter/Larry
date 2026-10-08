@@ -74,6 +74,10 @@ public:
     [[nodiscard]] const std::vector<Bytes>& conjunctions() const noexcept { return conjunctions_; }
 
     /// Words that negate a sentence ("not", "never"), from negation_words.txt.
+    /// articles.txt (A9, A10): the articles, dropped from the image.
+    [[nodiscard]] const std::vector<Bytes>& articles() const noexcept { return articles_; }
+    /// copulas.txt (A7): the verbs after which an adjective or a noun is an attribute of the subject.
+    [[nodiscard]] const std::vector<Bytes>& copulas() const noexcept { return copulas_; }
     [[nodiscard]] const std::vector<Bytes>& negation_words() const noexcept {
         return negation_words_;
     }
@@ -219,6 +223,8 @@ private:
     std::vector<Bytes> assumption_words_;
     std::vector<Bytes> expressions_;
     std::vector<Bytes> negation_words_;
+    std::vector<Bytes> articles_;
+    std::vector<Bytes> copulas_;
     std::vector<std::pair<Bytes, Bytes>> contractions_;
     std::vector<std::pair<Bytes, Bytes>> endings_;
     std::vector<std::pair<Bytes, Bytes>> forms_;

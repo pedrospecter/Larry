@@ -108,6 +108,7 @@ round", "forget that ..." (a validator only). The list is in
 
     ./build/larry show "the grass is green"
     ./build/larry compare "the sky is blue" "the sea is blue"
+    ./build/larry compare "The sky isn't blue." "The sky is not blue."   # same meaning yes: equal images (A9, C6)
     ./build/larry ask "Is the sky blue?"       # Yes.
     ./build/larry ask "What is the sky?"       # The sky is blue.
     ./build/larry ask "the sky is green"       # false, because the sky is blue
