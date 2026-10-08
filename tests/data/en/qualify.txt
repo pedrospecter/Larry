@@ -1,0 +1,15 @@
+# K5: sentences qualified by the rules and by the conceptions of the same
+# structure, against the fixed memory in tests/test_brain.cpp. Fields are
+# separated by " | ": the qualification by the rules, the qualification by the
+# examples ("none" when no conception has the structure, "tie" when the examples
+# disagree among themselves), and the sentence.
+affirmation | question | The moon is white.
+affirmation | affirmation | Dogs fly.
+question | question | Is the sea deep?
+question | question | Can dogs fly?
+question | none | What is the sky?
+order | order | Shut the door.
+assumption | tie | Imagine the sea is deep.
+assumption | tie | Suppose the sea is deep.
+expression | expression | Thanks.
+expression | none | Oh.

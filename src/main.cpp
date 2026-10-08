@@ -55,6 +55,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                or object of a verb), whether the conceptions
                                know it, find it plausible or never saw it, and
                                what they know instead
+  qualify <text>               what kind of sentence each one is: an
+                               affirmation (a declaration), a question, an
+                               order (a command), an assumption or an
+                               expression, by the rules and by the conceptions
+                               of the same structure, with the reasons
   ask <text>                   is a concept true, false or unknown, from the
                                conceptions in memory; a yes/no question works;
                                a sentence off the grammar is read as meant
@@ -547,6 +552,36 @@ int run(std::span<const std::string_view> args) {
                              as_text(j.relation.kind), as_text(j.relation.head));
                 std::println("             {}{}", j.text(), j.from_cloud ? " (from the cloud)" : "");
             }
+        }
+        return 0;
+    }
+    if (command == "qualify") {
+        if (rest.empty()) {
+            throw std::runtime_error("qualify needs a sentence");
+        }
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description d = larry.assimilation.describe(sentence, &larry.memory);
+            const larry::Qualifying q = larry.brain.qualify(d);
+            std::println("{}", larry.ops.text(sentence));
+            std::println("qualification : {} ({})", larry::name(q.by_rules), larry::user_name(q.by_rules));
+            std::println("by the rules  : {}", q.rule);
+            if (q.examples.empty()) {
+                std::println("by example    : no conception has the same structure{}", open_words(d));
+            } else {
+                std::println("by example    : {}{}, from {} {} conception{} of the same structure{}",
+                             q.by_examples ? larry::name(*q.by_examples) : "no majority",
+                             q.by_examples ? std::format(" ({})", larry::user_name(*q.by_examples)) : "",
+                             q.examples.size(), q.validated ? "validated" : "proposed",
+                             q.examples.size() == 1 ? "" : "s", q.from_cloud ? " (from the cloud)" : "");
+                for (std::size_t i = 0; i < q.examples.size() && i < 5; ++i) {
+                    std::println("                {} ({})", larry.ops.text(q.examples[i].description.atom),
+                                 as_text(q.examples[i].description.category.bytes));
+                }
+            }
+            std::println("agreement     : {}", q.examples.empty() ? "the rules alone decide"
+                                                : !q.by_examples   ? "the examples disagree among themselves; the rules decide"
+                                                : q.agree()        ? "the rules and the examples agree"
+                                                                   : "the rules and the examples disagree; Larry says both");
         }
         return 0;
     }

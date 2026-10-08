@@ -472,6 +472,111 @@ TEST(truth_suite_with_exclusive_attributes) {
     CHECK(brain.hear(ops.from_text("Is the door open?"), "user:pedro").text == "Yes.");  // now proposed
 }
 
+TEST(qualification_by_the_rules_and_by_example) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_qualify.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Grammar own{rules()};
+    larry::Brain brain{rules(), cache, nullptr, nullptr, &own};
+    const larry::Assimilation assimilation{rules(), nullptr, &own};
+    const larry::AtomOperations ops;
+    const auto teach = [&](std::string_view text, std::vector<std::string_view> categories) {
+        std::vector<Bytes> taught;
+        for (const std::string_view c : categories) {
+            taught.emplace_back(c.begin(), c.end());
+        }
+        const larry::Description d = assimilation.describe(ops.from_text(text), &cache, taught);
+        cache.store(d.atom, d.metadata);
+    };
+    teach("The sky is blue.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The sea is deep.", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The grass is green?", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The snow is white?", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The door is open?", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("The moon is round?", {"determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Is the sky blue?", {"auxiliary verb", "determiner", "noun", "adjective"});
+    teach("Can birds fly?", {"auxiliary verb", "noun", "verb"});
+    teach("Close the door.", {"verb", "determiner", "noun"});
+    teach("Shut the window.", {"verb", "determiner", "noun"});
+    teach("Open the window.", {"verb", "determiner", "noun"});
+    teach("Remember the sky is blue.", {"verb", "determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Suppose the sky is green.", {"verb", "determiner", "noun", "auxiliary verb", "adjective"});
+    teach("Hello.", {"interjection"});
+    teach("Thanks.", {"interjection"});
+    teach("Birds fly.", {"noun", "verb"});
+    teach("Dogs bark.", {"noun", "verb"});
+    teach("What colour is the sky?", {"pronoun", "noun", "auxiliary verb", "determiner", "noun"});
+    teach("Oh, the dogs bark.", {"interjection", "determiner", "noun", "verb"});
+    teach("Imagine that.", {"verb", "pronoun"});  // "imagine" known as a verb
+
+    // The suite: by the rules, by the examples, the sentence.
+    const std::filesystem::path suite = std::filesystem::path{LARRY_TEST_DATA_DIR} / "en" / "qualify.txt";
+    std::ifstream in{suite, std::ios::binary};
+    CHECK(static_cast<bool>(in));
+    std::size_t cases = 0;
+    std::size_t failed = 0;
+    std::size_t number = 0;
+    for (std::string line; std::getline(in, line);) {
+        ++number;
+        const std::string_view text = trim_view(line);
+        if (text.empty() || text.front() == '#') {
+            continue;
+        }
+        const std::size_t first = text.find(" | ");
+        const std::size_t second = first == std::string_view::npos ? first : text.find(" | ", first + 3);
+        CHECK(second != std::string_view::npos);
+        if (second == std::string_view::npos) {
+            continue;
+        }
+        const std::string by_rules{trim_view(text.substr(0, first))};
+        const std::string by_examples{trim_view(text.substr(first + 3, second - first - 3))};
+        const std::string sentence{trim_view(text.substr(second + 3))};
+        ++cases;
+        const larry::Qualifying q = brain.qualify(assimilation.describe(ops.from_text(sentence), &cache));
+        const std::string got_rules{larry::name(q.by_rules)};
+        const std::string got_examples = q.examples.empty() ? "none"
+                                         : !q.by_examples   ? "tie"
+                                                            : std::string{larry::name(*q.by_examples)};
+        if (got_rules != by_rules || got_examples != by_examples) {
+            ++failed;
+            std::println(stderr, "qualify.txt line {}: \"{}\" expected {} | {}, got {} | {}: {}", number, sentence,
+                         by_rules, by_examples, got_rules, got_examples, q.text());
+        }
+        CHECK(!q.rule.empty());
+        CHECK(!q.text().empty());
+    }
+    CHECK(cases >= 10);
+    CHECK(failed == 0);
+
+    // The reasons, as text; both answers when they disagree.
+    const larry::Qualifying moon = brain.qualify(assimilation.describe(ops.from_text("The moon is white."), &cache));
+    CHECK(!moon.agree());
+    CHECK(moon.examples.size() == 6);
+    CHECK(!moon.validated);
+    CHECK(moon.text() == "affirmation (declaration), by the rule 7: anything else is an affirmation; but question (question) by the 6 proposed conceptions of the same structure: The sky is blue., The sea is deep., The grass is green? and 3 more");
+    const larry::Qualifying sea = brain.qualify(assimilation.describe(ops.from_text("Is the sea deep?"), &cache));
+    CHECK(sea.agree());
+    CHECK(sea.text() == "question (question), by the rule 1: a sentence that ends with a question mark is a question, and by the 1 proposed conception of the same structure: Is the sky blue?");
+    const larry::Qualifying what = brain.qualify(assimilation.describe(ops.from_text("What is the sky?"), &cache));
+    CHECK(what.agree());
+    CHECK(what.text().ends_with("; no conception has the same structure"));
+    const larry::Qualifying imagine = brain.qualify(assimilation.describe(ops.from_text("Imagine the sea is deep."), &cache));
+    CHECK(imagine.agree());  // a tie decides nothing
+    CHECK(imagine.text().ends_with("disagree among themselves"));
+    // Validated conceptions are the standard: once one example is validated, it alone counts.
+    cache.add_validator("pedro");
+    CHECK(brain.decide(assimilation.describe(ops.from_text("The sky is blue."), &cache).metadata, larry::Status::Validated, "pedro"));
+    const larry::Qualifying again = brain.qualify(assimilation.describe(ops.from_text("The moon is white."), &cache));
+    CHECK(again.agree());
+    CHECK(again.validated);
+    CHECK(again.examples.size() == 1);
+    CHECK(again.by_examples == larry::Qualification::Affirmation);
+    // A withdrawn conception is no example.
+    CHECK(brain.decide(assimilation.describe(ops.from_text("The sky is blue."), &cache).metadata, larry::Status::Withdrawn, "pedro"));
+    CHECK(brain.qualify(assimilation.describe(ops.from_text("The moon is white."), &cache)).examples.size() == 5);
+}
+
 TEST(hear_handles_orders_assumptions_and_expressions) {
     const larry::Memory& memory = hearing_brain().memory();
     const larry::Reply order = say("Close the window.");

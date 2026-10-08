@@ -55,6 +55,27 @@ struct Verdict {
     std::vector<std::string> unusual;
 };
 
+/// K5: how a sentence is qualified: by the rules (A3), with the rule that
+/// fired, and by the conceptions of the same structure (C5), with the
+/// examples. When the two disagree, Larry says both.
+struct Qualifying {
+    Qualification by_rules = Qualification::Affirmation;
+    std::string rule;
+    /// What most of the examples are; nothing without examples or on a tie.
+    std::optional<Qualification> by_examples;
+    /// The conceptions of the same structure: the validated ones when there
+    /// are any, else the proposed ones.
+    std::vector<StoredAtom> examples;
+    bool validated = false;
+    bool from_cloud = false;
+
+    [[nodiscard]] bool agree() const noexcept {
+        return !by_examples.has_value() || *by_examples == by_rules;
+    }
+    /// The answer with its reason, as one line.
+    [[nodiscard]] std::string text() const;
+};
+
 /// What Larry says back, with what it used to say it (rule 6).
 struct Reply {
     std::string text;
@@ -156,6 +177,10 @@ public:
     /// its words judged against the conceptions, the cache first and the
     /// cloud when the cache has nothing.
     [[nodiscard]] Report judge(const Description& d) const;
+
+    /// K5: the qualification of a described sentence by the rules and by the
+    /// conceptions of the same structure, with the reasons.
+    [[nodiscard]] Qualifying qualify(const Description& d) const;
 
     /// The core of a described sentence.
     [[nodiscard]] Core core(const Description& d) const;

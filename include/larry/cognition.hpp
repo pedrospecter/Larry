@@ -7,7 +7,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -24,6 +26,20 @@ enum class Qualification : std::uint8_t {
 
 /// The name of a qualification: the bytes of the category electron.
 [[nodiscard]] std::string_view name(Qualification qualification) noexcept;
+
+/// The user's word for a qualification (K5): "declaration" for an
+/// affirmation, "command" for an order, the others as they are.
+[[nodiscard]] std::string_view user_name(Qualification qualification) noexcept;
+
+/// The qualification a name means, the user's words accepted too
+/// ("declaration", "command"); nothing for a name that is none.
+[[nodiscard]] std::optional<Qualification> qualification_named(std::string_view name) noexcept;
+
+/// A qualification with the rule that gave it (K5): "ends with a question mark".
+struct Qualified {
+    Qualification qualification = Qualification::Affirmation;
+    std::string rule;
+};
 
 /// The comparisons of form (PLAN.md, track C).
 enum class ComparisonKind : std::uint8_t {
@@ -71,6 +87,10 @@ public:
     /// order; anything else is an affirmation.
     [[nodiscard]] Qualification qualify(const Sentence& sentence, const EntitiesElectron& entities,
                                         const BaseRules& rules) const;
+
+    /// The same, with the rule that fired, as text (K5).
+    [[nodiscard]] Qualified qualification(const Sentence& sentence, const EntitiesElectron& entities,
+                                          const BaseRules& rules) const;
 
     /// Store the category of each word: the entity at each position gets the
     /// category at the same position. Every category has to be one of the

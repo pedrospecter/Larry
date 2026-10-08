@@ -379,6 +379,82 @@ Report Brain::judge(const Description& d) const {
     return harness_.judge(d, memory_, cloud_);
 }
 
+std::string Qualifying::text() const {
+    const AtomOperations ops;
+    const auto named = [](Qualification q) {
+        return std::format("{} ({})", name(q), user_name(q));
+    };
+    std::string out = std::format("{}, by the {}", named(by_rules), rule);
+    if (examples.empty()) {
+        return out + "; no conception has the same structure";
+    }
+    std::string list;
+    for (std::size_t i = 0; i < examples.size() && i < 3; ++i) {
+        list += i == 0 ? "" : ", ";
+        list += ops.text(examples[i].description.atom);
+    }
+    if (examples.size() > 3) {
+        list += std::format(" and {} more", examples.size() - 3);
+    }
+    const std::string which = std::format("{} {} conception{} of the same structure{}: {}", examples.size(),
+                                          validated ? "validated" : "proposed", examples.size() == 1 ? "" : "s",
+                                          from_cloud ? " (from the cloud)" : "", list);
+    if (!by_examples) {
+        return out + "; the " + which + " disagree among themselves";
+    }
+    if (*by_examples == by_rules) {
+        return out + ", and by the " + which;
+    }
+    return out + "; but " + named(*by_examples) + " by the " + which;
+}
+
+Qualifying Brain::qualify(const Description& d) const {
+    Qualifying out;
+    const Qualified by_rules = cognition_.qualification(d.atom, d.entities, *rules_);
+    out.by_rules = by_rules.qualification;
+    out.rule = by_rules.rule;
+    // The conceptions with a word of the sentence that have its structure (C5).
+    const AtomOperations ops;
+    std::vector<StoredAtom> validated;
+    std::vector<StoredAtom> proposed;
+    for (const bool cloud : {false, true}) {
+        if (cloud && (cloud_ == nullptr || !validated.empty() || !proposed.empty())) {
+            break;
+        }
+        std::vector<std::int64_t> seen;
+        for (const Entity& e : d.entities.entities) {
+            const Bytes word = ops.fold(e.word);
+            for (StoredAtom& atom : cloud ? cloud_->containing(word) : memory_->containing(word)) {
+                if (std::ranges::contains(seen, atom.id) || atom.status == Status::Withdrawn) {
+                    continue;
+                }
+                seen.push_back(atom.id);
+                if (!cognition_.same_structure(d, atom.description).holds) {
+                    continue;
+                }
+                (atom.status == Status::Validated ? validated : proposed).push_back(std::move(atom));
+            }
+        }
+        out.from_cloud = cloud && (!validated.empty() || !proposed.empty());
+    }
+    out.validated = !validated.empty();
+    out.examples = out.validated ? std::move(validated) : std::move(proposed);
+    if (out.examples.empty()) {
+        return out;
+    }
+    std::map<Bytes, std::size_t> votes;
+    for (const StoredAtom& atom : out.examples) {
+        ++votes[atom.description.category.bytes];
+    }
+    const auto most = std::ranges::max_element(votes, [](const auto& a, const auto& b) { return a.second < b.second; });
+    const bool tie = std::ranges::count_if(votes, [&](const auto& v) { return v.second == most->second; }) > 1;
+    if (!tie) {
+        const std::string_view category{reinterpret_cast<const char*>(most->first.data()), most->first.size()};
+        out.by_examples = qualification_named(category);
+    }
+    return out;
+}
+
 Verdict Brain::truth(const Sentence& claim) const {
     const Description said = assimilation_.describe(claim, memory_);
     const Reading reading = read(said);
