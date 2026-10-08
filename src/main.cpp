@@ -129,6 +129,13 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                conversation, with its conceptions in order
   molecule <name>              one molecule: its conceptions in order, who said
                                each and when
+  think [seconds]              what Larry does with no input (S7): finds the
+                               conflicts among its conceptions, proposes
+                               general atoms from examples as assumptions
+                               (R5), and lists what waits for you (S3)
+  attention                    what Larry would think about (S3): the words to
+                               ask about, the conflicts to settle, the
+                               proposals waiting
   know <word>                  what Larry knows about a subject (S4): its
                                conceptions by status, the categories it was
                                taught or seen with, its guessed uses, its
@@ -1499,6 +1506,46 @@ int run(std::span<const std::string_view> args) {
                 larry.brain.conception_at(larry::BondEnd{larry::BondEnd::Kind::Atom, member.identity});
             std::println("{:>4}  {:<20} {:<22} {}", i, member.who, member.when,
                          held ? std::string{larry.ops.text(held->description.atom)} : "(a conception I do not hold)");
+        }
+        return 0;
+    }
+    if (command == "think") {
+        const double seconds = rest.empty() ? 2.0 : std::stod(std::string{rest[0]});
+        const larry::Brain::Thought thought = larry.brain.think(seconds);
+        std::println("{}", thought.text());
+        for (const larry::Bond& b : thought.conflicts_found) {
+            const std::optional<larry::StoredAtom> from = larry.brain.conception_at(b.from);
+            const std::optional<larry::StoredAtom> to = larry.brain.conception_at(b.to);
+            std::println("  conflict: \"{}\" with \"{}\"", from ? std::string{larry.ops.text(from->description.atom)} : "?",
+                         to ? std::string{larry.ops.text(to->description.atom)} : "?");
+        }
+        for (const larry::Brain::Proposal& p : thought.proposals) {
+            std::string examples;
+            for (const std::string& e : p.examples) {
+                examples += (examples.empty() ? "" : ", ") + e;
+            }
+            if (!p.counter.empty()) {
+                std::println("  {}: \"{}\" from {}, stopped by \"{}\"", p.withdrawn ? "withdrawn" : "not proposed", p.sentence, examples, p.counter);
+            } else {
+                std::println("  {}: \"{}\" from {}", p.stored ? "proposed as an assumption" : "already proposed", p.sentence, examples);
+            }
+        }
+        return 0;
+    }
+    if (command == "attention") {
+        const larry::Brain::Attention a = larry.brain.attention();
+        std::println("{}", a.text());
+        for (const larry::Brain::Question& q : a.questions) {
+            std::println("  ask: {}{}", q.text, q.guess.empty() ? "" : "  (" + q.guess + ")");
+        }
+        for (const larry::Bond& b : a.conflicts) {
+            const std::optional<larry::StoredAtom> from = larry.brain.conception_at(b.from);
+            const std::optional<larry::StoredAtom> to = larry.brain.conception_at(b.to);
+            std::println("  settle: \"{}\" or \"{}\" (larry validate)", from ? std::string{larry.ops.text(from->description.atom)} : "?",
+                         to ? std::string{larry.ops.text(to->description.atom)} : "?");
+        }
+        for (const larry::StoredAtom& atom : a.proposals) {
+            std::println("  decide: \"{}\" ({})", larry.ops.text(atom.description.atom), atom.sources.empty() ? "" : atom.sources.front());
         }
         return 0;
     }

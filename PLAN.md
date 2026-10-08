@@ -238,7 +238,7 @@ Milestone 3: Larry answers questions about what it was told, says "I don't know"
 
 **Stage 7 — Reasoning**
 - [ ] R4 Chaining: first step done (R4a), "is a kind of" bonds chain to answer what no conception says; done when concluded atoms are stored with their support (R2) and bAbI tasks 2, 3 and 15 are measured (Q36).
-- [ ] R5 Rules from examples (Q7)
+- [ ] R5 Rules from examples (Q7): first step done (R5a), "Birds fly." proposed as an assumption from two kinds of bird that fly, withdrawn by a counter-example; done when the held-out suite and bAbI task 16 are measured (Q36).
 - [ ] R6 Best explanation
 - [ ] R7 Numbers, sets and space
 - [ ] R8 Analogy as a step, with C13
@@ -259,11 +259,11 @@ Milestone 5: `larry chat` holds a conversation and answers "why?" after any repl
 **Stage 9 — Self-direction and breadth**
 - [ ] S1 Goals from orders
 - [ ] S2 Planning
-- [ ] S3 Attention
+- [x] S3 Attention: first step, `larry attention` lists what Larry would think about; the CPU budget is `think`'s.
 - [x] S4 Knowing what it knows: `larry know <word>`, `Brain::knowledge`.
 - [ ] S5 Reading on its own
 - [ ] S6 New categories
-- [ ] S7 Idle thinking
+- [x] S7 Idle thinking: `larry think [seconds]` finds conflicts, proposes general atoms and reports what waits.
 - [ ] A12 Second constellation (Q15)
 - [ ] G7 Translation
 
@@ -500,6 +500,7 @@ First step done (R4a): `Brain::chain` walks the "is a kind of" bonds from one wo
 
 **R5 · Rules from examples.** From several atoms that fit one pattern, propose a general atom and store it as an assumption: sparrows fly, robins fly, both are birds, so "birds fly". A counter-example ("penguins do not fly") narrows or withdraws it.
 Done when: a suite with held-out cases passes, and bAbI task 16 is measured. Needs C4, C7, R2, Q7.
+First step done (R5a): `Brain::propose` takes each thing with two or more kinds (the "is a kind of" bonds, A10), gathers what the kinds are said to do or be (the affirmations whose subject is the kind, singular or plural, with the defining sentences left out) and, when two or more kinds share a saying, proposes it of the whole kind in the plural ("Sparrows fly." and "Robins fly." give "Birds fly."), stored as an assumption with the examples as its source, never as a truth: "Do birds fly?" stays unknown until the user decides. A counter-example among the kinds ("Penguins do not fly.") stops the proposal, and withdraws it when it was made before. Not yet: a held-out suite, narrowing instead of withdrawing ("birds fly, but penguins"), bAbI task 16.
 
 **R6 · Best explanation.** Given an observation and stored conditions, propose the assumption that would explain it: "the street is wet" and "if it rains the street is wet" give the assumption "it rained".
 Done when: a suite passes, and each proposal is stored as an assumption, never as a truth.
@@ -551,6 +552,7 @@ This track is research. The methods are proposals, and several will need to chan
 Done when: bAbI tasks 19 and 20 are measured and a suite of small planning problems passes.
 
 **S3 · Attention.** A queue of what to think about, with a CPU budget for each turn. Open questions, conflicts, atoms waiting for novelty and unfinished goals compete for it.
+Done (S3, first step): `Brain::attention` is the queue, in order: the words Larry could not describe in its recent conceptions (A5's questions), the conflicts nobody settled (both conceptions still proposed), and the proposals of R5 waiting for the user; `larry attention` lists it. The budget is the seconds given to `think`. Not yet: goals (S1) and the atoms waiting for novelty as a queue of their own.
 
 **S4 · Knowing what it knows.** For any subject Larry reports what it knows, what was taught and what it guessed, where it holds conflicts, and what it cannot answer.
 Done (S4): `Brain::knowledge(word)` and `larry know <word>`: the conceptions that hold the word by status (validated, proposed, withdrawn), the categories it was taught or seen with and how often, how many of its uses have a category and how many are guessed or unknown, the conflicts among its conceptions (the "conflicts with" bonds), its other bonds ("form of"), and the plain questions Larry cannot answer about it ("what sky is", "where sky is").
@@ -561,6 +563,7 @@ Done when: after reading a set of texts unaided, Larry answers questions about t
 **S6 · New categories.** Larry notices words that behave alike and fit no category well, and proposes a new category to the user.
 
 **S7 · Idle thinking.** With no input, Larry spends CPU time running novelty, chaining and rules from examples over its memory. It finds conflicts, draws conclusions and proposes general atoms, and reports them.
+Done (S7, first step): `Brain::think(seconds)` goes through the affirmations it holds, newest first, judges each against the rest (K1, the same device as hearing) and bonds the conflicts it finds, within the budget; then proposes general atoms (R5) and reports what waits (S3). `larry think [seconds]` prints the conflicts found, the proposals made, stopped or withdrawn, and the queue. Chaining forward is not run idle yet (R4 answers on demand).
 
 ## 8. How we know it is working
 
@@ -694,3 +697,4 @@ Earlier systems built without weights ran into the same few walls. The plan meet
 | 2026-10-08 | R2c, G5, S4 | 23 test executables pass in the four builds; brain: 24 tests. The user contradicting the user: the earlier is withdrawn and "Is the door open?" answers No; a lesson contradicted by the user: both stay and Larry asks. | Q14 applied as the user answered it; a validated conception is the one exception, because only a validator undoes a validation (R2b). "Knowing what it knows" is a report from what exists (statuses, the index, the bonds), with no new store: S4 cost one function. |
 | 2026-10-08 | A11a | 23 test executables pass in the four builds; brain: 25 tests, the reference suite of 12 cases. | Reference is a reading, like tolerance (K3): the conception keeps what was said and carries what was meant. Without gender data "he" after "Daniel ... Sandra ..." takes Sandra; a names file with gender would fix most of it (Q37). |
 | 2026-10-08 | A10a, R4a | 23 test executables pass in the four builds; brain: 26 tests. Five defining sentences give four bonds of two kinds; "Is a sparrow an animal?" is answered Yes through two bonds, and "Is an animal a sparrow?" is not. | A relation is read from the core by a phrase list, as the states (R3) and the arithmetic (M1) are: the same device, rules as data. The chain is the first conclusion Larry draws that no conception states; it is traced to the bonds and the conceptions behind them, as rule 6 asks. |
+| 2026-10-08 | R5a, S3, S7 | 23 test executables pass in the four builds; brain: 27 tests. Three kinds of bird, two of them fly: "Birds fly." proposed as an assumption; "Penguins do not fly." withdraws it; two conflicting lessons stored straight into the cache are found and bonded by thinking in milliseconds. | The general atom is an assumption by its category electron, so nothing that answers truths sees it: rule 2 of section 3 kept by construction. Two temporaries in one expression cost an hour: a plural computed twice. |

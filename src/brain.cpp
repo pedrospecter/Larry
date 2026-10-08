@@ -326,6 +326,238 @@ std::vector<Bytes> Brain::chain(const Bytes& from, const Bytes& to, int steps) c
     return {};
 }
 
+std::vector<Brain::Proposal> Brain::propose() {
+    const AtomOperations ops;
+    static const Bytes kind_of = bytes_of("is a kind of");
+    static const Bytes noun = bytes_of("noun");
+    static const std::vector<Bytes> articles = {bytes_of("a"), bytes_of("an"), bytes_of("the")};
+    std::vector<Proposal> out;
+    // The kinds: for each thing, the things that are a kind of it.
+    std::map<Bytes, std::vector<Bytes>> members;
+    for (const Bond& bond : memory_->bonds()) {
+        if (bond.kind == kind_of && bond.from.kind == BondEnd::Kind::Entity && bond.to.kind == BondEnd::Kind::Entity) {
+            members[bond.to.bytes].push_back(bond.from.bytes);
+        }
+    }
+    // What each thing is said to do or be: the affirmations whose subject is
+    // the thing (singular or plural, with or without an article), by the rest
+    // of their core; and the negated ones, as counter-examples.
+    struct Saying {
+        std::vector<Bytes> rest;
+        bool negated;
+        StoredAtom atom;
+    };
+    const auto sayings_of = [&](const Bytes& thing) {
+        std::vector<Saying> list;
+        std::vector<Bytes> spellings = {thing};
+        Bytes plural = thing;
+        plural.push_back('s');
+        spellings.push_back(plural);
+        for (const auto& [form, value] : rules_->irregular()) {
+            std::string v(value.begin(), value.end());
+            const std::size_t colon = v.find(':');
+            if (colon != std::string::npos && Bytes(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(colon)) == thing &&
+                v.ends_with(":plural")) {
+                spellings.push_back(form);
+            }
+        }
+        for (const Bytes& spelling : spellings) {
+            for (StoredAtom& atom : memory_->containing(spelling)) {
+                if (atom.description.category.bytes != affirmation || atom.status == Status::Withdrawn ||
+                    relation_of(atom.description)) {
+                    continue;  // a defining sentence is no example of what the thing does
+                }
+                Core c = thinking_core(atom);
+                while (!c.words.empty() && std::ranges::contains(articles, c.words.front())) {
+                    c.words.erase(c.words.begin());
+                }
+                if (c.words.size() < 2 || c.words.front() != spelling) {
+                    continue;
+                }
+                list.push_back({std::vector<Bytes>(c.words.begin() + 1, c.words.end()), c.negated, std::move(atom)});
+            }
+        }
+        return list;
+    };
+    const auto plural_of = [&](const Bytes& thing) {
+        for (const auto& [form, value] : rules_->irregular()) {
+            std::string v(value.begin(), value.end());
+            const std::size_t colon = v.find(':');
+            if (colon != std::string::npos && Bytes(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(colon)) == thing &&
+                v.ends_with(":plural")) {
+                return form;
+            }
+        }
+        Bytes plural = thing;
+        const std::string t(thing.begin(), thing.end());
+        if (t.ends_with("y") && t.size() > 1 && std::string("aeiou").find(t[t.size() - 2]) == std::string::npos) {
+            plural.pop_back();
+            plural.push_back('i');
+            plural.push_back('e');
+            plural.push_back('s');
+        } else if (t.ends_with("s") || t.ends_with("x") || t.ends_with("ch") || t.ends_with("sh")) {
+            plural.push_back('e');
+            plural.push_back('s');
+        } else {
+            plural.push_back('s');
+        }
+        return plural;
+    };
+    for (const auto& [kind, things] : members) {
+        if (things.size() < 2) {
+            continue;
+        }
+        // The rests said of at least two kinds, and the counter-examples.
+        std::map<std::vector<Bytes>, std::vector<StoredAtom>> said;
+        std::map<std::vector<Bytes>, StoredAtom> denied;
+        for (const Bytes& thing : things) {
+            for (Saying& saying : sayings_of(thing)) {
+                if (saying.negated) {
+                    denied.emplace(saying.rest, std::move(saying.atom));
+                } else {
+                    said[saying.rest].push_back(std::move(saying.atom));
+                }
+            }
+        }
+        for (auto& [rest, atoms] : said) {
+            if (atoms.size() < 2) {
+                continue;
+            }
+            Proposal proposal;
+            const Bytes plural = plural_of(kind);
+            std::string sentence(plural.begin(), plural.end());
+            for (const Bytes& w : rest) {
+                sentence += " " + std::string(w.begin(), w.end());
+            }
+            sentence[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(sentence[0])));
+            sentence += ".";
+            proposal.sentence = sentence;
+            for (const StoredAtom& atom : atoms) {
+                proposal.examples.emplace_back(ops.text(atom.description.atom));
+            }
+            Description d = assimilation_.describe(ops.from_text(sentence), memory_);
+            d.category.bytes = bytes_of("assumption");
+            d.metadata = ops.metadata(d.category, d.type, d.entities);
+            const std::optional<StoredAtom> held = memory_->find(d.metadata);
+            if (const auto counter = denied.find(rest); counter != denied.end()) {
+                proposal.counter = std::string{ops.text(counter->second.description.atom)};
+                if (held && held->status != Status::Withdrawn) {
+                    (void)set_status(d.metadata, Status::Withdrawn, "rule: a counter-example withdraws the general atom (R5)");
+                    proposal.withdrawn = true;
+                }
+                out.push_back(std::move(proposal));
+                continue;
+            }
+            if (!held) {
+                std::string source = "rule: R5 from";
+                for (const std::string& example : proposal.examples) {
+                    source += " \"" + example + "\"";
+                }
+                proposal.stored = remember(d, Status::Proposed, source) == Stored::New;
+            }
+            out.push_back(std::move(proposal));
+        }
+    }
+    return out;
+}
+
+Brain::Attention Brain::attention() const {
+    Attention out;
+    static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};
+    static const Bytes assumption = bytes_of("assumption");
+    // The words it could not describe: the guessed or unknown entities of the recent conceptions, once each.
+    std::vector<Bytes> asked;
+    for (const StoredAtom& atom : memory_->recent(50)) {
+        const Description d = assimilation_.describe(atom.description.atom, memory_);
+        for (Question& q : questions(d)) {
+            if (!std::ranges::contains(asked, q.word)) {
+                asked.push_back(q.word);
+                out.questions.push_back(std::move(q));
+            }
+        }
+    }
+    // The conflicts nobody settled: both ends still proposed.
+    for (const Bond& bond : memory_->bonds()) {
+        if (bond.kind != conflicts) {
+            continue;
+        }
+        const std::optional<StoredAtom> from = conception_at(bond.from);
+        const std::optional<StoredAtom> to = conception_at(bond.to);
+        if (from && to && from->status == Status::Proposed && to->status == Status::Proposed) {
+            out.conflicts.push_back(bond);
+        }
+    }
+    // The proposals waiting: assumptions from rules, still proposed.
+    for (const StoredAtom& atom : memory_->with_status(Status::Proposed)) {
+        if (atom.description.category.bytes == assumption &&
+            std::ranges::any_of(atom.sources, [](const std::string& s) { return s.starts_with("rule: R5"); })) {
+            out.proposals.push_back(atom);
+        }
+    }
+    return out;
+}
+
+std::string Brain::Attention::text() const {
+    return std::format("{} words to ask about, {} conflicts to settle, {} proposals waiting", questions.size(),
+                       conflicts.size(), proposals.size());
+}
+
+Brain::Thought Brain::think(double seconds) {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point start = Clock::now();
+    const auto elapsed = [&] { return std::chrono::duration<double>(Clock::now() - start).count(); };
+    Thought out;
+    // Novelty over memory (C16, K1): the conflicts among the affirmations it
+    // holds, newest first, bonded when found.
+    const std::vector<StoredAtom> all = memory_->all();
+    for (auto it = all.rbegin(); it != all.rend() && !out.out_of_time; ++it) {
+        if (it->description.category.bytes != affirmation || it->status == Status::Withdrawn) {
+            continue;
+        }
+        if (elapsed() > seconds) {
+            out.out_of_time = true;
+            break;
+        }
+        const Verdict verdict = decide(it->description, &it->description.metadata.bytes);
+        if (verdict.truth != Truth::False || verdict.because.empty()) {
+            continue;
+        }
+        static const Bytes conflicts{'c', 'o', 'n', 'f', 'l', 'i', 'c', 't', 's', ' ', 'w', 'i', 't', 'h'};
+        const BondEnd mine = BondEnd::atom(it->description.metadata);
+        const BondEnd other = BondEnd::atom(verdict.because.front().description.metadata);
+        const bool bonded = std::ranges::any_of(memory_->bonds_of(mine), [&](const Bond& bond) {
+            return bond.kind == conflicts && (bond.to == other || bond.from == other);
+        });
+        if (bonded) {
+            continue;
+        }
+        const Bond bond{conflicts, mine, other,
+                        {verdict.rules.empty() ? "comparison: the same core with the opposite polarity (R1), found thinking (S7)"
+                                               : "rule: " + verdict.rules.front() + ", found thinking (S7)"}};
+        if (this->bond(bond)) {
+            out.conflicts_found.push_back(bond);
+        }
+    }
+    if (!out.out_of_time) {
+        out.proposals = propose();
+    }
+    out.waiting = attention();
+    out.seconds = elapsed();
+    return out;
+}
+
+std::string Brain::Thought::text() const {
+    std::string out = std::format("thought for {:.2f} s{}: {} conflicts found", seconds, out_of_time ? " (out of time)" : "",
+                                  conflicts_found.size());
+    std::size_t proposed = 0;
+    std::size_t stopped = 0;
+    for (const Proposal& p : proposals) {
+        (p.counter.empty() ? proposed : stopped) += 1;
+    }
+    out += std::format(", {} general atoms proposed, {} stopped by a counter-example; {}", proposed, stopped, waiting.text());
+    return out;
+}
+
 std::optional<Description> Brain::refer(const Description& d) const {
     const AtomOperations ops;
     static const Bytes pronoun = bytes_of("pronoun");
@@ -1297,7 +1529,7 @@ void Brain::bring_into_play(const StoredAtom& atom) const {
     }
 }
 
-Verdict Brain::decide(const Description& claim) const {
+Verdict Brain::decide(const Description& claim, const Bytes* except) const {
     Verdict verdict;
     std::vector<Core> forms;
     if (claim.category.bytes == bytes_of("question")) {
@@ -1312,6 +1544,9 @@ Verdict Brain::decide(const Description& claim) const {
         StoredAtom false_because;
         for (const Core& form : forms) {
             for (StoredAtom& atom : candidates(form, cloud)) {
+                if (except != nullptr && atom.description.metadata.bytes == *except) {
+                    continue;  // thinking: a conception is no evidence for itself
+                }
                 const Core stored = thinking_core(atom);
                 if (stored.words != form.words) {
                     continue;
@@ -1348,6 +1583,9 @@ Verdict Brain::decide(const Description& claim) const {
             std::map<std::int64_t, StoredAtom> seen;
             for (const Bytes& word : form.words) {
                 for (StoredAtom& atom : candidates(Core{{word}, false}, cloud)) {
+                    if (except != nullptr && atom.description.metadata.bytes == *except) {
+                        continue;
+                    }
                     seen.try_emplace(atom.id, std::move(atom));
                 }
             }

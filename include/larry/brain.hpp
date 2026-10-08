@@ -321,6 +321,50 @@ public:
     std::optional<Stored> teach(const Sentence& sentence, std::string_view word, std::string_view category,
                                 std::string_view source);
 
+    /// R5 (first step): a general atom proposed from examples: when two or
+    /// more kinds of one thing (by the "is a kind of" bonds) are said to do
+    /// or be the same ("Sparrows fly.", "Robins fly."), "Birds fly." is
+    /// proposed and stored as an assumption, never as a truth; a
+    /// counter-example among the kinds ("Penguins do not fly.") stops or
+    /// withdraws it.
+    struct Proposal {
+        std::string sentence;              ///< "Birds fly."
+        std::vector<std::string> examples; ///< The conceptions it came from.
+        std::string counter;               ///< The counter-example that stopped it, or empty.
+        bool stored = false;               ///< Stored as an assumption now.
+        bool withdrawn = false;            ///< An earlier proposal withdrawn by a counter-example.
+    };
+
+    /// S3 (first step): what Larry would think about, in order: the words it
+    /// could not describe (A5), the conflicts nobody settled (R2), and the
+    /// proposals waiting for the user (R5).
+    struct Attention {
+        std::vector<Question> questions;
+        std::vector<Bond> conflicts;
+        std::vector<StoredAtom> proposals;
+        [[nodiscard]] std::string text() const;
+    };
+    [[nodiscard]] Attention attention() const;
+
+    /// S7 (first step): what Larry does with no input, within a budget of
+    /// seconds: it looks for conflicts among the conceptions it holds and
+    /// bonds them (novelty over memory, C16), it proposes general atoms from
+    /// examples (R5), and it reports what it found and what waits for the
+    /// user (S3).
+    struct Thought {
+        std::vector<Bond> conflicts_found;   ///< New "conflicts with" bonds.
+        std::vector<Proposal> proposals;     ///< Proposed, stopped or withdrawn.
+        Attention waiting;
+        double seconds = 0;
+        bool out_of_time = false;
+        [[nodiscard]] std::string text() const;
+    };
+    Thought think(double seconds = 2.0);
+
+    /// R5: the proposals from the examples in memory, stored as assumptions
+    /// when new; what think() does for rules from examples.
+    std::vector<Proposal> propose();
+
     /// N6: working memory, the atoms now in play, newest first: what was
     /// heard and stored, and the conceptions that answered or came nearest.
     /// Bounded; the candidates for an answer are looked for here before
@@ -422,7 +466,7 @@ private:
     /// of a core, affirmations only; from the cache, the ones in play first (N6).
     [[nodiscard]] std::vector<StoredAtom> candidates(const Core& form, bool cloud) const;
     /// truth() and answers() without the working memory: what they decide.
-    [[nodiscard]] Verdict decide(const Description& claim) const;
+    [[nodiscard]] Verdict decide(const Description& claim, const Bytes* except = nullptr) const;
     [[nodiscard]] std::vector<StoredAtom> search_answers(const Description& question) const;
     /// N6: puts an atom at the front of the working memory, within its bound.
     void bring_into_play(const StoredAtom& atom) const;

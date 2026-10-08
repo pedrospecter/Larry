@@ -1187,6 +1187,72 @@ TEST(defining_sentences_bond_the_kinds_and_the_chain_answers) {
     CHECK(brain.answer(ops.from_text("Is a wing an animal?")).text.starts_with("I don't know"));  // part of is no kind of
 }
 
+TEST(rules_from_examples_and_idle_thinking) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / "larry_test_brain_think.atoms";
+    std::filesystem::remove(file);
+    larry::Memory cache{file};
+    larry::Brain brain{rules(), cache};
+    const larry::AtomOperations ops;
+    const auto say = [&](std::string_view text) { return brain.hear(ops.from_text(text), "user:pedro"); };
+    (void)say("A sparrow is a bird.");
+    (void)say("A robin is a bird.");
+    (void)say("A penguin is a bird.");
+    (void)say("Sparrows fly.");
+    (void)say("Robins fly.");
+    (void)say("Sparrows sing.");
+    // R5: two kinds of bird fly: "Birds fly." is proposed as an assumption.
+    std::vector<larry::Brain::Proposal> proposals = brain.propose();
+    CHECK(proposals.size() == 1);
+    if (!proposals.empty()) {
+        CHECK(proposals[0].sentence == "Birds fly.");
+        CHECK(proposals[0].stored);
+        CHECK(proposals[0].counter.empty());
+        CHECK(proposals[0].examples == (std::vector<std::string>{"Sparrows fly.", "Robins fly."}));
+    }
+    const larry::Assimilation assimilation{rules()};
+    larry::Description birds = assimilation.describe(ops.from_text("Birds fly."), &cache);
+    birds.category.bytes = b("assumption");
+    birds.metadata = ops.metadata(birds.category, birds.type, birds.entities);
+    CHECK(cache.find(birds.metadata).has_value());
+    CHECK(cache.find(birds.metadata)->sources.front().starts_with("rule: R5 from"));
+    // An assumption is no truth: "Do birds fly?" stays unknown.
+    CHECK(brain.answer(ops.from_text("Do birds fly?")).text.starts_with("I don't know"));
+    // Again: already proposed, nothing new.
+    proposals = brain.propose();
+    CHECK(proposals.size() == 1 && !proposals[0].stored);
+    // A counter-example withdraws it.
+    (void)say("Penguins do not fly.");
+    proposals = brain.propose();
+    CHECK(proposals.size() == 1);
+    if (!proposals.empty()) {
+        CHECK(proposals[0].counter == "Penguins do not fly.");
+        CHECK(proposals[0].withdrawn);
+    }
+    CHECK(cache.find(birds.metadata)->status == larry::Status::Withdrawn);
+    // S3: what waits: the proposal is withdrawn, so nothing of it; no conflicts yet.
+    larry::Brain::Attention waiting = brain.attention();
+    CHECK(waiting.proposals.empty());
+    CHECK(waiting.conflicts.empty());
+    // S7: thinking finds a conflict stored straight into the cache, and bonds it.
+    const larry::Description open = assimilation.describe(ops.from_text("The door is open."), &cache,
+        std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")});
+    cache.store(open.atom, open.metadata, larry::Status::Proposed, "lesson:a");
+    const larry::Description closed = assimilation.describe(ops.from_text("The door is closed."), &cache,
+        std::vector<Bytes>{b("determiner"), b("noun"), b("auxiliary verb"), b("adjective")});
+    cache.store(closed.atom, closed.metadata, larry::Status::Proposed, "lesson:b");
+    const larry::Brain::Thought thought = brain.think(5.0);
+    CHECK(thought.conflicts_found.size() == 1);
+    CHECK(!thought.out_of_time);
+    CHECK(thought.waiting.conflicts.size() == 1);
+    CHECK(thought.text().starts_with("thought for"));
+    CHECK(thought.text().find("1 conflicts found") != std::string::npos);
+    // Thinking again finds nothing new.
+    CHECK(brain.think(5.0).conflicts_found.empty());
+    // Out of time: a budget of nothing.
+    CHECK(brain.think(0.0).out_of_time);
+}
+
 TEST(working_memory_holds_what_is_in_play) {
     const std::filesystem::path file =
         std::filesystem::temp_directory_path() / "larry_test_brain_working.atoms";

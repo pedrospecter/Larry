@@ -125,6 +125,8 @@ round", "forget that ..." (a validator only). The list is in
     ./build/larry say "She went to the kitchen."   # after "Mary went to the garden.": I read it as "Mary went to the kitchen." (A11)
     ./build/larry say "A sparrow is a bird."  # bonds sparrow to bird, "is a kind of" (A10); with "A bird is an animal.":
     ./build/larry ask "Is a sparrow an animal?"    # Yes, chained (R4)
+    ./build/larry think 2                     # S7: conflicts found, general atoms proposed (R5), what waits (S3)
+    ./build/larry attention                   # the words to ask about, the conflicts to settle, the proposals
     ./build/larry answer "The sky is azure." azure adjective   # A5: the answer to a question read left
     ./build/larry say "The skies are grey."   # I take "skies" as noun, by its form
     ./build/larry bench 10000                 # F8: sentences per second, lookups, answers, start-up
