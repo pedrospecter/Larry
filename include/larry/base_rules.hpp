@@ -128,6 +128,12 @@ public:
     /// The Grammar class parses them.
     [[nodiscard]] const std::vector<Bytes>& grammar() const noexcept { return grammar_; }
 
+    /// The commands, from commands.txt (W3): each a pattern of words with '*'
+    /// for an argument, and the operation it is. The Brain matches them.
+    [[nodiscard]] const std::vector<std::pair<Bytes, Bytes>>& commands() const noexcept {
+        return commands_;
+    }
+
     /// The content markers, from content.txt (W2): "reference", "speech",
     /// "context", "heading" lists and the "least words" and "most words" of
     /// a fact. The Content class reads them.
@@ -180,6 +186,7 @@ private:
     std::vector<Bytes> grammar_;
     std::vector<std::pair<Bytes, Bytes>> tolerance_;
     std::vector<std::pair<Bytes, Bytes>> content_;
+    std::vector<std::pair<Bytes, Bytes>> commands_;
 };
 
 }  // namespace larry

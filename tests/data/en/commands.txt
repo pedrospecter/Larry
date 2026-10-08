@@ -1,0 +1,29 @@
+# W3: orders and the commands they are. Fields are separated by " | ": the
+# operation ("none" when the order matches no command), the arguments separated
+# by "; ", and the sentence.
+search | the sea | Search for the sea.
+search | the sea | Please search for the sea.
+search | blue skies | Look up blue skies.
+search | Mars | Find Mars!
+define | vast | Define vast.
+define | vast | Please define "vast".
+fetch | Sky | Fetch Sky.
+read | notes.txt | Read notes.txt.
+study | Sea | Study Sea.
+study | the article | Learn from the article.
+about | the sea | Tell me about the sea.
+show | the sky is blue | Describe the sky is blue.
+show | the sky | Show me the sky.
+compare | the sky; the sea | Compare the sky and the sea.
+compare | the sky is blue; the sea is deep | Compare the sky is blue with the sea is deep.
+count |  | Count the conceptions.
+count |  | Count your conceptions.
+grammar |  | List the patterns.
+withdraw | the sea is wide | Forget that the sea is wide.
+tell | the sky is blue | Remember that the sky is blue.
+none |  | Close the door.
+none |  | Open the window.
+none |  | The sky is blue.
+none |  | Is the sky blue?
+none |  | Search.
+none |  | Compare the sky.
