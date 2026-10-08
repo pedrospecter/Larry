@@ -114,14 +114,15 @@ struct Value {
 }  // namespace
 
 std::string Calculation::rule() const {
-    const std::string prefix = expression.starts_with("calendar: ") ? "" : "arithmetic: ";
+    const bool named = expression.starts_with("calendar: ") || expression.starts_with("algebra: ");
+    const std::string prefix = named ? "" : "arithmetic: ";
     if (!defined) {
         return prefix + expression + " is " + result;
     }
     if (comparison) {
         return prefix + expression + (holds ? " holds" : " does not hold");
     }
-    return prefix + expression + " = " + result;
+    return prefix + expression + " " + link + " " + result;
 }
 
 Arithmetic::Arithmetic(const BaseRules& rules) : rules_(&rules) {

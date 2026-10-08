@@ -18,6 +18,9 @@ struct Calculation {
     bool comparison = false; ///< Whether it was a comparison, with `holds` as its answer.
     bool holds = false;
     bool defined = true;
+    /// What stands between the expression and the result in the rule: "="
+    /// for a calculation, "gives" for an equation solved.
+    std::string link = "=";
     /// The rule, for the reply: "arithmetic: 2 + 3 = 5".
     [[nodiscard]] std::string rule() const;
 };

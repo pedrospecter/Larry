@@ -98,6 +98,9 @@ round", "forget that ..." (a validator only). The list is in
 
     ./build/larry chat                       # a line at a time: questions, statements, "why?", "bye"
     ./build/larry ask "Is the sky blue?"     # one question or claim: the answer, and why; nothing stored
+    ./build/larry ask "How many minutes are there in 3 hours?"   # 180 minutes
+    ./build/larry ask "Solve 2x + 3 = 11"    # x = 4, because: algebra: 2x + 3 = 11 gives x = 4
+    ./build/larry ask "What day of the week was January 1, 2000?" # Saturday
     ./build/larry say "The sea is wide."     # one sentence: Larry replies and stores what it heard
 
 ## Try

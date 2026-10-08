@@ -1,5 +1,6 @@
 #pragma once
 
+#include "larry/algebra.hpp"
 #include "larry/arithmetic.hpp"
 #include "larry/assimilation.hpp"
 #include "larry/base_rules.hpp"
@@ -318,6 +319,7 @@ private:
     Harness harness_;
     Arithmetic arithmetic_;
     Calendar calendar_;
+    Algebra algebra_;
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;

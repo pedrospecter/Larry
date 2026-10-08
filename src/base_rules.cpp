@@ -130,6 +130,7 @@ BaseRules::BaseRules(Language language) : language_(language) {
     arithmetic_ = read_pairs(dir / "arithmetic.txt");
     units_ = read_pairs(dir / "units.txt");
     dates_ = read_pairs(dir / "dates.txt");
+    algebra_ = read_pairs(dir / "algebra.txt");
 }
 
 }  // namespace larry
