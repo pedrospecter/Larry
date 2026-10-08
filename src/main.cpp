@@ -8,6 +8,7 @@
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
 #include "larry/grammar.hpp"
+#include "larry/harness.hpp"
 #include "larry/lesson.hpp"
 #include "larry/memory.hpp"
 #include "larry/tolerance.hpp"
@@ -49,6 +50,11 @@ constexpr std::string_view usage = R"(usage: larry <command> [arguments]
                                role of each word, or where it breaks and what
                                was expected there; "grammar" alone lists the
                                patterns
+  harness <text>               the context harness: for each relation of a
+                               sentence (an attribute of a thing, the subject
+                               or object of a verb), whether the conceptions
+                               know it, find it plausible or never saw it, and
+                               what they know instead
   ask <text>                   is a concept true, false or unknown, from the
                                conceptions in memory; a yes/no question works;
                                a sentence off the grammar is read as meant
@@ -343,6 +349,13 @@ void print(const Larry& larry, const larry::Description& d) {
     std::println("tolerance     : {} ({} deviation{}, {} counted, {} allowed)", tolerance,
                  reading.deviations.size(), reading.deviations.size() == 1 ? "" : "s", reading.counted,
                  reading.allowed);
+    const larry::Report report = larry.brain.judge(reading.changed ? reading.meant : d);
+    const std::vector<std::string> unusual = report.unusual();
+    std::println("harness       : {} relation{}, {} unusual", report.judgements.size(),
+                 report.judgements.size() == 1 ? "" : "s", unusual.size());
+    for (const std::string& line : unusual) {
+        std::println("                {}", line);
+    }
     std::println("entities      : {}", d.entities.entities.size());
     for (std::size_t i = 0; i < d.entities.entities.size(); ++i) {
         const larry::Entity& entity = d.entities.entities[i];
@@ -512,6 +525,31 @@ int run(std::span<const std::string_view> args) {
         }
         return 0;
     }
+    if (command == "harness") {
+        if (rest.empty()) {
+            throw std::runtime_error("harness needs a sentence");
+        }
+        for (const larry::Sentence& sentence : larry.assimilation.sentences(join(rest))) {
+            const larry::Description said = larry.assimilation.describe(sentence, &larry.memory);
+            const larry::Reading reading = larry.brain.read(said);
+            const larry::Description& d = reading.changed ? reading.meant : said;
+            std::println("{}", larry.ops.text(sentence));
+            if (reading.changed) {
+                std::println("read as    : {}", larry.ops.text(d.atom));
+            }
+            const larry::Report report = larry.brain.judge(d);
+            if (report.judgements.empty()) {
+                std::println("relations  : none{}", open_words(d));
+                continue;
+            }
+            for (const larry::Judgement& j : report.judgements) {
+                std::println("{:<10} : {}, {} {}", larry::name(j.standing), as_text(j.relation.dependent),
+                             as_text(j.relation.kind), as_text(j.relation.head));
+                std::println("             {}{}", j.text(), j.from_cloud ? " (from the cloud)" : "");
+            }
+        }
+        return 0;
+    }
     if (command == "compare") {
         if (rest.size() != 2) {
             throw std::runtime_error("compare needs two sentences");
@@ -603,6 +641,9 @@ int run(std::span<const std::string_view> args) {
         }
         for (const std::string& deviation : verdict.deviations) {
             std::println("{}: {}", verdict.refused ? "not read" : "deviation", deviation);
+        }
+        for (const std::string& line : verdict.unusual) {
+            std::println("unusual: {}", line);
         }
         return 0;
     }

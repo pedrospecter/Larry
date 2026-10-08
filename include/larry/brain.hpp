@@ -8,6 +8,7 @@
 #include "larry/dictionary.hpp"
 #include "larry/electron.hpp"
 #include "larry/grammar.hpp"
+#include "larry/harness.hpp"
 #include "larry/memory.hpp"
 #include "larry/sentence.hpp"
 #include "larry/tolerance.hpp"
@@ -48,6 +49,10 @@ struct Verdict {
     /// beyond the allowance, so that the claim was not read at all.
     std::vector<std::string> deviations;
     bool refused = false;
+    /// K4: what is unusual in the claim against the conceptions: a word
+    /// never used with the word it is used with here, and what is known
+    /// instead.
+    std::vector<std::string> unusual;
 };
 
 /// What Larry says back, with what it used to say it (rule 6).
@@ -147,6 +152,11 @@ public:
     /// the deviations named; refused beyond it.
     [[nodiscard]] Reading read(const Description& said) const;
 
+    /// K4: the context harness on a described sentence: each relation of
+    /// its words judged against the conceptions, the cache first and the
+    /// cloud when the cache has nothing.
+    [[nodiscard]] Report judge(const Description& d) const;
+
     /// The core of a described sentence.
     [[nodiscard]] Core core(const Description& d) const;
 
@@ -162,6 +172,7 @@ public:
     [[nodiscard]] const Assimilation& assimilation() const noexcept { return assimilation_; }
     [[nodiscard]] Grammar* grammar() const noexcept { return grammar_; }
     [[nodiscard]] const Tolerance& tolerance() const noexcept { return tolerance_; }
+    [[nodiscard]] const Harness& harness() const noexcept { return harness_; }
 
     /// K2: adds the pattern of a validated conception to the grammar: its
     /// categories with their roles, named after the sentence. False when
@@ -189,6 +200,7 @@ private:
     Grammar* grammar_;
     Assimilation assimilation_;
     Tolerance tolerance_;
+    Harness harness_;
     Cognition cognition_;
     Memory* memory_;
     Database* cloud_;

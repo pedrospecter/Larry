@@ -57,6 +57,7 @@ Brain::Brain(const BaseRules& rules, Memory& memory, Database* cloud, const Dict
       grammar_(grammar),
       assimilation_(rules, dictionary, grammar),
       tolerance_(rules, grammar),
+      harness_(rules),
       cognition_(),
       memory_(&memory),
       cloud_(cloud) {
@@ -374,6 +375,10 @@ Reading Brain::read(const Description& said) const {
     return tolerance_.read(said, assimilation_, memory_);
 }
 
+Report Brain::judge(const Description& d) const {
+    return harness_.judge(d, memory_, cloud_);
+}
+
 Verdict Brain::truth(const Sentence& claim) const {
     const Description said = assimilation_.describe(claim, memory_);
     const Reading reading = read(said);
@@ -384,12 +389,14 @@ Verdict Brain::truth(const Sentence& claim) const {
         verdict.deviations.push_back(reading.reason);
         return verdict;
     }
-    Verdict verdict = truth(reading.changed ? reading.meant : said);
+    const Description& meant = reading.changed ? reading.meant : said;
+    Verdict verdict = truth(meant);
     verdict.deviations = reading.deviations;
     if (reading.changed) {
         const AtomOperations ops;
         verdict.reading = std::string{ops.text(reading.meant.atom)};
     }
+    verdict.unusual = judge(meant).unusual();
     return verdict;
 }
 
@@ -613,6 +620,11 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
         reply.text = std::format("I read it as \"{}\". ", ops.text(d.atom));
         reply.because.push_back(std::format("read as: {}", ops.text(d.atom)));
     }
+    // K4: what is unusual goes into the reasons; a stored affirmation says it too.
+    const std::vector<std::string> unusual = judge(d).unusual();
+    for (const std::string& line : unusual) {
+        reply.because.push_back("unusual: " + line);
+    }
     const std::string_view qualification{reinterpret_cast<const char*>(d.category.bytes.data()),
                                          d.category.bytes.size()};
     const auto text_of = [&](const StoredAtom& atom) {
@@ -695,6 +707,9 @@ Reply Brain::hear(const Sentence& sentence, std::string_view source) {
     }
     reply.text += "Noted.";
     reply.because.emplace_back("rule: an affirmation is stored as a conception");
+    for (const std::string& line : unusual) {
+        reply.text += " " + line + ".";
+    }
     bool asked = false;
     for (std::size_t i = 0; i < d.notes.size(); ++i) {
         const Entity& entity = d.entities.entities[i];

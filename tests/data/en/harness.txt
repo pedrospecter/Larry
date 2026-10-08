@@ -1,0 +1,34 @@
+# K4: relations of a sentence judged against a fixed memory (the conceptions
+# taught in tests/test_harness.cpp). Fields are separated by " | ": the standing
+# (known, plausible, unusual), the sentence, and the relation as "dependent,
+# kind head". A sentence with several relations has one line per relation.
+#
+# Known: a conception holds the pair.
+known | The sky is blue. | blue, attribute of sky
+known | Is the sky blue? | blue, attribute of sky
+known | The sea is deep. | deep, attribute of sea
+known | Birds fly. | birds, subject of fly
+known | Tom has three apples. | tom, subject of has
+known | Tom has three apples. | apples, object of has
+known | The old dog is slow. | old, modifier of dog
+known | The old dog is slow. | slow, attribute of dog
+known | Mary went to the kitchen. | mary, subject of went
+known | Mary went to the kitchen. | kitchen, complement of to
+known | Tom is a teacher. | teacher, attribute of tom
+known | The sky is not blue. | blue, attribute of sky
+#
+# Plausible: the word is known in that relation of other things.
+plausible | The sea is wide. | wide, attribute of sea
+plausible | The sky is deep. | deep, attribute of sky
+plausible | The road is blue. | blue, attribute of road
+plausible | Tom has three pears. | pears, object of has
+plausible | Dogs fly. | dogs, subject of fly
+plausible | The old cat is slow. | old, modifier of cat
+plausible | Mary went to the garden. | garden, complement of to
+#
+# Unusual: the word was never seen in that relation.
+unusual | The sea is vast. | vast, attribute of sea
+unusual | The sky is old. | old, attribute of sky
+plausible | The sky is wet. | wet, attribute of sky
+unusual | Tom has three books. | books, object of has
+unusual | The sea flies. | sea, subject of flies
